@@ -1,0 +1,52 @@
+# deploy/docker-compose.yml — Transducin en Synology NAS (Container Manager)
+#
+# Uso:
+#   cd /volume1/docker/transducin
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# En Container Manager: importar este archivo en "Projects"
+
+version: "3.9"
+
+services:
+  transducin:
+    image: transducin:1.0.0
+    container_name: transducin
+    restart: unless-stopped
+
+    environment:
+      ORTHANC_HOST: "${ORTHANC_HOST}"
+      ORTHANC_PORT: "4242"
+      ORTHANC_AET: "ORTHANC"
+      TRANSDUCIN_AET: "TRANSDUCIN"
+      PYTHONUNBUFFERED: "1"
+
+    volumes:
+      # Source OCT data directory (read-only — Transducin does not modify originals)
+      - ${OCT_BACKUP_PATH:-/data/input/raw}:/data/input/CZM:ro
+      # Salida DICOM SR
+      - /volume1/docker/transducin/output:/data/output
+      # Logs
+      - /volume1/docker/transducin/logs:/var/log/transducin
+
+    command:
+      - "--watch"
+      - "/data/input/CZM"
+      - "--output"
+      - "/data/output"
+      - "--logs"
+      - "/var/log/transducin"
+      - "--orthanc-host"
+      - "${ORTHANC_HOST}"
+      - "--orthanc-port"
+      - "4242"
+      - "--process-existing"
+
+    # Red host para que pynetdicom pueda conectar a Orthanc via Tailscale
+    network_mode: host
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"

@@ -1,0 +1,37 @@
+[Unit]
+Description=Transducin OCT → DICOM Hot Folder Watcher
+Documentation=https://github.com/oftalmos-org/transducin
+After=network.target
+
+[Service]
+Type=simple
+User=transducin
+Group=transducin
+WorkingDirectory=/opt/transducin
+
+Environment="PYTHONUNBUFFERED=1"
+
+# Ajustar ORTHANC_HOST en .env o en la unidad override (systemctl edit transducin)
+ExecStart=/opt/transducin/venv/bin/python -m transducin.hot_folder_watcher \
+    --watch /data/input/REVO \
+    --output /data/output \
+    --logs /var/log/transducin \
+    --orthanc-host ${ORTHANC_HOST:-<ORTHANC_HOST>} \
+    --orthanc-port 4242 \
+    --orthanc-aet ORTHANC
+
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=transducin
+
+# Seguridad
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/data /opt/transducin
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

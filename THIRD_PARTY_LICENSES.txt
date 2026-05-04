@@ -1,0 +1,218 @@
+THIRD-PARTY LICENSE NOTICES
+===========================
+Transducin — OCT → DICOM SR Pipeline
+Copyright (c) 2026  Jesús Noel Jaurrieta Hinojos
+SPDX-License-Identifier: Apache-2.0
+
+This file lists the open-source software included in or used by Transducin,
+along with their respective licenses and copyright notices.
+
+========================================
+Package: highdicom
+Version: 0.22.0
+License: MIT
+SPDX: MIT
+Home: https://github.com/ImagingDataCommons/highdicom
+Copyright: Copyright 2020 MGH/BWH — Markus D. Herrmann and Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+========================================
+Package: pydicom
+Version: 2.4.4
+License: MIT
+SPDX: MIT
+Home: https://github.com/pydicom/pydicom
+Copyright: Copyright 2008-2024 pydicom Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+========================================
+Package: pynetdicom
+Version: 2.0.2
+License: MIT
+SPDX: MIT
+Home: https://github.com/pydicom/pynetdicom
+Copyright: Copyright 2014-2024 pynetdicom Contributors
+
+Same MIT terms as pydicom above.
+
+========================================
+Package: numpy
+Version: 2.0.2
+License: BSD-3-Clause
+SPDX: BSD-3-Clause
+Home: https://numpy.org
+Copyright: Copyright (c) 2005-2024, NumPy Developers. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice,
+  this list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+* Neither the name of NumPy nor the names of its contributors may be used
+  to endorse or promote products derived from this software without specific
+  prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED.
+
+========================================
+Package: watchdog
+Version: 6.0.0
+License: Apache-2.0
+SPDX: Apache-2.0
+Home: https://github.com/gorakhargosh/watchdog
+Copyright: Copyright 2011 Mickaël Schoentgen and Contributors
+
+Licensed under the Apache License, Version 2.0. You may obtain a copy of the
+License at http://www.apache.org/licenses/LICENSE-2.0
+
+========================================
+Package: Pillow
+Version: 11.3.0
+License: MIT-CMU (Historical Permission Notice and Disclaimer)
+SPDX: MIT-CMU
+Home: https://python-pillow.github.io
+Copyright: Copyright © 1997-2011 by Secret Labs AB
+           Copyright © 1995-2011 by Fredrik Lundh and Contributors
+           Copyright © 2010-2024 by Jeffrey A. Clark (Alex) and Contributors
+
+The Python Imaging Library (PIL) is
+
+    Copyright © 1997-2011 by Secret Labs AB
+    Copyright © 1995-2011 by Fredrik Lundh
+
+Pillow is the friendly PIL fork. It is
+
+    Copyright © 2010-2024 by Jeffrey A. Clark and contributors
+
+Like PIL, Pillow is licensed under the open source MIT-CMU License:
+
+Permission to use, copy, modify, and distribute this software and its
+documentation for any purpose and without fee is hereby granted, provided
+that the above copyright notice appear in all copies and that both that
+copyright notice and this permission notice appear in supporting
+documentation, and that the name of Secret Labs AB or the author not be
+used in advertising or publicity pertaining to distribution of the software
+without specific, written prior permission.
+
+========================================
+Package: pdf2image
+Version: 1.17.0
+License: MIT
+SPDX: MIT
+Home: https://github.com/Belval/pdf2image
+Copyright: Copyright (c) 2017 Edouard Belval
+
+Requires poppler system library (LGPL-2.1+):
+  macOS:   brew install poppler
+  Windows: conda install -c conda-forge poppler
+
+Same MIT terms as highdicom above.
+
+========================================
+Package: pdfplumber
+Version: 0.11.8
+License: MIT
+SPDX: MIT
+Home: https://github.com/jsvine/pdfplumber
+Copyright: Copyright (c) 2015 Jeremy Singer-Vine
+
+Same MIT terms as highdicom above.
+
+========================================
+Package: pytesseract
+Version: 0.3.13
+License: Apache-2.0
+SPDX: Apache-2.0
+Home: https://github.com/madmaze/pytesseract
+Copyright: Copyright 2012 Samuel Hoffstaetter and Contributors
+
+Licensed under the Apache License, Version 2.0.
+
+========================================
+Package: psutil
+Version: >=5.9.0
+License: BSD-3-Clause
+SPDX: BSD-3-Clause
+Home: https://github.com/giampaolo/psutil
+Copyright: Copyright (c) 2009-2024, Giampaolo Rodola. All rights reserved.
+
+Same BSD-3-Clause terms as numpy above.
+
+========================================
+Package: FastAPI
+Version: 0.128.8
+License: MIT
+SPDX: MIT
+Home: https://github.com/fastapi/fastapi
+Copyright: Copyright (c) 2018 Sebastián Ramírez
+
+Same MIT terms as highdicom above.
+
+========================================
+Package: uvicorn
+Version: 0.39.0
+License: BSD-3-Clause
+SPDX: BSD-3-Clause
+Home: https://www.uvicorn.org/
+Copyright: Copyright © 2017-present, Encode OSS Ltd. All rights reserved.
+
+Same BSD-3-Clause terms as numpy above.
+
+========================================
+Package: httpx
+Version: 0.28.1
+License: BSD-3-Clause
+SPDX: BSD-3-Clause
+Home: https://www.python-httpx.org/
+Copyright: Copyright © 2019-present, Encode OSS Ltd. All rights reserved.
+
+Same BSD-3-Clause terms as numpy above.
+
+========================================
+Package: asyncpg
+Version: 0.31.0
+License: Apache-2.0
+SPDX: Apache-2.0
+Home: https://github.com/MagicStack/asyncpg
+Copyright: Copyright (C) 2016-present the asyncpg authors and contributors
+
+Licensed under the Apache License, Version 2.0.
+
+========================================
+END OF THIRD-PARTY LICENSE NOTICES
