@@ -1,0 +1,63 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: Transducin — Multivendor OCT to DICOM Pipeline for RetinaOS
+message: >-
+  If you make use of this software, please cite it
+  using the metadata from this file.
+type: software
+authors:
+  - given-names: Jesús Noel
+    family-names: Jaurrieta Hinojos
+    affiliation: RetinaOS / oftalmos-org
+    orcid: "https://orcid.org/0000-0002-9240-0049"
+version: 1.0.0
+abstract: >-
+  Multivendor OCT to DICOM conversion pipeline supporting
+  Optopol Revo FC130 and Carl Zeiss Meditec Cirrus devices.
+  Extracts macular thickness (CMT, ETDRS 9-sector), mRNFL,
+  mGCIPL, peripapillary RNFL (3.4 mm ring, S/I/N/T sectors
+  via DMARKERS disc centre), optic disc metrics (C/D ratio,
+  VCDR, disc area, rim area, cup volume), and biometric
+  measurements (AL, CCT, K1/K2). Generates DICOM Structured
+  Reports (TID 1500/1501) with full anatomic context and
+  routes them to Orthanc PACS via C-STORE.
+license: Apache-2.0
+repository-code: 'https://github.com/oftalmos-org/transducin'
+
+references:
+  - type: software
+    title: highdicom
+    abstract: >-
+      Python library for creating DICOM Structured Reports and other
+      composite objects using the highdicom API (TID 1500, TID 1501, etc.)
+    authors:
+      - family-names: Herrmann
+        given-names: Markus D.
+      - family-names: Clunie
+        given-names: David A.
+      - family-names: Fedorov
+        given-names: Andrey
+      - family-names: Doyle
+        given-names: Sean W.
+    repository-code: 'https://github.com/ImagingDataCommons/highdicom'
+    doi: 10.1007/s10278-022-00683-y
+
+  - type: software
+    title: pydicom
+    abstract: >-
+      Pure Python package for working with DICOM files. Used for reading,
+      writing, and manipulating DICOM datasets throughout the pipeline.
+    authors:
+      - name: pydicom contributors
+    repository-code: 'https://github.com/pydicom/pydicom'
+
+  - type: software
+    title: pynetdicom
+    abstract: >-
+      Pure Python implementation of the DICOM networking protocol.
+      Used for C-STORE SCU to Orthanc PACS.
+    authors:
+      - name: pynetdicom contributors
+    repository-code: 'https://github.com/pydicom/pynetdicom'
