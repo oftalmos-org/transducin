@@ -28,7 +28,7 @@ python -m transducin.revo_opt_reader JAHJ19870831_macular_OD.opt -o output/
 
 ## Key measurements (SR)
 
-- CMT: 293.0 µm (SNOMED-CT 422453003 — Foveal retinal thickness)
+- CMT: 283.9 µm (SNOMED-CT 422453003 — Foveal retinal thickness)
 - ETDRS 9-sector grid: present
 - Laterality: OD (ojo derecho)
 - Acquisition date: 2026-02-26
