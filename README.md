@@ -2,6 +2,12 @@
 
 Pipeline multivendor OCT → DICOM para [RetinaOS](https://github.com/oftalmos-org). Convierte archivos propietarios de tomógrafos oftalmológicos a DICOM estándar, extrae mediciones clínicas (CMT, ETDRS 9 sectores, mRNFL/pRNFL, mGCIPL, biometría), genera Structured Reports TID 1500 con contexto anatómico y los envía a Orthanc PACS vía C-STORE.
 
+## Demo
+
+Transducin generando un SR TID 1500 desde un `.OPT` Revo FC130 y visualizándolo en OHIF Viewer:
+
+https://github.com/oftalmos-org/transducin/raw/main/docs/demo/Transducin_in_OHIF_example_video.mp4
+
 ## Roadmap
 
 ### v1.0.0 — Disponible
