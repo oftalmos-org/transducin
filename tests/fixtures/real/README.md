@@ -18,7 +18,7 @@ PatientBirthDate=`""`, PatientSex=`""`. All measurements and UIDs intact.
 ## Source file
 
 The source `.OPT` file (`JAHJ19870831_macular_OD.opt`, 137 MB) is available
-on Zenodo: doi:10.5281/zenodo.XXXXXXX (pending upload).
+on Zenodo: doi:10.5281/zenodo.20031717
 
 To reproduce the DICOM output locally:
 
