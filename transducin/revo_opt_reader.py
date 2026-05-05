@@ -646,7 +646,7 @@ def compute_cmt(
 ) -> Optional[float]:
     """Calcula CMT (Central Macular Thickness) en µm.
 
-    CMT = mean(BM − TOP) en el círculo central de 1mm de diámetro.
+    CMT = mean(BM − TOP) en el círculo central de 1mm de diámetro (R < 500 µm).
     TOP = ILM (límite superior de retina); BM = membrana de Bruch (límite externo).
     Grosor total de retina desde ILM hasta BM.
 
@@ -664,27 +664,24 @@ def compute_cmt(
     if top.shape != bm.shape:
         return None
 
-    thickness_px = _apply_sqi_mask(bm - top, sqi)
+    axial_um   = params["axial_um"]
+    lateral_um = params["lateral_um"]
+    n_b, n_a   = top.shape
+    bscan_um   = params["scan_width_mm"] * 1000.0 / n_b
 
-    n_bscans, n_ascans = thickness_px.shape
-    scan_width_um = params["scan_width_mm"] * 1000.0
-    um_per_bscan  = scan_width_um / n_bscans
-    um_per_ascan  = params["lateral_um"]
+    thickness_um = _apply_sqi_mask((bm - top) * axial_um, sqi)
 
-    # Número de píxeles que cubren el radio de 500 µm
-    dy = max(1, int(_CMT_RADIUS_UM / um_per_bscan))
-    dx = max(1, int(_CMT_RADIUS_UM / um_per_ascan))
-    cy, cx = n_bscans // 2, n_ascans // 2
+    b0, a0 = n_b // 2, n_a // 2
+    db = (np.arange(n_b) - b0) * bscan_um
+    da = (np.arange(n_a) - a0) * lateral_um
+    B, A = np.meshgrid(db, da, indexing="ij")
+    R = np.sqrt(B ** 2 + A ** 2)
 
-    patch = thickness_px[
-        max(0, cy - dy) : cy + dy,
-        max(0, cx - dx) : cx + dx,
-    ]
-    valid = patch[patch > 0]
-    if len(valid) == 0:
+    valid = (R < _CMT_RADIUS_UM) & (thickness_um > 0) & (thickness_um < 800)
+    if not valid.any():
         return None
 
-    return float(valid.mean() * params["axial_um"])
+    return float(thickness_um[valid].mean())
 
 
 def _sector_means(
