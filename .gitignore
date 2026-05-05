@@ -249,6 +249,8 @@ logs/
 *.crdownload
 *.opt
 !tests/fixtures/*.opt
+!tests/fixtures/real/*.opt
+tests/fixtures/real/dicom/*_OCT.dcm
 .claude/
 .venv_transducin/
 .venv314/
