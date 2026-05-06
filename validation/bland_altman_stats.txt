@@ -1,0 +1,24 @@
+Bland-Altman Analysis: Transducin CMT vs. native SOCT CMT
+============================================================
+n                   : 7
+Transducin CMT      : 333.8 ± 165.8 µm (mean ± SD)
+Native SOCT CMT     : 330.1 ± 182.6 µm
+Mean bias           : +3.67 µm  (Transducin − native)
+SD of differences   : 18.16 µm
+95% LoA lower       : -31.92 µm
+95% LoA upper       : +39.26 µm
+ICC(2,1)            : 0.9946
+Within ±2 µm        : 0/7
+Within ±5 µm        : 2/7
+Within ±10 µm       : 3/7
+
+Per-scan:
+ID              Transducin   Native    Diff
+--------------------------------------------
+JAHJ19870831-OD       283.9    287.0    -3.1
+JAHJ19870831-OS       291.8    289.0    +2.8
+SITE_B_006           271.1    254.0   +17.1
+SITE_B_008           254.9    247.0    +7.9
+SITE_B_009           262.8    247.0   +15.8
+SITE_B_011           263.5    245.0   +18.5
+SITE_B_012           708.7    742.0   -33.3
