@@ -1,0 +1,16 @@
+id,device,soct_version,transducin_cmt,native_soct_cmt,notes
+JAHJ19870831-OD,REVO FC130,21.1.2,283.9,287,Primary corpus - JAHJ OD 2026-02-26
+JAHJ19870831-OS,REVO FC130,21.1.2,291.8,289,Primary corpus - JAHJ OS 2026-02-26
+SITE_B_001,REVO 60,11.5.3,266.4,,ARMY - ONH scan misclassified as macular (dip=264 um - Disco 3D protocol lacking DMARKERS chunk)
+SITE_B_003,REVO 60,11.5.3,275.0,,ARMY - ONH scan misclassified as macular (dip=250 um - Disco 3D protocol lacking DMARKERS chunk)
+SITE_B_006,REVO 60,11.5.3,271.1,254,AVTT OS Retina 3D 25/03/2026 - confirmed standard macular cube
+SITE_B_007,REVO 60,11.5.3,222.4,,AVTT OS OCT-A companion scan - excluded (not standard macular cube)
+SITE_B_008,REVO 60,11.5.3,254.9,247,CAVJ OS 15/09/2025 - normal retina
+SITE_B_009,REVO 60,11.5.3,262.8,247,CAVJ OD 15/09/2025 - normal retina (corrected from 270; dip=108)
+SITE_B_010,REVO 60,11.5.3,321.6,,CAVJ OS 21/04/2026 - excluded (BOTTOM layer tracking drusen/PED not true BM; dip=17 um)
+SITE_B_011,REVO 60,11.5.3,263.5,245,CAVJ OD 21/04/2026 - DMAE seca (segmentation intact; corrected native from 268)
+SITE_B_012,REVO 60,11.5.3,708.7,742,SAGD OS - OVCR cystoid edema; included as pathological case (large thickness range)
+SITE_B_013,REVO 60,11.5.3,303.3,,SAGD OD - excluded (BOTTOM tracking post-fotocoag sub-RPE fibrosis; dip=73 um)
+SITE_B_014,REVO FC130,11.5.0,241.9,,FC130 site B - no native reference collected
+SITE_B_017,REVO FC130,11.5.0,375.8,,FC130 site B - no native reference collected
+SITE_B_018,REVO FC130,11.5.0,373.8,,FC130 site B - no native reference collected
