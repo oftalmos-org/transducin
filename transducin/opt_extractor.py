@@ -497,12 +497,32 @@ def extract_from_opt(
                         "FNDSRECO" in _chunks,
                         _n,
                     )
-            elif _need_dmarkers and "DMARKERS" in _chunks:
-                cd.study_type = "optic_nerve"
+            elif _need_dmarkers and "ANGPRV" in _chunks:
+                # OCT-A files exported as _OCT (→ "macular") but with ANGPRV chunk.
+                cd.study_type = "angio"
                 cd.add_note(
-                    "CONFIRMED: study_type overridden macular→optic_nerve — DMARKERS chunk present"
+                    "CONFIRMED: study_type overridden macular→angio — ANGPRV chunk present"
                 )
-                logger.info("study_type overridden macular→optic_nerve — DMARKERS chunk present")
+                logger.info("study_type overridden macular→angio — ANGPRV chunk present")
+            elif _need_dmarkers and "DMARKERS" in _chunks:
+                # Override macular→optic_nerve only when dimensions are NOT a known
+                # macular pattern. SOCT ≥21.5.0 adds a stub DMARKERS chunk to macular
+                # cubes (256×768 FC130; 85×640 REVO60) — these must not be overridden.
+                _na = _params.get("n_ascans") or 0
+                _known_macular_dims = (
+                    (_n in (168, 256) and _na in (768, 1024))  # FC130 macular
+                    or (_n == 85 and _na == 640)               # REVO60 macular
+                )
+                if not _known_macular_dims:
+                    cd.study_type = "optic_nerve"
+                    cd.add_note(
+                        "CONFIRMED: study_type overridden macular→optic_nerve — "
+                        f"DMARKERS chunk present and dims {_n}fr×{_na}px not a known macular pattern"
+                    )
+                    logger.info(
+                        "study_type overridden macular→optic_nerve — DMARKERS present, dims %dfr×%dpx",
+                        _n, _na,
+                    )
         except Exception as e:
             logger.debug("Inferencia de lateralidad/study_type desde chunks fallida: %s", e)
 
@@ -527,17 +547,26 @@ def extract_from_opt(
             # n_bscans en OCTPARAMS = posiciones de escaneo (no T-chunks reales;
             # T-chunks = n_bscans × n_averages).
             #
-            #   192 × 640              → optic_nerve (ONH cube, 6mm)
-            #   320 × 320 (o 319×319)  → angio (OCTA 3mm, 320 T + 320 A chunks)
-            #   n_ascans ≥ 4096        → ultra_wide (1×10240 14mm, 6×8192 16mm)
-            #   n_bscans ≤ 8, ≥ 1024   → wide_field (5×1536 12mm, etc.)
-            #   n_bscans ≤ 25, ≥ 512   → hd_line (18×1024 8mm, 21×1024 10mm)
-            #   resto                  → sin reclasificación (macular 168×1024 etc.)
+            # FC130 ONH:       192 × 640              → optic_nerve
+            # REVO60 ONH:      112 × 512              → optic_nerve
+            # FC130 macular:   168 × 1024 (v21.1.2)   → macular
+            #                  256 × 768  (v21.5.0)   → macular
+            # REVO60 macular:   85 × 640              → macular
+            # ANGIO:           319-320 × ≤320         → angio
+            # ultra_wide:      n_ascans ≥ 4096        → ultra_wide
+            # wide_field:      n_bscans ≤ 8, ≥ 1024   → wide_field
+            # hd_line:         n_bscans ≤ 25, ≥ 512   → hd_line
             if n_frames is not None and n_ascans is not None:
                 if n_frames == 192 and n_ascans == 640:
-                    new_type = "optic_nerve"
-                elif n_frames in (319, 320) and n_ascans <= 320:
-                    new_type = "angio"
+                    new_type = "optic_nerve"   # FC130 ONH
+                elif n_frames == 112 and n_ascans == 512:
+                    new_type = "optic_nerve"   # REVO60 ONH
+                elif n_frames in (168, 256) and n_ascans in (768, 1024):
+                    new_type = "macular"       # FC130 macular (v21.1.2: 168×1024; v21.5.0: 256×768)
+                elif n_frames == 85 and n_ascans == 640:
+                    new_type = "macular"       # REVO60 macular
+                elif n_frames in (304, 319, 320) and n_ascans <= 320:
+                    new_type = "angio"    # REVO60 OCTA: 304×304; FC130 OCTA: 319/320×320
                 elif n_ascans >= 4096:
                     new_type = "ultra_wide"
                 elif n_frames <= 8 and n_ascans >= 1024:
