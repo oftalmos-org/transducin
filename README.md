@@ -1,5 +1,7 @@
 # Transducin 1.0.0
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20031717.svg)](https://doi.org/10.5281/zenodo.20031717)
+
 Pipeline multivendor OCT → DICOM para [RetinaOS](https://github.com/oftalmos-org). Convierte archivos propietarios de tomógrafos oftalmológicos a DICOM estándar, extrae mediciones clínicas (CMT, ETDRS 9 sectores, mRNFL/pRNFL, mGCIPL, biometría), genera Structured Reports TID 1500 con contexto anatómico y los envía a Orthanc PACS vía C-STORE.
 
 ## Demo

@@ -12,6 +12,10 @@ authors:
     family-names: Jaurrieta Hinojos
     affiliation: RetinaOS / oftalmos-org
     orcid: "https://orcid.org/0000-0002-9240-0049"
+  - given-names: José Luis
+    family-names: Palomares Ordoñez
+    affiliation: Centro de Retina Médica y Quirúrgica, Querétaro, México
+    orcid: "https://orcid.org/0000-0002-7122-4875"
 version: 1.0.0
 abstract: >-
   Multivendor OCT to DICOM conversion pipeline supporting
