@@ -259,6 +259,8 @@ Output_*/
 validation/site_b_qro/
 validation/site_b_id_mapping.json
 validation/site_b_results.csv
+validation/full_corpus_results.csv
+validation/*_results.csv
 validation/debug_*.py
 validation/debug_*.png
 validation/recover_truncated.py
