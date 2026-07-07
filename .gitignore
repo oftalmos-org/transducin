@@ -261,7 +261,10 @@ validation/site_b_id_mapping.json
 validation/site_b_results.csv
 validation/full_corpus_results.csv
 validation/*_results.csv
+validation/*_results_v2.csv
+validation/*_capture_pairs.csv
 validation/pipeline_stats.txt
+validation/05e9a842/
 validation/debug_*.py
 validation/debug_*.png
 validation/recover_truncated.py
