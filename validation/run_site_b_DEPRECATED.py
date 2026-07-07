@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# DEPRECATED — superseded by validation/corpus_audit.py (single source of truth,
+# see its docstring). This script only scans a separate, narrower staging
+# directory (a curated pilot subset), not the full corpus root — its "19 files"
+# count describes a different scope than corpus_audit.py's full Site B count
+# (88), which is the historical source of the "19 vs 88" confusion. Kept only
+# for historical reference; do NOT run it for new corpus-wide numbers.
 """
 Validación cross-version Site B (Querétaro)
 Procesa .OPT de SOCT 11.5.0 y 11.5.3, reporta éxito/fallo por archivo.
@@ -12,9 +18,9 @@ import traceback
 from pathlib import Path
 
 SITE_B_ROOT = Path(os.environ.get("SITE_B_ROOT", "/data/input/site_b"))
-REVO60_DIR  = SITE_B_ROOT / "REVO60"
+REVO60_DIR = SITE_B_ROOT / "REVO60"
 REVO130_DIR = SITE_B_ROOT / "REVO130"
-OUTPUT_CSV  = Path(__file__).parent / "site_b_results.csv"
+OUTPUT_CSV = Path(__file__).parent / "site_b_results.csv"
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -32,6 +38,7 @@ def _chunks_from_parsed(data: bytes) -> list[str]:
     """Extrae nombres de chunks top-level usando parse_opt_chunks."""
     try:
         from transducin.revo_opt_reader import parse_opt_chunks
+
         chunks = parse_opt_chunks(data)
         return sorted(chunks.keys())
     except Exception:
@@ -40,36 +47,66 @@ def _chunks_from_parsed(data: bytes) -> list[str]:
 
 def process_file(opt_path: Path, device: str, soct_version: str) -> dict:
     result = {
-        "filename":         opt_path.name,
-        "device":           device,
-        "soct_version":     soct_version,
-        "file_size_mb":     round(opt_path.stat().st_size / 1024 / 1024, 1),
-        "success":          False,
-        "magic_bytes_ok":   False,
-        "n_frames":         None,
-        "bscan_shape":      "",
+        "filename": opt_path.name,
+        "device": device,
+        "soct_version": soct_version,
+        "file_size_mb": round(opt_path.stat().st_size / 1024 / 1024, 1),
+        "success": False,
+        "magic_bytes_ok": False,
+        "n_frames": None,
+        "bscan_shape": "",
         "scan_type_params": "",
-        "chunks_found":     "",
-        "unknown_chunks":   "",
-        "cmt_um":           None,
-        "etdrs_present":    False,
-        "rnfl_present":     False,
+        "chunks_found": "",
+        "unknown_chunks": "",
+        "cmt_um": None,
+        "etdrs_present": False,
+        "rnfl_present": False,
         "biometry_present": False,
-        "cdr":              None,
-        "sqi_mean":         None,
-        "study_uid":        "",
-        "error":            None,
-        "traceback":        "",
+        "cdr": None,
+        "sqi_mean": None,
+        "study_uid": "",
+        "error": None,
+        "traceback": "",
     }
 
     # Chunks conocidos del formato .opt Revo según ingeniería inversa de Transducin
     known_chunks = {
-        "OCTPARAMS", "PARAMS", "APARAMS", "DMARKERS", "TOMOSQI", "TRAJ",
-        "MYOPI", "FNDCORR", "FNDSPHOTO", "FNDCORRLINK", "FNDSSTNGS", "FNDSPREVIEWPARAMS",
-        "PATIENT.DAT", "PARAMS.DAT", "PREVIEW.DAT",
-        "EYE", "SLO", "PRV", "FNDSRECO", "FNDSIR", "ANGPRV",
-        "TOP", "NFL", "GCL", "IPL", "INL", "OPL", "ONL", "ELM", "EZOS", "ISOS", "BM", "BOTTOM",
-        "CSI", "FIT", "ALIGN",
+        "OCTPARAMS",
+        "PARAMS",
+        "APARAMS",
+        "DMARKERS",
+        "TOMOSQI",
+        "TRAJ",
+        "MYOPI",
+        "FNDCORR",
+        "FNDSPHOTO",
+        "FNDCORRLINK",
+        "FNDSSTNGS",
+        "FNDSPREVIEWPARAMS",
+        "PATIENT.DAT",
+        "PARAMS.DAT",
+        "PREVIEW.DAT",
+        "EYE",
+        "SLO",
+        "PRV",
+        "FNDSRECO",
+        "FNDSIR",
+        "ANGPRV",
+        "TOP",
+        "NFL",
+        "GCL",
+        "IPL",
+        "INL",
+        "OPL",
+        "ONL",
+        "ELM",
+        "EZOS",
+        "ISOS",
+        "BM",
+        "BOTTOM",
+        "CSI",
+        "FIT",
+        "ALIGN",
     }
 
     try:
@@ -91,9 +128,9 @@ def process_file(opt_path: Path, device: str, soct_version: str) -> dict:
 
             # Chunks que no son T-chunks (Tn) ni A-chunks (An) ni conocidos
             unknown = [
-                c for c in chunk_names
-                if c not in known_chunks
-                and not (len(c) >= 2 and c[0] in ("T", "A") and c[1:].isdigit())
+                c
+                for c in chunk_names
+                if c not in known_chunks and not (len(c) >= 2 and c[0] in ("T", "A") and c[1:].isdigit())
             ]
             result["unknown_chunks"] = "|".join(sorted(unknown))
         except Exception as e:
@@ -101,17 +138,17 @@ def process_file(opt_path: Path, device: str, soct_version: str) -> dict:
 
         parsed = read_opt(opt_path)
 
-        result["success"]    = True
-        result["n_frames"]   = parsed.get("n_frames", 0)
-        result["study_uid"]  = parsed.get("study_uid") or ""
+        result["success"] = True
+        result["n_frames"] = parsed.get("n_frames", 0)
+        result["study_uid"] = parsed.get("study_uid") or ""
 
         shape = parsed.get("shape", (0, 0))
         result["bscan_shape"] = f"{shape[1]}x{shape[0]}"  # width x height
 
         params = parsed.get("params") or {}
-        n_bscans  = params.get("n_bscans", "?")
-        n_ascans  = params.get("n_ascans", "?")
-        sw_mm     = params.get("scan_width_mm", "?")
+        n_bscans = params.get("n_bscans", "?")
+        n_ascans = params.get("n_ascans", "?")
+        sw_mm = params.get("scan_width_mm", "?")
         axial_mmpx = params.get("axial_um", "?")
         result["scan_type_params"] = f"bscans={n_bscans} ascans={n_ascans} sw={sw_mm}mm axial={axial_mmpx}mm/px"
 
@@ -119,8 +156,8 @@ def process_file(opt_path: Path, device: str, soct_version: str) -> dict:
         if cmt is not None:
             result["cmt_um"] = round(float(cmt), 1)
 
-        result["etdrs_present"]    = parsed.get("etdrs") is not None
-        result["rnfl_present"]     = parsed.get("rnfl") is not None
+        result["etdrs_present"] = parsed.get("etdrs") is not None
+        result["rnfl_present"] = parsed.get("rnfl") is not None
         result["biometry_present"] = parsed.get("myopi") is not None
 
         cdr = parsed.get("cdr")
@@ -132,7 +169,7 @@ def process_file(opt_path: Path, device: str, soct_version: str) -> dict:
             result["sqi_mean"] = round(float(sqi.mean()), 3)
 
     except Exception as e:
-        result["error"]     = f"{type(e).__name__}: {str(e)[:300]}"
+        result["error"] = f"{type(e).__name__}: {str(e)[:300]}"
         result["traceback"] = traceback.format_exc()[-800:]
 
     return result
@@ -151,23 +188,37 @@ def main():
 
     OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
-        "filename", "device", "soct_version", "file_size_mb",
-        "success", "magic_bytes_ok", "n_frames", "bscan_shape", "scan_type_params",
-        "chunks_found", "unknown_chunks",
-        "cmt_um", "etdrs_present", "rnfl_present", "biometry_present",
-        "cdr", "sqi_mean", "study_uid", "error",
+        "filename",
+        "device",
+        "soct_version",
+        "file_size_mb",
+        "success",
+        "magic_bytes_ok",
+        "n_frames",
+        "bscan_shape",
+        "scan_type_params",
+        "chunks_found",
+        "unknown_chunks",
+        "cmt_um",
+        "etdrs_present",
+        "rnfl_present",
+        "biometry_present",
+        "cdr",
+        "sqi_mean",
+        "study_uid",
+        "error",
     ]
     with OUTPUT_CSV.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(results)
 
-    total        = len(results)
-    success      = sum(1 for r in results if r["success"])
-    revo60_ok    = sum(1 for r in results if r["success"] and r["device"] == "REVO 60")
+    total = len(results)
+    success = sum(1 for r in results if r["success"])
+    revo60_ok = sum(1 for r in results if r["success"] and r["device"] == "REVO 60")
     revo60_total = sum(1 for r in results if r["device"] == "REVO 60")
-    revo130_ok   = sum(1 for r in results if r["success"] and r["device"] == "REVO FC130")
-    revo130_total= sum(1 for r in results if r["device"] == "REVO FC130")
+    revo130_ok = sum(1 for r in results if r["success"] and r["device"] == "REVO FC130")
+    revo130_total = sum(1 for r in results if r["device"] == "REVO FC130")
 
     print(f"\n{'='*65}")
     print("RESUMEN SITE B — QUERÉTARO (cross-version / cross-model)")

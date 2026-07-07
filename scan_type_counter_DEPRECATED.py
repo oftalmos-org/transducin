@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# DEPRECATED — superseded by validation/corpus_audit.py (single source of truth,
+# see its docstring). This script reimplements its own minimal chunk parser
+# instead of importing transducin.revo_opt_reader/opt_extractor, so its
+# acquisition-type classification can drift from the real parser. Kept only
+# for historical reference; do NOT run it for new numbers.
 """
 scan_type_counter.py — Tabla 3: distribucion de tipos de escaneo en SOCT_DATA.
 
@@ -13,6 +18,7 @@ Uso:
 
 Solo lectura. No modifica ningún archivo.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -29,6 +35,7 @@ _OPT_MAGIC = b"\xa5\xa5\xa5\xff"
 
 
 # ── Parser mínimo de chunks (sin importar el módulo completo) ─────────────────
+
 
 def _find_magic_positions(data: bytes) -> list[int]:
     positions = []
@@ -53,7 +60,7 @@ def _parse_chunks(data: bytes) -> dict[str, dict]:
         pos += 4
         if name_len == 0 or name_len > 64:
             continue
-        name = data[pos: pos + name_len].rstrip(b"\x00").decode("ascii", errors="replace")
+        name = data[pos : pos + name_len].rstrip(b"\x00").decode("ascii", errors="replace")
         pos += name_len
         if pos < len(data) and data[pos] == 0:
             pos += 1
@@ -74,7 +81,7 @@ def _decompress(raw: bytes) -> bytes | None:
     bsize = struct.unpack_from("<I", raw, 1)[0]
     if bsize and bsize <= len(raw) - 5:
         try:
-            return zlib.decompress(raw[5: 5 + bsize])
+            return zlib.decompress(raw[5 : 5 + bsize])
         except Exception:
             pass
     if raw[:2] in (b"\x78\x01", b"\x78\x9c", b"\x78\xda"):
@@ -87,21 +94,22 @@ def _decompress(raw: bytes) -> bytes | None:
 
 # ── Extracción de OCTPARAMS ───────────────────────────────────────────────────
 
+
 def _extract_octparams(data: bytes, chunks: dict) -> dict:
     """Lee scan_protocol_id (tag 2), n_ascans (tag 5), n_bscans (tag 6) de OCTPARAMS."""
     result = {"scan_protocol_id": None, "n_ascans": None, "n_bscans": None}
     c = chunks.get("OCTPARAMS")
     if not c:
         return result
-    raw = data[c["offset"]: c["offset"] + c["real_size"]]
+    raw = data[c["offset"] : c["offset"] + c["real_size"]]
     dec = _decompress(raw)
     if dec is None or len(dec) < 8:
         return result
     for i in range(0, len(dec) - 7, 8):
         tag = dec[i]
         typ = dec[i + 3]
-        vraw = dec[i + 4: i + 8]
-        if typ == 0x12:   # uint32
+        vraw = dec[i + 4 : i + 8]
+        if typ == 0x12:  # uint32
             val = struct.unpack_from("<I", vraw)[0]
         elif typ == 0x22:  # float32 — no relevante aquí
             continue
@@ -120,21 +128,21 @@ def _extract_octparams(data: bytes, chunks: dict) -> dict:
 
 # Sufijos de nombre de archivo → tipo (misma lógica que opt_extractor._TYPE_MAP)
 _FNAME_TYPE_MAP = {
-    "OCT":          "macular",
+    "OCT": "macular",
     "COLOR_FUNDUS": "fundus",
-    "COLORFUNDUS":  "fundus",
-    "BMETR":        "biometry",
-    "ANGIO":        "angio",
-    "TOPO":         "anterior",
-    "ANTERIOR":     "anterior",
-    "RNFL":         "rnfl",
-    "OPTIC":        "optic_nerve",
+    "COLORFUNDUS": "fundus",
+    "BMETR": "biometry",
+    "ANGIO": "angio",
+    "TOPO": "anterior",
+    "ANTERIOR": "anterior",
+    "RNFL": "rnfl",
+    "OPTIC": "optic_nerve",
 }
 
-_DATE8  = __import__("re").compile(r"^\d{8}$")
-_TIME6  = __import__("re").compile(r"^\d{6}$")
+_DATE8 = __import__("re").compile(r"^\d{8}$")
+_TIME6 = __import__("re").compile(r"^\d{6}$")
 _LAT_RE = __import__("re").compile(r"^(OD|OS)$", __import__("re").IGNORECASE)
-_NOEL   = __import__("re").compile(r"^[A-Z]{3,4}\d{8}$", __import__("re").IGNORECASE)
+_NOEL = __import__("re").compile(r"^[A-Z]{3,4}\d{8}$", __import__("re").IGNORECASE)
 
 
 def _type_from_filename(path: Path) -> str | None:
@@ -199,6 +207,7 @@ def _derive_scan_type(fname_type: str | None, n_bscans: int | None, n_ascans: in
 
 # ── Procesamiento de un archivo ───────────────────────────────────────────────
 
+
 def process_opt(path: Path, verbose: bool = False) -> dict | None:
     """Lee un .opt y retorna su scan_type y metadatos. None si error."""
     try:
@@ -217,31 +226,33 @@ def process_opt(path: Path, verbose: bool = False) -> dict | None:
     params = _extract_octparams(data, chunks)
 
     fname_type = _type_from_filename(path)
-    scan_type  = _derive_scan_type(
+    scan_type = _derive_scan_type(
         fname_type,
         params["n_bscans"],
         params["n_ascans"],
     )
 
     return {
-        "scan_type":        scan_type,
+        "scan_type": scan_type,
         "scan_protocol_id": params["scan_protocol_id"],
-        "n_bscans":         params["n_bscans"],
-        "n_ascans":         params["n_ascans"],
-        "filename":         path.name,
+        "n_bscans": params["n_bscans"],
+        "n_ascans": params["n_ascans"],
+        "filename": path.name,
     }
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("root", nargs="?", default=r"C:\SOCT_DATA",
-                        help="Directorio raíz a escanear (default: C:\\SOCT_DATA)")
-    parser.add_argument("--csv", default="scan_type_counts.csv",
-                        help="Nombre del archivo CSV de salida (default: scan_type_counts.csv)")
-    parser.add_argument("--verbose", "-v", action="store_true",
-                        help="Mostrar progreso y errores por archivo")
+    parser.add_argument(
+        "root", nargs="?", default=r"C:\SOCT_DATA", help="Directorio raíz a escanear (default: C:\\SOCT_DATA)"
+    )
+    parser.add_argument(
+        "--csv", default="scan_type_counts.csv", help="Nombre del archivo CSV de salida (default: scan_type_counts.csv)"
+    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Mostrar progreso y errores por archivo")
     args = parser.parse_args()
 
     root = Path(args.root)
@@ -250,8 +261,8 @@ def main() -> None:
         sys.exit(1)
 
     # Acumuladores: scan_type → {count, ejemplos, protocol_ids}
-    counts:    dict[str, int]      = defaultdict(int)
-    examples:  dict[str, str]      = {}
+    counts: dict[str, int] = defaultdict(int)
+    examples: dict[str, str] = {}
     proto_ids: dict[str, set[int]] = defaultdict(set)
 
     opt_files = list(root.rglob("*.opt")) + list(root.rglob("*.OPT"))
