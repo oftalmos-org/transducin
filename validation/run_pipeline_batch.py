@@ -28,8 +28,8 @@ from transducin.revo_opt_reader import opt_to_dicom
 from transducin.sr_builder import build_sr
 from transducin.verify_sr import verify_sr
 
-CORPUS_ROOT = Path("corpus")
-OUTPUT_ROOT = Path("/tmp/transducin_output")
+CORPUS_ROOT = Path("corpus")  # set to your local OCT corpus path
+OUTPUT_ROOT = Path(__file__).parent.parent / "Output_pipeline_batch"
 OUT_CSV = Path(__file__).parent / "pipeline_results.csv"
 
 GROUPS = [
@@ -196,7 +196,8 @@ def process_file(
     try:
         ref_ds = pydicom.dcmread(str(dcm_paths[0])) if dcm_paths else None
         stem = opt_path.stem.replace(" ", "_")
-        sr_path = sr_dir / f"{stem}_SR.dcm"
+        study_type_tag = cd.study_type or "unknown"
+        sr_path = sr_dir / f"{stem}_{study_type_tag}_SR.dcm"
 
         # Temporarily set noel_id to "VALIDATION" on cd if needed so build_sr accepts it
         _orig_noel = cd.noel_id

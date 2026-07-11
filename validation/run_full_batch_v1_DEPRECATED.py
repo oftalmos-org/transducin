@@ -18,7 +18,7 @@ from pathlib import Path
 
 logging.basicConfig(level=logging.WARNING)
 
-CORPUS_ROOT = Path("corpus")
+CORPUS_ROOT = Path("corpus")  # set to your local OCT corpus path
 
 GROUPS = [
     # (site_dir, site, device, soct_version)
