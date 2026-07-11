@@ -54,6 +54,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from transducin.opt_extractor import extract_from_opt, build_noel_index
 from transducin.revo_opt_reader import parse_opt_chunks, parse_octparams, extract_study_uid
+from transducin.noel_id import dob_from_noel
 
 DEFAULT_CORPUS_ROOT = Path(r"corpus")
 DEFAULT_LIGHT_BUDGET_BYTES = 800_000
@@ -82,6 +83,7 @@ FIELDNAMES = [
     "cdr",
     "device_uid_signal",
     "confidence",
+    "age_years",
     "error",
 ]
 
@@ -112,6 +114,57 @@ _FILENAME_KEYWORDS = {
 }
 
 _NOEL_PREFIX = re.compile(r"^([A-Z]{3,4}\d{8})_", re.IGNORECASE)
+
+# opt_extractor.py has several silent-failure paths: when a measurement can't
+# be computed it calls cd.add_note("ASSUMED: ... no calculable/procesable/
+# extraíble ...") but does NOT raise -- so the except-block below never fires
+# and row["error"] used to stay empty for these files. This maps each known
+# note substring to a short slug so analyze_cmt_and_failures.py's tally
+# (which buckets by the text before the first ":") can group by real reason
+# instead of collapsing everything into one bucket.
+#
+# Only markers that actually gate the *primary* measurement for their
+# acquisition type are listed as "primary" below for each type -- e.g.
+# "lateralidad desconocida" only gates etdrs_grid/rnfl/gcl_ipl in
+# opt_extractor.py, NOT cmt_um itself (cmt_um is computed earlier in the same
+# try block, unconditionally), so it is intentionally NOT a macular-CMT
+# marker even though it fires in that same code path.
+_FAILURE_REASON_SLUGS = [
+    ("capas NFL/BM presentes pero sin valores", "cmt_patch_invalido"),
+    ("CMT/ETDRS no calculable", "cmt_excepcion"),
+    ("ETDRS/RNFL/mGCIPL no calculable — lateralidad desconocida", "lateralidad_desconocida"),
+    ("capas TOP/NFL ausentes o inválidas", "rnfl_capas_invalidas"),
+    ("RNFL peripapillar/C/D no calculable", "rnfl_excepcion"),
+    ("DMARKERS ausente o ILM inválida", "disco_dmarkers_invalido"),
+    ("biometría no extraíble", "biometria_excepcion"),
+]
+
+_MACULAR_PRIMARY_MARKERS = ("capas NFL/BM presentes pero sin valores", "CMT/ETDRS no calculable")
+_OPTIC_NERVE_PRIMARY_MARKERS = ("capas TOP/NFL ausentes o inválidas", "RNFL peripapillar/C/D no calculable")
+_BIOMETRY_PRIMARY_MARKERS = ("biometría no extraíble",)
+
+_PRIMARY_MARKERS_BY_TYPE = {
+    "macular": _MACULAR_PRIMARY_MARKERS,
+    "optic_nerve": _OPTIC_NERVE_PRIMARY_MARKERS,
+    "biometry": _BIOMETRY_PRIMARY_MARKERS,
+}
+
+
+def _failure_slug(note):
+    for marker, slug in _FAILURE_REASON_SLUGS:
+        if marker in note:
+            return slug
+    return "otro"
+
+
+def _pick_failure_note(confidence_notes, primary_markers):
+    """Last confidence_note matching one of primary_markers -- these are the
+    specific ASSUMED notes that gate the primary measurement for this
+    acquisition type (see _PRIMARY_MARKERS_BY_TYPE)."""
+    for note in reversed(confidence_notes):
+        if any(m in note for m in primary_markers):
+            return note
+    return None
 
 
 def classify_path(rel_parts):
@@ -227,6 +280,7 @@ def audit_file(opt_path, corpus_root, light_budget, noel_index):
         "cdr": None,
         "device_uid_signal": "",
         "confidence": "",
+        "age_years": None,
         "error": "",
     }
 
@@ -280,6 +334,43 @@ def audit_file(opt_path, corpus_root, light_budget, noel_index):
             row["biometry_present"] = True
         if cd.cup_disc_ratio is not None:
             row["cdr"] = round(float(cd.cup_disc_ratio), 3)
+        dob = dob_from_noel(cd.noel_id) if cd.noel_id else ""
+        if dob and cd.study_date and len(dob) == 8 and len(cd.study_date) == 8:
+            try:
+                from datetime import date
+
+                d0 = date(int(dob[:4]), int(dob[4:6]), int(dob[6:8]))
+                d1 = date(int(cd.study_date[:4]), int(cd.study_date[4:6]), int(cd.study_date[6:8]))
+                age = d1.year - d0.year - ((d1.month, d1.day) < (d0.month, d0.day))
+                if 0 <= age <= 110:
+                    row["age_years"] = age
+            except (ValueError, TypeError):
+                pass
+
+        # Silent-failure capture: opt_extractor.py doesn't raise when a
+        # measurement can't be computed, it just adds a confidence_note --
+        # so row["error"] would otherwise stay empty for these files even
+        # though the primary measurement for this acquisition type is
+        # missing. See _PRIMARY_MARKERS_BY_TYPE above.
+        primary_markers = _PRIMARY_MARKERS_BY_TYPE.get(row["acquisition_type"])
+        if primary_markers is not None:
+            if row["acquisition_type"] == "macular":
+                primary_ok = row["cmt_um"] is not None
+            elif row["acquisition_type"] == "optic_nerve":
+                primary_ok = row["rnfl_present"]
+            else:  # biometry
+                primary_ok = row["biometry_present"]
+
+            if not primary_ok and not row["error"]:
+                note = _pick_failure_note(cd.confidence_notes, primary_markers)
+                if note:
+                    slug = _failure_slug(note)
+                    row["error"] = f"no_measurement_{slug}: {note[:180]}"
+                else:
+                    row["error"] = (
+                        "no_measurement_sin_nota: ninguna confidence_note coincide "
+                        "con los marcadores conocidos para este tipo"
+                    )
     except Exception as e:
         prefix = f"{row['error']} | " if row["error"] else ""
         row["error"] = f"{prefix}tier2: {type(e).__name__}: {str(e)[:200]}"
@@ -325,6 +416,7 @@ def main():
     n_fail = 0
     failures = []
     device_signals_by_group = {}
+    age_by_patient = {}
 
     with OUT_CSV.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
@@ -354,6 +446,9 @@ def main():
                 macular_group[key_sdv] += 1
                 if row["cmt_um"] is not None:
                     macular_cmt_valid[key_sdv] += 1
+
+            if row["age_years"] is not None and row["noel_id"]:
+                age_by_patient[row["noel_id"]] = row["age_years"]
 
             if row["device_uid_signal"]:
                 group_key = (row["site"], row["device"])
@@ -417,6 +512,24 @@ def main():
         f"  Grupos con firma mixta        : {minority_groups}",
         f"  Archivos en firma minoritaria : {flagged_files}",
     ]
+
+    if age_by_patient:
+        ages = sorted(age_by_patient.values())
+        n_ages = len(ages)
+        median_age = ages[n_ages // 2] if n_ages % 2 else (ages[n_ages // 2 - 1] + ages[n_ages // 2]) / 2
+        lines += [
+            "",
+            "-- Edad por paciente unico (derivada de NOEL_ID + study_date, sin fechas crudas) --",
+            f"  Pacientes con edad calculable : {n_ages} (de {len(noel_index) or '?'} en el NOEL index)",
+            f"  Rango                         : {ages[0]}-{ages[-1]} anios",
+            f"  Mediana                       : {median_age:.0f} anios",
+        ]
+        BIN_WIDTH = 20
+        bin_counts = Counter((a // BIN_WIDTH) * BIN_WIDTH for a in ages)
+        for lo in sorted(bin_counts):
+            lines.append(f"    {lo}-{lo+BIN_WIDTH-1}: n={bin_counts[lo]}")
+    else:
+        lines += ["", "-- Edad: no se pudo calcular para ningun paciente (sin NOEL_ID+study_date simultaneos) --"]
 
     if failures:
         lines += ["", f"-- Fallas de parse ({len(failures)}), sin nombres de archivo --"]
