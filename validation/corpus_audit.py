@@ -56,7 +56,7 @@ from transducin.opt_extractor import extract_from_opt, build_noel_index
 from transducin.revo_opt_reader import parse_opt_chunks, parse_octparams, extract_study_uid
 from transducin.noel_id import dob_from_noel
 
-DEFAULT_CORPUS_ROOT = Path(r"corpus")
+DEFAULT_CORPUS_ROOT = Path("corpus")  # pass the real corpus path as the CLI arg
 DEFAULT_LIGHT_BUDGET_BYTES = 800_000
 
 OUT_CSV = Path(__file__).parent / "corpus_audit_results.csv"
