@@ -1,7 +1,12 @@
 # Transducin 1.0.0
 
-[![medRxiv](https://img.shields.io/badge/medRxiv-10.64898%2F2026.07.14.26357256-B31B1B.svg)](https://doi.org/10.64898/2026.07.14.26357256)
+[![medRxiv](https://img.shields.io/badge/medRxiv-10.64898%2F2026.07.14.26357256-B31B1B.svg?style=flat-square)](https://doi.org/10.64898/2026.07.14.26357256)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20031717.svg)](https://doi.org/10.5281/zenodo.20031717)
+[![License](https://img.shields.io/badge/License-Apache%202.0-green.svg?style=flat-square)](https://opensource.org/licenses/Apache-2.0)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square&logo=python&logoColor=white)](https://github.com/oftalmos-org/transducin)
+[![DICOM](https://img.shields.io/badge/DICOM-TID%201500%20%2F%20Sup%20247-lightgrey?style=flat-square)](https://dicom.nema.org)
+
+![.OPT binary chunk architecture and laterality encoding](figures/Figure1.png)
 
 > **⚠️ Research use only.** Transducin is a research pipeline for parsing proprietary OCT formats and generating standard DICOM Structured Reports. It has not received regulatory clearance or approval from any health authority (COFEPRIS, FDA, CE marking, or equivalent) for clinical use. It performs no diagnostic classification or interpretation — it reproduces, in standard DICOM form, quantitative measurements already computed by the source device's own firmware. **This software must not be used for clinical diagnosis, treatment decisions, or patient management.**
 
@@ -12,6 +17,10 @@ Multi-vendor OCT → DICOM pipeline for [RetinaOS](https://github.com/oftalmos-o
 Transducin generating a TID 1500 SR from a Revo FC130 `.OPT` file and displaying it in OHIF Viewer:
 
 https://github.com/oftalmos-org/transducin/raw/main/demo/Transducin_in_OHIF_example_video.mp4
+
+### What Transducin produces
+
+![DICOM SR structure and downstream use](figures/dicom_sr_overview.png)
 
 ## Roadmap
 
