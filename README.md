@@ -12,8 +12,6 @@
 
 Multi-vendor OCT → DICOM pipeline for [RetinaOS](https://github.com/oftalmos-org/transducin). Converts proprietary ophthalmic OCT files to standard DICOM, extracts clinical measurements (CMT, ETDRS 9-sector grid, mRNFL/pRNFL, mGCIPL, biometry), generates TID 1500 Structured Reports with full anatomic context, and sends them to an Orthanc PACS via C-STORE.
 
-![Pipeline overview: proprietary input formats → Transducin → DICOM SR TID 1500](figures/pipeline_overview.png)
-
 ## Demo
 
 Transducin generating a TID 1500 SR from a Revo FC130 `.OPT` file and displaying it in OHIF Viewer:
@@ -21,8 +19,6 @@ Transducin generating a TID 1500 SR from a Revo FC130 `.OPT` file and displaying
 https://github.com/oftalmos-org/transducin/raw/main/demo/Transducin_in_OHIF_example_video.mp4
 
 ### What Transducin produces
-
-![DICOM SR structure and downstream use](figures/dicom_sr_overview.png)
 
 ## Roadmap
 
@@ -108,8 +104,6 @@ Detection based on chunks present (ANGPRV, DMARKERS, EYE) and `n_bscans × n_asc
 | `fundus` | Color_fundus (from filename) | skipped (no measurements) |
 
 ## .OPT Format Technical Notes
-
-![.OPT binary chunk architecture and laterality encoding](figures/Figure1.png)
 
 - **Laterality**: inferred from the arithmetic sign of OCTPARAMS tag 23 (foveal horizontal position in mm); validated at 100% across 18 files from two device models and three software versions.
 - **Calibrated PixelSpacing**: derived from scan parameters in the PARAMS.DAT chunk; all `OphthalmicTomographyImageStorage` instances include `PixelSpacing` with real µm/px scale.
