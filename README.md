@@ -79,7 +79,6 @@ input/REVO/*.opt                input/CIRRUS/*.EX.DCM
 
 | Módulo | Función |
 |---|---|
-| `noel_id.py` | Protocolo NOEL — PatientID: `paterno[:2]+materno[0]+nombre[0]+YYYYMMDD` |
 | `clinical_data.py` | Dataclasses: `OCTClinicalData`, `ETDRSGrid`, `RNFLSectors`, `VisualFieldData` (PTS) |
 | `opt_extractor.py` | Metadatos de `.opt` Revo FC130: filename, PARAMS.DAT zlib, MYOPI JSON (biometría), detección de tipo de scan por chunks y dimensiones |
 | `revo_opt_reader.py` | B-scans `.opt` → `OphthalmicTomographyImageStorage` + SLO/ENFACE/ANGPRV/OCTA_MIP → `OphthalmicPhotography8Bit` + CMT/ETDRS/pRNFL/mRNFL/mGCIPL desde segmentación |
@@ -152,16 +151,6 @@ Los Structured Reports siguen TID 1500/1501 con contexto anatómico completo. Ca
 | CCT — grosor corneal central | `397545004` | mm |
 | K1 — queratometría meridiano plano | `252014009` | mm |
 | K2 — queratometría meridiano curvo | `252016006` | mm |
-
-## Protocolo NOEL
-
-PatientID estándar para DICOM en RetinaOS:
-
-```
-apellido_paterno[:2] + apellido_materno[0] + nombre[0] + YYYYMMDD
-```
-
-Ejemplo: JESUS NOEL JAURRIETA HINOJOS, 1987-08-31 → **`JAHJ19870831`**
 
 ## Aviso regulatorio
 
@@ -246,7 +235,6 @@ python -m transducin.revo_opt_reader input/REVO/archivo.opt -o Output/
 python transducin/verify_sr.py Output/sr/archivo_SR.dcm
 
 # Self-tests de módulos
-python -m transducin.noel_id
 python -m transducin.opt_extractor
 python -m transducin.sr_builder
 python -m transducin.verify_sr
@@ -303,7 +291,6 @@ El watcher acepta configuración vía variables de entorno o argumentos CLI:
 ```
 Transducin/
 ├── transducin/              # Módulos propios RetinaOS
-│   ├── noel_id.py
 │   ├── clinical_data.py
 │   ├── opt_extractor.py
 │   ├── revo_opt_reader.py
