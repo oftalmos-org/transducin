@@ -11,7 +11,7 @@ Multi-vendor OCT → DICOM pipeline for [RetinaOS](https://github.com/oftalmos-o
 
 Transducin generating a TID 1500 SR from a Revo FC130 `.OPT` file and displaying it in OHIF Viewer:
 
-https://github.com/oftalmos-org/transducin/raw/main/docs/demo/Transducin_in_OHIF_example_video.mp4
+https://github.com/oftalmos-org/transducin/raw/main/demo/Transducin_in_OHIF_example_video.mp4
 
 ## Roadmap
 
