@@ -1,0 +1,29 @@
+=================================================================
+TRANSDUCIN — FULL CORPUS BATCH RESULTS (v2, auto-discovered)
+=================================================================
+Corpus root                : C:\Developer\RetinaDev\proyectos\dicom opt
+Total archivos              : 372
+Parse success               : 372/372 (100.0%)
+Parse failed                : 0
+
+-- Tipos de adquisicion (archivos exitosos) --
+  macular               204
+  optic_nerve           81
+  fundus                48
+  angio                 14
+  wide_field            9
+  biometry              7
+  ultra_wide            5
+  hd_line               3
+  anterior_segment      1
+
+-- Maculares por grupo site/device/version (para Figura 3) --
+  CUU FC130 21.1.2           n=126   CMT valido=81
+  CUU FC130 21.5.0           n=2     CMT valido=2
+  QRO REVO130 11.5.x         n=22    CMT valido=13
+  QRO REVO60 11.5.x          n=54    CMT valido=54
+
+Maculares totales           : 204
+CMT extraido                : 150/204 (73.5%)
+
+CSV: C:\Developer\RetinaOS\Transducin\validation\full_corpus_results_v2.csv

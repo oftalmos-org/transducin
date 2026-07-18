@@ -1,0 +1,39 @@
+TABLE 3 / TABLE 4-5 SITE BREAKDOWN (agregado, sin PHI)
+============================================================
+
+-- Parse success/fail por sitio --
+  CUU: OK=284  FAIL=0
+  QRO: OK=88  FAIL=0
+
+-- Por sitio x tipo de adquisicion (para Tabla 3) --
+  angio                CUU=11  QRO=3
+  anterior_segment     CUU=0  QRO=1
+  biometry             CUU=5  QRO=2
+  fundus               CUU=48  QRO=0
+  hd_line              CUU=3  QRO=0
+  macular              CUU=128  QRO=76
+  optic_nerve          CUU=78  QRO=3
+  ultra_wide           CUU=4  QRO=1
+  wide_field           CUU=7  QRO=2
+
+-- Por sitio x dispositivo x tipo (para Tabla 4/5, detalle Site B) --
+  CUU / FC130 / angio               n=11
+  CUU / FC130 / biometry            n=5
+  CUU / FC130 / fundus              n=48
+  CUU / FC130 / hd_line             n=3
+  CUU / FC130 / macular             n=128
+  CUU / FC130 / optic_nerve         n=78
+  CUU / FC130 / ultra_wide          n=4
+  CUU / FC130 / wide_field          n=7
+  QRO / REVO130 / angio               n=1
+  QRO / REVO130 / anterior_segment    n=1
+  QRO / REVO130 / biometry            n=2
+  QRO / REVO130 / macular             n=22
+  QRO / REVO130 / optic_nerve         n=1
+  QRO / REVO60 / angio               n=2
+  QRO / REVO60 / macular             n=54
+  QRO / REVO60 / optic_nerve         n=2
+  QRO / REVO60 / ultra_wide          n=1
+  QRO / REVO60 / wide_field          n=2
+
+Sitios encontrados: ['CUU', 'QRO']

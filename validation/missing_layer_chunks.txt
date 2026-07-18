@@ -1,0 +1,117 @@
+======================================================================
+Chunks presentes cuando falta TOP/BM/NFL (busca fallback candidato)
+======================================================================
+
+Archivos con TOP ausente (macular): 52
+Archivos con BM+BOTTOM ausentes (macular): 52
+Archivos con NFL ausente (optic_nerve): 32
+
+-- Otros chunks presentes cuando TOP falta (macular) --
+    52x  T82
+    52x  T6
+    52x  PARAMS
+    52x  T55
+    52x  T39
+    52x  T109
+    52x  FNDCORRLINK
+    52x  T113
+    52x  T63
+    52x  T155
+    52x  T22
+    52x  T99
+    52x  T57
+    52x  T20
+    52x  T17
+    52x  T95
+    52x  T37
+    52x  T35
+    52x  T19
+    52x  T26
+    52x  T70
+    52x  T9
+    52x  T85
+    52x  T114
+    52x  T65
+    52x  T78
+    52x  T93
+    52x  T11
+    52x  T8
+    52x  T104
+
+-- Otros chunks presentes cuando BM+BOTTOM faltan (macular) --
+    52x  T82
+    52x  T6
+    52x  PARAMS
+    52x  T55
+    52x  T39
+    52x  T109
+    52x  FNDCORRLINK
+    52x  T113
+    52x  T63
+    52x  T155
+    52x  T22
+    52x  T99
+    52x  T57
+    52x  T20
+    52x  T17
+    52x  T95
+    52x  T37
+    52x  T35
+    52x  T19
+    52x  T26
+    52x  T70
+    52x  T9
+    52x  T85
+    52x  T114
+    52x  T65
+    52x  T78
+    52x  T93
+    52x  T11
+    52x  T8
+    52x  T104
+
+-- Otros chunks presentes cuando NFL falta (optic_nerve) --
+    32x  T82
+    32x  T6
+    32x  PARAMS
+    32x  T55
+    32x  T184
+    32x  T39
+    32x  T109
+    32x  FNDCORRLINK
+    32x  T113
+    32x  T63
+    32x  T155
+    32x  T22
+    32x  T99
+    32x  T57
+    32x  T20
+    32x  T17
+    32x  T95
+    32x  T37
+    32x  T35
+    32x  T171
+    32x  T19
+    32x  T26
+    32x  T70
+    32x  T9
+    32x  T85
+    32x  T114
+    32x  T188
+    32x  T65
+    32x  T78
+    32x  T93
+
+-- Por grupo --
+
+  CUU FC130 21.1.2:
+      34  top_missing
+      34  bm_and_bottom_missing
+      25  nfl_missing
+      25  top_missing_optic_nerve
+
+  CUU FC130 21.5.0:
+      18  top_missing
+      18  bm_and_bottom_missing
+       7  nfl_missing
+       7  top_missing_optic_nerve

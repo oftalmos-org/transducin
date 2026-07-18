@@ -1,0 +1,26 @@
+======================================================================
+GCL/INL rescue check -- para archivos con TOP/BM/NFL ausentes
+======================================================================
+
+-- MACULAR (subset con top_or_bm_missing) --
+    52  gcl_or_inl_also_missing
+
+-- MACULAR por grupo --
+
+  CUU FC130 21.1.2:
+      34  gcl_or_inl_also_missing
+
+  CUU FC130 21.5.0:
+      18  gcl_or_inl_also_missing
+
+======================================================================
+-- OPTIC_NERVE (subset con nfl_or_top_missing) --
+    32  gcl_or_inl_also_missing
+
+-- OPTIC_NERVE por grupo --
+
+  CUU FC130 21.1.2:
+      25  gcl_or_inl_also_missing
+
+  CUU FC130 21.5.0:
+       7  gcl_or_inl_also_missing

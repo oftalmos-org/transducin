@@ -1,0 +1,103 @@
+======================================================================
+CMT Kruskal-Wallis + failure-mode tally
+======================================================================
+
+-- n y CMT-valido por grupo --
+  ('CUU', 'FC130', '21.1.2'): valido=81  fallido=45  total=126
+  ('CUU', 'FC130', '21.5.0'): valido=28  fallido=24  total=52
+  ('QRO', 'REVO130', '11.5.x'): valido=13  fallido=9  total=22
+  ('QRO', 'REVO60', '11.5.x'): valido=54  fallido=0  total=54
+
+-- Kruskal-Wallis, 4 grupos separados -- H=4.094 p=0.2515
+-- Kruskal-Wallis, 3 grupos (Site A combinado) -- H=3.655 p=0.1608
+
+-- Tally de tipo de error (fallos de CMT), por grupo --
+   (mensaje de error truncado, SIN nombre de archivo)
+
+  Grupo ('CUU', 'FC130', '21.1.2') (45 fallos):
+     45x  no_measurement_cmt_patch_invalido
+
+  Grupo ('CUU', 'FC130', '21.5.0') (24 fallos):
+     24x  no_measurement_cmt_patch_invalido
+
+  Grupo ('QRO', 'REVO130', '11.5.x') (9 fallos):
+      9x  no_measurement_cmt_patch_invalido
+
+======================================================================
+OPTIC NERVE -- exito/fallo (rnfl_present) por grupo
+======================================================================
+  ('CUU', 'FC130', '21.1.2'): exitoso=53  fallido=25  total=78
+  ('CUU', 'FC130', '21.5.0'): exitoso=17  fallido=7  total=24
+  ('QRO', 'REVO130', '11.5.x'): exitoso=1  fallido=0  total=1
+  ('QRO', 'REVO60', '11.5.x'): exitoso=2  fallido=0  total=2
+  TOTAL: exitoso=73  fallido=32  (optic_nerve)
+
+  -- tipo de error, por grupo --
+
+  Grupo ('CUU', 'FC130', '21.1.2') (25 fallos):
+     25x  no_measurement_rnfl_capas_invalidas
+
+  Grupo ('CUU', 'FC130', '21.5.0') (7 fallos):
+      7x  no_measurement_rnfl_capas_invalidas
+
+======================================================================
+BIOMETRY -- exito/fallo (biometry_present) por grupo
+======================================================================
+  ('CUU', 'FC130', '21.1.2'): exitoso=2  fallido=3  total=5
+  ('CUU', 'FC130', '21.5.0'): exitoso=0  fallido=5  total=5
+  ('QRO', 'REVO130', '11.5.x'): exitoso=0  fallido=2  total=2
+  TOTAL: exitoso=2  fallido=10  (biometry)
+
+  -- tipo de error, por grupo --
+
+  Grupo ('CUU', 'FC130', '21.1.2') (3 fallos):
+      3x  no_measurement_sin_nota
+
+  Grupo ('CUU', 'FC130', '21.5.0') (5 fallos):
+      5x  no_measurement_sin_nota
+
+  Grupo ('QRO', 'REVO130', '11.5.x') (2 fallos):
+      2x  no_measurement_sin_nota
+
+======================================================================
+MACULAR -- exito/fallo (etdrs_present) por grupo
+======================================================================
+  ('CUU', 'FC130', '21.1.2'): exitoso=87  fallido=39  total=126
+  ('CUU', 'FC130', '21.5.0'): exitoso=34  fallido=18  total=52
+  ('QRO', 'REVO130', '11.5.x'): exitoso=0  fallido=22  total=22
+  ('QRO', 'REVO60', '11.5.x'): exitoso=0  fallido=54  total=54
+  TOTAL: exitoso=121  fallido=133  (macular)
+
+  -- tipo de error, por grupo --
+
+  Grupo ('CUU', 'FC130', '21.1.2') (39 fallos):
+     36x  no_measurement_cmt_patch_invalido
+      3x  (sin mensaje de error)
+
+  Grupo ('CUU', 'FC130', '21.5.0') (18 fallos):
+     18x  no_measurement_cmt_patch_invalido
+
+  Grupo ('QRO', 'REVO130', '11.5.x') (22 fallos):
+     13x  (sin mensaje de error)
+      9x  no_measurement_cmt_patch_invalido
+
+  Grupo ('QRO', 'REVO60', '11.5.x') (54 fallos):
+     54x  (sin mensaje de error)
+
+======================================================================
+MACULAR -- exito/fallo (mRNFL / rnfl_present) por grupo
+======================================================================
+  ('CUU', 'FC130', '21.1.2'): exitoso=89  fallido=37  total=126
+  ('CUU', 'FC130', '21.5.0'): exitoso=34  fallido=18  total=52
+  ('QRO', 'REVO130', '11.5.x'): exitoso=22  fallido=0  total=22
+  ('QRO', 'REVO60', '11.5.x'): exitoso=54  fallido=0  total=54
+  TOTAL: exitoso=199  fallido=55  (macular)
+
+  -- tipo de error, por grupo --
+
+  Grupo ('CUU', 'FC130', '21.1.2') (37 fallos):
+     34x  no_measurement_cmt_patch_invalido
+      3x  (sin mensaje de error)
+
+  Grupo ('CUU', 'FC130', '21.5.0') (18 fallos):
+     18x  no_measurement_cmt_patch_invalido

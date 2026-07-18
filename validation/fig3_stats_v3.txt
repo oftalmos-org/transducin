@@ -1,0 +1,11 @@
+CMT distribution -- regenerated from corpus_audit_results.csv (475-file corpus)
+======================================================================
+  Site A FC130 SOCT 21.1.2     n=81
+  Site A FC130 SOCT 21.5.0     n=28
+  Site B REVO60 SOCT 11.5.x    n=54
+  Site B REVO130 SOCT 11.5.x   n=13
+
+Total CMT-valid macular scans : 176
+Kruskal-Wallis H              : 4.094
+p-value                       : 0.2515
+Significant (p<0.05)          : no

@@ -1,0 +1,51 @@
+======================================================================
+CMT / RNFL geometry root-cause diagnosis
+======================================================================
+
+-- MACULAR (compute_cmt) buckets, total --
+   176  ok
+    52  top_or_bm_missing
+    23  sqi_zeroed_center
+     3  center_out_of_range
+
+-- MACULAR buckets por grupo --
+
+  CUU FC130 21.1.2:
+      81  ok
+      34  top_or_bm_missing
+       9  sqi_zeroed_center
+       2  center_out_of_range
+
+  CUU FC130 21.5.0:
+      28  ok
+      18  top_or_bm_missing
+       5  sqi_zeroed_center
+       1  center_out_of_range
+
+  QRO REVO130 11.5.x:
+      13  ok
+       9  sqi_zeroed_center
+
+  QRO REVO60 11.5.x:
+      54  ok
+
+======================================================================
+-- OPTIC_NERVE (compute_peripapillary_rnfl) buckets, total --
+    73  ok
+    32  nfl_or_top_missing
+
+-- OPTIC_NERVE buckets por grupo --
+
+  CUU FC130 21.1.2:
+      53  ok
+      25  nfl_or_top_missing
+
+  CUU FC130 21.5.0:
+      17  ok
+       7  nfl_or_top_missing
+
+  QRO REVO130 11.5.x:
+       1  ok
+
+  QRO REVO60 11.5.x:
+       2  ok

@@ -1,0 +1,36 @@
+=================================================================
+TRANSDUCIN — FULL CORPUS BATCH RESULTS
+=================================================================
+Total archivos             : 351
+Parse success              : 351/351 (100.0%)
+Parse failed               : 0
+
+── Por dispositivo / versión SOCT ──
+  FC130 21.1.2               280/280 (100.0%)
+  FC130 21.5.0               4/4 (100.0%)
+  REVO60 11.5.x              61/61 (100.0%)
+  REVO130 11.5.x             6/6 (100.0%)
+
+── Tipos de adquisición (archivos exitosos) ──
+  macular               183
+  optic_nerve           81
+  fundus                48
+  angio                 14
+  wide_field            9
+  biometry              7
+  ultra_wide            5
+  hd_line               3
+  anterior_segment      1
+
+── Métricas clínicas extraídas ──
+  Lateralidad conocida       : 349/351 (99.4%)
+  NOEL ID resuelto           : 48/351 (13.7%)
+  Confianza 'confirmed'      : 0/351 (0.0%)
+  Maculares procesados       : 183
+  CMT extraído               : 138/183 (75.4%)
+  CMT media ± (ver CSV)      : 305.5 µm
+  RNFL peripapillar          : 202
+  C/D ratio                  : 56
+  Biometría                  : 2
+
+CSV: /Users/home/Developer/RetinaOS/Transducin/validation/full_corpus_results.csv

@@ -1,0 +1,66 @@
+======================================================================
+CORPUS AUDIT -- validation/corpus_audit.py
+======================================================================
+Corpus root                  : C:\Developer\RetinaDev\proyectos\dicom opt
+Light-tier budget            : 800000 bytes
+Total archivos .opt          : 475
+Parse success / fail          : 475/475 (100.0%)
+Tier 1 (ligero, sin escalar)  : 36
+Tier 2 (pesado, medicion)     : 439
+
+-- Site x Device x SOCT version (conteo de archivos) --
+  CUU FC130 21.1.2                n=280
+  CUU FC130 21.5.0                n=107
+  QRO REVO130 11.5.x              n=27
+  QRO REVO60 11.5.x               n=61
+
+-- Site x Device x SOCT version x Tipo de adquisicion --
+  CUU FC130 21.1.2 angio                    n=11
+  CUU FC130 21.1.2 biometry                 n=5
+  CUU FC130 21.1.2 fundus                   n=48
+  CUU FC130 21.1.2 hd_line                  n=3
+  CUU FC130 21.1.2 macular                  n=126
+  CUU FC130 21.1.2 optic_nerve              n=78
+  CUU FC130 21.1.2 ultra_wide               n=4
+  CUU FC130 21.1.2 wide_field               n=5
+  CUU FC130 21.5.0 angio                    n=2
+  CUU FC130 21.5.0 biometry                 n=5
+  CUU FC130 21.5.0 fundus                   n=18
+  CUU FC130 21.5.0 hd_line                  n=4
+  CUU FC130 21.5.0 macular                  n=52
+  CUU FC130 21.5.0 optic_nerve              n=24
+  CUU FC130 21.5.0 wide_field               n=2
+  QRO REVO130 11.5.x angio                  n=1
+  QRO REVO130 11.5.x biometry               n=2
+  QRO REVO130 11.5.x hd_line                n=1
+  QRO REVO130 11.5.x macular                n=22
+  QRO REVO130 11.5.x optic_nerve            n=1
+  QRO REVO60 11.5.x angio                   n=2
+  QRO REVO60 11.5.x macular                 n=54
+  QRO REVO60 11.5.x optic_nerve             n=2
+  QRO REVO60 11.5.x ultra_wide              n=1
+  QRO REVO60 11.5.x wide_field              n=2
+
+-- CMT valido en maculares, por grupo --
+  CUU FC130 21.1.2                n=126   CMT valido=81
+  CUU FC130 21.5.0                n=52    CMT valido=28
+  QRO REVO130 11.5.x              n=22    CMT valido=13
+  QRO REVO60 11.5.x               n=54    CMT valido=54
+  TOTAL macular: 254   CMT extraido: 176/254 (69.3%)
+
+-- Cross-check heuristico path-vs-contenido (firma de dispositivo en StudyUID) --
+   (heuristica, no prueba definitiva -- ver CSV local para NOEL_ID/carpeta de los marcados)
+  Grupos site/device revisados  : 3
+  Grupos con firma mixta        : 0
+  Archivos en firma minoritaria : 0
+
+-- Edad por paciente unico (derivada de NOEL_ID + study_date, sin fechas crudas) --
+  Pacientes con edad calculable : 27 (de 27 en el NOEL index)
+  Rango                         : 10-79 anios
+  Mediana                       : 61 anios
+    0-19: n=2
+    20-39: n=5
+    40-59: n=5
+    60-79: n=15
+
+CSV por archivo (LOCAL -- no pegar al chat): C:\Developer\RetinaOS\Transducin\validation\corpus_audit_results.csv

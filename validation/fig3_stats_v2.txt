@@ -1,0 +1,11 @@
+CMT distribution — regenerated from full_corpus_results_v2.csv
+============================================================
+  CUU FC130 21.1.2          n=81
+  CUU FC130 21.5.0          n=2
+  QRO REVO130 11.5.x        n=13
+  QRO REVO60 11.5.x         n=54
+
+Total CMT-valid macular scans : 150
+Kruskal-Wallis H              : 6.971
+p-value                       : 0.0728
+Significant (p<0.05)          : no
