@@ -2,6 +2,9 @@
 # Private working notes — not part of the public distribution
 paper_notes.md
 
+# Internal handoff notes with patient-adjacent data — never publish
+validation/HANDOFF_*.md
+
 # One-shot PACS maintenance scripts with real patient IDs — never publish
 fix_cirrus_pids.py
 fix_cirrus_merges.py

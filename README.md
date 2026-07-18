@@ -1,8 +1,28 @@
 # Transducin 1.0.0
 
+[![medRxiv](https://img.shields.io/badge/medRxiv-10.64898%2F2026.07.14.26357256-B31B1B.svg)](https://doi.org/10.64898/2026.07.14.26357256)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20031717.svg)](https://doi.org/10.5281/zenodo.20031717)
 
-Pipeline multivendor OCT → DICOM para [RetinaOS](https://github.com/oftalmos-org). Convierte archivos propietarios de tomógrafos oftalmológicos a DICOM estándar, extrae mediciones clínicas (CMT, ETDRS 9 sectores, mRNFL/pRNFL, mGCIPL, biometría), genera Structured Reports TID 1500 con contexto anatómico y los envía a Orthanc PACS vía C-STORE.
+> **⚠️ Research use only / Solo para uso en investigación.** Transducin is a
+> research pipeline for parsing proprietary OCT formats and generating
+> standard DICOM Structured Reports. It has not received regulatory
+> clearance or approval from any health authority (COFEPRIS, FDA, CE
+> marking, or equivalent) for clinical use. It performs no diagnostic
+> classification or interpretation — it reproduces, in standard DICOM form,
+> quantitative measurements already computed by the source device's own
+> firmware. **This software must not be used for clinical diagnosis,
+> treatment decisions, or patient management.**
+>
+> Transducin es un pipeline de investigación para parsear formatos
+> propietarios de OCT y generar Structured Reports DICOM estándar. No ha
+> recibido autorización regulatoria de ninguna autoridad sanitaria
+> (COFEPRIS, FDA, marcado CE u equivalente) para uso clínico. No realiza
+> clasificación ni interpretación diagnóstica — reproduce, en formato DICOM
+> estándar, mediciones cuantitativas ya calculadas por el firmware propio
+> del equipo fuente. **Este software no debe utilizarse para diagnóstico
+> clínico, decisiones terapéuticas ni manejo de pacientes.**
+
+Pipeline multivendor OCT → DICOM para [RetinaOS](https://github.com/oftalmos-org/transducin). Convierte archivos propietarios de tomógrafos oftalmológicos a DICOM estándar, extrae mediciones clínicas (CMT, ETDRS 9 sectores, mRNFL/pRNFL, mGCIPL, biometría), genera Structured Reports TID 1500 con contexto anatómico y los envía a Orthanc PACS vía C-STORE.
 
 ## Demo
 
