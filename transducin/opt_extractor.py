@@ -918,37 +918,37 @@ if __name__ == "__main__":
 
     print("\n══ Filename parsing ══")
 
-    # Archivo con NOEL prefix
-    with_noel = OPT_DIR / "JAHJ19870831_JAURRIETA HINOJOS_JESUS NOEL_20260226_152342_Color_fundus_OS.opt"
-    if with_noel.exists():
-        cd = extract_from_opt(with_noel)
-        check("noel_id desde filename", cd.noel_id, "JAHJ19870831")
+    # File with standardized PatientID prefix
+    with_id = OPT_DIR / "SYPA00000000_SYNTHETIC PATIENT_DEMO_20260101_000000_Color_fundus_OS.opt"
+    if with_id.exists():
+        cd = extract_from_opt(with_id)
+        check("noel_id from filename", cd.noel_id, "SYPA00000000")
         check("laterality OS→L", cd.laterality, "L")
-        check("study_date", cd.study_date, "20260226")
+        check("study_date", cd.study_date, "20260101")
         check("study_type fundus", cd.study_type, "fundus")
         check("confidence ≥ assumed", cd.extraction_confidence in ("assumed", "confirmed"), True)
     else:
-        print(f"  ⚠ Archivo no encontrado: {with_noel.name}")
+        print(f"  ⚠ File not found: {with_id.name}")
 
-    # Archivo sin NOEL prefix
-    no_noel = OPT_DIR / "JAURRIETA HINOJOS_JESUS NOEL_20260226_152342_OS_OCT.opt"
-    if no_noel.exists():
-        cd2 = extract_from_opt(no_noel)
-        check("laterality OS→L (sin noel)", cd2.laterality, "L")
-        check("study_date (sin noel)", cd2.study_date, "20260226")
+    # File without PatientID prefix
+    no_id = OPT_DIR / "SYNTHETIC PATIENT_DEMO_20260101_000000_OS_OCT.opt"
+    if no_id.exists():
+        cd2 = extract_from_opt(no_id)
+        check("laterality OS→L (no prefix)", cd2.laterality, "L")
+        check("study_date (no prefix)", cd2.study_date, "20260101")
         check("study_type OCT→macular", cd2.study_type, "macular")
-        check("patient_name presente", bool(cd2.patient_name), True)
+        check("patient_name present", bool(cd2.patient_name), True)
     else:
-        print(f"  ⚠ Archivo no encontrado: {no_noel.name}")
+        print(f"  ⚠ File not found: {no_id.name}")
 
-    # Biometría
-    bmetr = OPT_DIR / "JAURRIETA HINOJOS_JESUS NOEL_20260226_154740_OS_BMETR.opt"
+    # Biometry
+    bmetr = OPT_DIR / "SYNTHETIC PATIENT_DEMO_20260101_000000_OS_BMETR.opt"
     if bmetr.exists():
         cd3 = extract_from_opt(bmetr)
         check("BMETR → biometry", cd3.study_type, "biometry")
         check("laterality OS→L", cd3.laterality, "L")
     else:
-        print(f"  ⚠ Archivo no encontrado: {bmetr.name}")
+        print(f"  ⚠ File not found: {bmetr.name}")
 
     print("\n══ DEMO files ══")
     demo = Path("input/REVO/20260309_103910 (1)/DEMO_DEMO_20260226_145352_OD_OCT.opt")
@@ -963,5 +963,5 @@ if __name__ == "__main__":
     else:
         print(f"  ⚠ Archivo no encontrado: {demo.name}")
 
-    print(f"\n{'══ TODOS LOS TESTS PASARON ══' if errors==0 else f'══ {errors} FALLARON ══'}\n")
+    print(f"\n{'══ ALL TESTS PASSED ══' if errors == 0 else f'══ {errors} FAILED ══'}\n")
     sys.exit(0 if errors == 0 else 1)
