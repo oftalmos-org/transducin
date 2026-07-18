@@ -33,7 +33,6 @@ https://github.com/oftalmos-org/transducin/raw/main/docs/demo/Transducin_in_OHIF
 - [ ] Heidelberg Spectralis `.e2e`, Topcon `.fds`/`.fda`, Bioptigen `.OCT` via oct-converter
 - [ ] Visual field SR TID 6002 (Supplement 247 — pending highdicom [#406](https://github.com/ImagingDataCommons/highdicom/issues/406))
 - [ ] OCT SR migration to DICOM Supplement 247 TID 6001–6007
-- [ ] Revo FC130 PATIENT.DAT decryption (requires vendor key or reverse engineering)
 
 ## Architecture
 
