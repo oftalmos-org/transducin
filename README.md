@@ -1,16 +1,18 @@
 # Transducin 1.0.0
 
+![Transducin — Multivendor OCT → DICOM Pipeline](banner.png)
+
 [![medRxiv](https://img.shields.io/badge/medRxiv-10.64898%2F2026.07.14.26357256-B31B1B.svg?style=flat-square)](https://doi.org/10.64898/2026.07.14.26357256)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20031717.svg)](https://doi.org/10.5281/zenodo.20031717)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg?style=flat-square)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square&logo=python&logoColor=white)](https://github.com/oftalmos-org/transducin)
 [![DICOM](https://img.shields.io/badge/DICOM-TID%201500%20%2F%20Sup%20247-lightgrey?style=flat-square)](https://dicom.nema.org)
 
-![.OPT binary chunk architecture and laterality encoding](figures/Figure1.png)
-
 > **⚠️ Research use only.** Transducin is a research pipeline for parsing proprietary OCT formats and generating standard DICOM Structured Reports. It has not received regulatory clearance or approval from any health authority (COFEPRIS, FDA, CE marking, or equivalent) for clinical use. It performs no diagnostic classification or interpretation — it reproduces, in standard DICOM form, quantitative measurements already computed by the source device's own firmware. **This software must not be used for clinical diagnosis, treatment decisions, or patient management.**
 
 Multi-vendor OCT → DICOM pipeline for [RetinaOS](https://github.com/oftalmos-org/transducin). Converts proprietary ophthalmic OCT files to standard DICOM, extracts clinical measurements (CMT, ETDRS 9-sector grid, mRNFL/pRNFL, mGCIPL, biometry), generates TID 1500 Structured Reports with full anatomic context, and sends them to an Orthanc PACS via C-STORE.
+
+![Pipeline overview: proprietary input formats → Transducin → DICOM SR TID 1500](figures/pipeline_overview.png)
 
 ## Demo
 
@@ -106,6 +108,8 @@ Detection based on chunks present (ANGPRV, DMARKERS, EYE) and `n_bscans × n_asc
 | `fundus` | Color_fundus (from filename) | skipped (no measurements) |
 
 ## .OPT Format Technical Notes
+
+![.OPT binary chunk architecture and laterality encoding](figures/Figure1.png)
 
 - **Laterality**: inferred from the arithmetic sign of OCTPARAMS tag 23 (foveal horizontal position in mm); validated at 100% across 18 files from two device models and three software versions.
 - **Calibrated PixelSpacing**: derived from scan parameters in the PARAMS.DAT chunk; all `OphthalmicTomographyImageStorage` instances include `PixelSpacing` with real µm/px scale.
