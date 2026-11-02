@@ -1,0 +1,85 @@
+{
+  "_comment": "Protocolo de visualización por tipo de adquisición OCT. Usado por el web dashboard y por Gass (visor DICOM) para decidir qué imagen thumbnail mostrar y qué overlays clínicos renderizar. Editable desde el dashboard en Settings > Display Protocols.",
+  "_version": "1.0",
+
+  "macular": {
+    "thumbnail": "slo_enface",
+    "overlay": ["cmt_circle_1mm", "etdrs_grid_9sector"],
+    "primary_metric": "cmt_um",
+    "secondary_metrics": ["etdrs_central", "rnfl_global_um"],
+    "label_es": "OCT Macular",
+    "color": "#3B82F6"
+  },
+  "optic_nerve": {
+    "thumbnail": "slo_disc",
+    "overlay": ["cd_ratio_circle"],
+    "primary_metric": "cup_disc_ratio",
+    "secondary_metrics": ["rnfl_global_um", "disc_area_mm2"],
+    "label_es": "OCT Nervio Óptico",
+    "color": "#8B5CF6"
+  },
+  "angio": {
+    "thumbnail": "enface_flow",
+    "overlay": [],
+    "primary_metric": null,
+    "secondary_metrics": [],
+    "label_es": "OCTA",
+    "color": "#EF4444"
+  },
+  "biometry": {
+    "thumbnail": "none",
+    "overlay": ["measurements_table"],
+    "primary_metric": "axial_length_mm",
+    "secondary_metrics": ["cct_um", "k1_mm", "k2_mm"],
+    "label_es": "Biometría",
+    "color": "#10B981"
+  },
+  "wide_field": {
+    "thumbnail": "enface_wide",
+    "overlay": [],
+    "primary_metric": null,
+    "secondary_metrics": [],
+    "label_es": "OCT Campo Amplio",
+    "color": "#F59E0B"
+  },
+  "ultra_wide": {
+    "thumbnail": "enface_wide",
+    "overlay": [],
+    "primary_metric": null,
+    "secondary_metrics": [],
+    "label_es": "OCT Ultra-wide",
+    "color": "#F59E0B"
+  },
+  "hd_line": {
+    "thumbnail": "bscan_central",
+    "overlay": [],
+    "primary_metric": null,
+    "secondary_metrics": [],
+    "label_es": "OCT Línea HD",
+    "color": "#6B7280"
+  },
+  "fundus": {
+    "thumbnail": "color_fundus",
+    "overlay": [],
+    "primary_metric": null,
+    "secondary_metrics": [],
+    "label_es": "Retinografía",
+    "color": "#F97316"
+  },
+  "anterior_segment": {
+    "thumbnail": "bscan_central",
+    "overlay": [],
+    "primary_metric": null,
+    "secondary_metrics": [],
+    "label_es": "OCT Segmento Anterior",
+    "color": "#14B8A6"
+  },
+  "unknown": {
+    "thumbnail": "bscan_central",
+    "overlay": [],
+    "primary_metric": null,
+    "secondary_metrics": [],
+    "label_es": "OCT",
+    "color": "#6B7280"
+  }
+}
