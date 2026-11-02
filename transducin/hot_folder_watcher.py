@@ -61,6 +61,8 @@ ORTHANC_HTTP_USER  = os.environ.get("ORTHANC_HTTP_USER", "orthanc")
 ORTHANC_HTTP_PASS  = os.environ.get("ORTHANC_HTTP_PASS", "")
 ORTHANC_AET        = os.environ.get("ORTHANC_AET", "ORTHANC")
 LOCAL_AET          = os.environ.get("TRANSDUCIN_AET", "TRANSDUCIN")
+GRAEFE_WEBHOOK_URL    = os.environ.get("GRAEFE_WEBHOOK_URL", "")      # vacío = desactivado
+GRAEFE_INSTRUMENT_KEY = os.environ.get("GRAEFE_INSTRUMENT_KEY", "")
 
 
 def _orthanc_rest_url() -> str:
@@ -83,6 +85,69 @@ _EXT_CZM       = {".dcm"}          # cubre .dcm y .ex.dcm (suffix siempre .dcm)
 _EXT_PDF       = {".pdf"}          # Cirrus PDF reports (Macular Thickness, ONH+RNFL)
 
 ALL_WATCHED_EXTS = _EXT_REVO | _EXT_CZM | _EXT_PDF
+
+
+# ── Webhook Graefe ───────────────────────────────────────────────────────────
+
+def _notify_graefe(clinical_data: "OCTClinicalData", study_uid: str) -> None:
+    """Notifica a Graefe con un resumen del estudio recién procesado.
+
+    Fire-and-forget: máx 3 intentos con backoff. Nunca bloquea el pipeline.
+    No-op si GRAEFE_WEBHOOK_URL está vacío o clinical_data.noel_id está vacío.
+    """
+    import transducin.hot_folder_watcher as _self
+    url = _self.GRAEFE_WEBHOOK_URL
+    key = _self.GRAEFE_INSTRUMENT_KEY
+    if not url or not clinical_data.noel_id:
+        return
+
+    import json
+    import urllib.request
+    import urllib.error
+
+    study_dt = ""
+    if clinical_data.study_date:
+        d = clinical_data.study_date  # YYYYMMDD
+        t = clinical_data.study_time or "000000"  # HHMMSS
+        try:
+            study_dt = f"{d[:4]}-{d[4:6]}-{d[6:8]}T{t[:2]}:{t[2:4]}:{t[4:6]}"
+        except Exception:
+            study_dt = clinical_data.study_date
+
+    payload = {
+        "noel_id":          clinical_data.noel_id,
+        "study_uid":        study_uid,
+        "laterality":       clinical_data.laterality,
+        "acquisition_type": clinical_data.study_type,
+        "cmt_um":           clinical_data.cmt_um,
+        "rnfl_global_um":   (clinical_data.rnfl.global_avg if clinical_data.rnfl else None),
+        "sqi_mean":         clinical_data.sqi_mean,
+        "study_datetime":   study_dt,
+        "vendor":           clinical_data.vendor,
+        "device_serial":    clinical_data.device_serial,
+    }
+    body = json.dumps(payload).encode()
+    headers = {"Content-Type": "application/json"}
+    if key:
+        headers["X-Instrument-Key"] = key
+
+    endpoint = url.rstrip("/") + "/api/transducin/new-study"
+    for attempt in range(1, 4):
+        try:
+            req = urllib.request.Request(endpoint, data=body, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                if resp.status in (200, 201):
+                    logger.info("  Graefe notificado: %s %s", clinical_data.noel_id, clinical_data.study_type)
+                    return
+                logger.warning("  Graefe webhook status %d (intento %d/3)", resp.status, attempt)
+        except urllib.error.URLError as exc:
+            logger.warning("  Graefe webhook error (intento %d/3): %s", attempt, exc.reason)
+        except Exception as exc:
+            logger.warning("  Graefe webhook error inesperado (intento %d/3): %s", attempt, exc)
+        if attempt < 3:
+            time.sleep(attempt)  # 1s, 2s
+
+    logger.error("  Graefe webhook FALLIDO tras 3 intentos — pipeline continúa sin notificación")
 
 
 # ── C-STORE via pynetdicom ───────────────────────────────────────────────────
@@ -239,6 +304,7 @@ def process_opt_file(
 
     # 3. Generar DICOM SR (solo para estudios con mediciones clínicas y NOEL ID conocido)
     sr_path: Optional[Path] = None
+    _study_uid: str = ""  # se asigna si resolve_study_uid tiene éxito
     if clinical_data.study_type == "unknown" and not clinical_data.has_measurements():
         logger.info("  SR omitido: tipo '%s' sin mediciones.", clinical_data.study_type)
     elif not clinical_data.noel_id:
@@ -302,6 +368,8 @@ def process_opt_file(
 
     status = "OK" if success else "PARCIAL"
     logger.info("  Resultado: %s — %s", status, opt_path.name)
+
+    _notify_graefe(clinical_data, _study_uid)
     return success
 
 
