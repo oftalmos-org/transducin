@@ -4,7 +4,7 @@
 # Para NAS ARM64 (e.g. DS923+): usar --platform linux/arm64 en docker build
 #
 # Build:
-#   docker build -f deploy/Dockerfile -t transducin:1.0.0 .
+#   docker build -f deploy/Dockerfile -t transducin:1.1.0 .
 #
 # Run en Synology Container Manager:
 #   Volumen 1: /data/input/raw → /data/input/CZM (read-only, configure via OCT_BACKUP_PATH)
@@ -26,6 +26,7 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
         tesseract-ocr \
         tesseract-ocr-spa \
+        poppler-utils \
         libgl1 \
         libglib2.0-0 \
         libgomp1 \
@@ -50,13 +51,14 @@ RUN pip install --no-cache-dir --upgrade pip \
         pynetdicom \
         watchdog \
         Pillow \
-        pymupdf \
+        pdfplumber \
+        pdf2image \
         pytesseract \
-        construct \
-        natsort \
-        opencv-python-headless \
-        scipy \
-    && pip install --no-cache-dir pynetdicom
+        fastapi \
+        "uvicorn[standard]" \
+        httpx \
+        asyncpg \
+        psutil
 
 # ── Copiar código fuente ───────────────────────────────────────────────────────
 COPY transducin/ ./transducin/

@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.1.0] — 2026-11-02
+
+### Fixes
+- **Versión sincronizada**: `pyproject.toml`, `transducin/__init__.py` y `transducin/api.py` ahora reflejan el mismo número de versión; `[tool.bumpver.file_patterns]` actualizado para rastrear los tres archivos
+
+### Validation corpus
+- Añadidos resultados de corpus completo: `validation/full_corpus_results.csv` (351 archivos, 5 grupos dispositivo/site), `validation/full_corpus_stats.txt`, `validation/pipeline_stats.txt`
+- Script de validación: `validation/run_full_batch.py`
+
+### Diagnóstico CMT gap
+- Investigación del 25% de maculares sin CMT: todos corresponden a FC130 SOCT 21.1.2 con BOTTOM layer en ceros; no es un error del pipeline sino una limitación del segmentador open-source en patología estructural avanzada (drusen, fibrosis sub-RPE)
+
+---
+
 ## [1.0.0] — 2026-04-27
 
 Primera versión pública. Pipeline completo para:
