@@ -102,7 +102,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(
     title="Transducin API",
-    version="1.3.0",
+    version="1.1.0",
     description="Consulta clínica OCT desde Orthanc + almacenamiento con pgvector.",
     lifespan=lifespan,
 )
