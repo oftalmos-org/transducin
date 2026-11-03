@@ -31,7 +31,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from watchdog.events import FileCreatedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
@@ -78,13 +78,8 @@ CSTORE_RETRIES     = 3
 CSTORE_RETRY_DELAY = 5   # segundos entre reintentos
 SETTLE_DELAY       = 2   # segundos de espera tras detección (evita leer archivo incompleto)
 
-# ── Routing de formatos ───────────────────────────────────────────────────────
-# Extensiones que activan cada pipeline (minúsculas)
-_EXT_REVO      = {".opt"}
-_EXT_CZM       = {".dcm"}          # cubre .dcm y .ex.dcm (suffix siempre .dcm)
-_EXT_PDF       = {".pdf"}          # Cirrus PDF reports (Macular Thickness, ONH+RNFL)
-
-ALL_WATCHED_EXTS = _EXT_REVO | _EXT_CZM | _EXT_PDF
+# ── Routing de formatos — vía adapter registry ───────────────────────────────
+from transducin.adapter_registry import ALL_WATCHED_EXTENSIONS as ALL_WATCHED_EXTS, find_adapter
 
 
 # ── Webhook Graefe ───────────────────────────────────────────────────────────
@@ -375,17 +370,24 @@ def process_opt_file(
 
 
 
+_ADAPTER_DISPATCH: dict[str, Any] = {
+    "revo_opt":   lambda p, o, c: process_opt_file(p, o, do_cstore=c),
+    "cirrus_dcm": lambda p, o, c: process_czm_file(p, o, do_cstore=c),
+    "cirrus_pdf": lambda p, o, c: process_cirrus_pdf_file(p, o, do_cstore=c),
+}
+
+
 def _route_file(path: Path, output_dir: Path, do_cstore: bool) -> None:
-    """Despacha un archivo al pipeline correcto según su extensión."""
-    ext = path.suffix.lower()
-    if ext in _EXT_REVO:
-        process_opt_file(path, output_dir, do_cstore=do_cstore)
-    elif ext in _EXT_CZM:
-        process_czm_file(path, output_dir, do_cstore=do_cstore)
-    elif ext in _EXT_PDF:
-        process_cirrus_pdf_file(path, output_dir, do_cstore=do_cstore)
-    else:
-        logger.debug("  Extensión ignorada: %s", ext)
+    """Despacha un archivo al pipeline correcto según el adapter registry."""
+    adapter = find_adapter(path)
+    if adapter is None:
+        logger.debug("  Sin adapter para: %s", path.suffix)
+        return
+    fn = _ADAPTER_DISPATCH.get(adapter.adapter_id)
+    if fn is None:
+        logger.warning("  adapter_id=%r sin dispatcher — ignorado", adapter.adapter_id)
+        return
+    fn(path, output_dir, do_cstore)
 
 
 # ── Pipeline Cirrus CZM .DCM ────────────────────────────────────────────────
