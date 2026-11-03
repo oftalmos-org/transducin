@@ -31,11 +31,14 @@ import io
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
 import httpx
 import pydicom
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 logger = logging.getLogger("transducin.api")
@@ -341,6 +344,24 @@ async def health() -> dict:
     }
 
 
+@app.get("/stats")
+async def orthanc_stats() -> dict:
+    """Estadísticas agregadas de Orthanc — sin PHI (solo conteos y tamaño en disco)."""
+    http: httpx.AsyncClient = app.state.http
+    try:
+        resp = await http.get(f"{_ORTHANC_BASE}/statistics")
+        resp.raise_for_status()
+        d = resp.json()
+        return {
+            "studies":   d.get("CountStudies", 0),
+            "series":    d.get("CountSeries", 0),
+            "instances": d.get("CountInstances", 0),
+            "disk_mb":   round(float(d.get("TotalDiskSizeMB", 0)), 1),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Orthanc no disponible: {exc}")
+
+
 @app.get("/patients/{noel_id}/oct-latest", response_model=OCTLatestResponse)
 async def oct_latest(noel_id: str) -> OCTLatestResponse:
     """Retorna mediciones del SR DICOM más reciente del paciente (< 800 ms)."""
@@ -583,6 +604,18 @@ async def build_refraction(req: RefractionRequest) -> RefractionResponse:
     except Exception as exc:
         logger.error("POST /refraction error: %s", exc)
         return RefractionResponse(ok=False, detail=str(exc))
+
+
+# ── Dashboard web ─────────────────────────────────────────────────────────────
+
+_WEB_DIR = Path(__file__).parent / "web"
+if _WEB_DIR.exists():
+    app.mount("/dashboard", StaticFiles(directory=str(_WEB_DIR), html=True), name="dashboard")
+
+
+@app.get("/", include_in_schema=False)
+async def root_redirect() -> RedirectResponse:
+    return RedirectResponse(url="/dashboard/")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
