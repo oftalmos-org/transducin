@@ -142,27 +142,29 @@ test: add mock-based tests for TopconFdaAdapter
 
 ---
 
-## Dependencia oct-converter (fork)
+## Readers vendorizados (Spectralis / Topcon)
 
-El soporte Spectralis/Topcon usa un fork de
-[marksgraham/OCT-Converter](https://github.com/marksgraham/OCT-Converter):
+El soporte Spectralis/Topcon usa código vendorizado de
+[marksgraham/OCT-Converter](https://github.com/marksgraham/OCT-Converter) (MIT)
+en `transducin/readers/`:
 
 ```
-oftalmos-org/oct-converter — añade read_thickness_map() a E2E, FDA, FDS
+transducin/readers/e2e_reader.py  — parser Spectralis .e2e
+transducin/readers/fda_reader.py  — parser Topcon .fda/.fds
+transducin/readers/_e2e_binary.py — structs binarios Spectralis
+transducin/readers/_fda_binary.py — structs binarios Topcon
 ```
+
+Sin dependencia externa de oct-converter; solo se requiere `construct>=2.10`
+(ya incluida en `pyproject.toml`).
 
 Ver [ADR-022](../01-Architecture/ADRs/ADR-022-oct-converter-fork.md) para la
 decisión de arquitectura completa.
 
-Para activar la extracción de medidas cuantitativas (CMT, ETDRS, RNFL), cambiar
-en `pyproject.toml`:
-```toml
-# Upstream (solo imágenes):
-"oct-converter>=0.8.0",
-
-# Fork (imágenes + thickness maps):
-"oct-converter @ git+https://github.com/oftalmos-org/oct-converter.git@main",
-```
+La extracción de medidas cuantitativas (CMT, ETDRS, RNFL) se activará cuando
+lleguen archivos `.e2e`/`.fda` de muestra para validar los offsets de chunks
+propietarios del fabricante. Hasta entonces, `read_thickness_map()` devuelve
+`[]` y los SRs se generan sin medidas (comportamiento documentado).
 
 ---
 
