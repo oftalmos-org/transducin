@@ -3,9 +3,9 @@
 #
 # DeviceAdapter para Heidelberg Spectralis — archivos .e2e (HEYEX format).
 #
-# Usa oct-converter (oftalmos-org/oct-converter fork) para leer el binario.
-# Si el fork no está instalado (solo oct-converter upstream), extract() devuelve
-# OCTClinicalData con medidas None en lugar de fallar.
+# Usa el reader vendorizado en transducin/readers/e2e_reader.py (MIT, basado en
+# marksgraham/OCT-Converter). read_thickness_map() es un stub hasta que lleguen
+# archivos .e2e de muestra para validar los offsets de chunks propietarios.
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from typing import Optional
 
 from transducin.base_adapter import DeviceAdapter
 from transducin.clinical_data import ETDRSGrid, OCTClinicalData, RNFLSectors
+from transducin.readers.e2e_reader import E2EReader
 
 
 def _to_rnfl_sectors(d: Optional[dict]) -> Optional[RNFLSectors]:
@@ -62,15 +63,7 @@ class SpectralisE2EAdapter(DeviceAdapter):
         return "spectralis"
 
     def extract(self, path: Path) -> OCTClinicalData:
-        try:
-            from oct_converter.readers import E2E  # type: ignore[import]
-        except ImportError as exc:
-            raise ImportError(
-                "oct-converter no instalado. Instalar con: "
-                "pip install 'oct-converter @ git+https://github.com/oftalmos-org/oct-converter.git@main'"
-            ) from exc
-
-        reader = E2E(str(path))
+        reader = E2EReader(str(path))
 
         # ── Metadata básica desde el volumen OCT ──────────────────────────────
         laterality: Optional[str] = None

@@ -103,8 +103,7 @@ def test_find_adapter_fds():
 # ── extract() con mock oct-converter ─────────────────────────────────────────
 
 def test_spectralis_extract_with_thickness_map():
-    """extract() usa read_thickness_map() cuando está disponible (fork)."""
-    import sys
+    """extract() usa read_thickness_map() cuando está disponible."""
     from unittest.mock import patch as _patch
 
     mock_map = MagicMock()
@@ -119,14 +118,7 @@ def test_spectralis_extract_with_thickness_map():
     mock_reader.read_thickness_map.return_value = [mock_map]
     mock_reader.read_oct_volume.return_value = []
 
-    mock_e2e_cls = MagicMock(return_value=mock_reader)
-    mock_readers_module = MagicMock()
-    mock_readers_module.E2E = mock_e2e_cls
-
-    with _patch.dict("sys.modules", {
-        "oct_converter": MagicMock(),
-        "oct_converter.readers": mock_readers_module,
-    }):
+    with _patch("transducin.adapters.spectralis.E2EReader", return_value=mock_reader):
         data = SpectralisE2EAdapter().extract(Path("scan.e2e"))
 
     assert isinstance(data, OCTClinicalData)
