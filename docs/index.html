@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transducin — OCT to DICOM SR Pipeline</title>
+  <meta name="description" content="Open-source pipeline for ophthalmic OCT instruments → DICOM Structured Report conversion, with EHR integration.">
+  <style>
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --border:  #30363d;
+      --cyan:    #72dcff;
+      --green:   #3fb950;
+      --text:    #e6edf3;
+      --muted:   #8b949e;
+      --r:       8px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    a { color: var(--cyan); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code, pre {
+      font-family: "SF Mono", "Menlo", "Consolas", monospace;
+      font-size: .88em;
+    }
+    pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 16px 20px;
+      overflow-x: auto;
+      line-height: 1.5;
+    }
+    .container { max-width: 860px; margin: 0 auto; padding: 0 20px; }
+
+    /* ── Nav ── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(13,17,23,.92);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 0;
+    }
+    nav .inner {
+      max-width: 860px; margin: 0 auto; padding: 0 20px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .nav-logo { font-weight: 700; font-size: 16px; color: var(--text); }
+    .nav-logo span { color: var(--cyan); }
+    .nav-links { display: flex; gap: 20px; font-size: 13px; color: var(--muted); }
+    .nav-links a { color: var(--muted); }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+    /* ── Hero ── */
+    .hero {
+      padding: 72px 0 56px;
+      text-align: center;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: rgba(114,220,255,.1);
+      border: 1px solid rgba(114,220,255,.25);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 12px;
+      color: var(--cyan);
+      margin-bottom: 20px;
+      letter-spacing: .4px;
+    }
+    h1 {
+      font-size: clamp(28px, 6vw, 48px);
+      font-weight: 800;
+      line-height: 1.15;
+      margin-bottom: 18px;
+      letter-spacing: -.5px;
+    }
+    h1 em { color: var(--cyan); font-style: normal; }
+    .hero-sub {
+      font-size: 17px;
+      color: var(--muted);
+      max-width: 560px;
+      margin: 0 auto 32px;
+      line-height: 1.5;
+    }
+    .hero-buttons {
+      display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-block;
+      padding: 10px 22px;
+      border-radius: var(--r);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .btn:hover { opacity: .85; text-decoration: none; }
+    .btn-primary { background: var(--cyan); color: #000; }
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    /* ── Sections ── */
+    section { padding: 56px 0; border-top: 1px solid var(--border); }
+    h2 { font-size: 24px; font-weight: 700; margin-bottom: 24px; }
+    h3 { font-size: 16px; font-weight: 600; margin-bottom: 10px; }
+    p { color: var(--muted); margin-bottom: 12px; }
+
+    /* ── Device matrix ── */
+    .device-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+    }
+    .device-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 16px;
+    }
+    .device-card .vendor { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+    .device-card .model { font-weight: 600; margin-bottom: 6px; }
+    .device-card .status {
+      display: inline-block;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+    .status.supported { background: rgba(63,185,80,.15); color: var(--green); border: 1px solid rgba(63,185,80,.3); }
+    .status.planned   { background: rgba(139,148,158,.1);  color: var(--muted); border: 1px solid var(--border); }
+
+    /* ── Quickstart steps ── */
+    .steps { counter-reset: step; }
+    .step {
+      display: flex; gap: 16px; margin-bottom: 28px;
+    }
+    .step-num {
+      counter-increment: step;
+      flex-shrink: 0;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: rgba(114,220,255,.12);
+      border: 1px solid rgba(114,220,255,.3);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; color: var(--cyan);
+      margin-top: 2px;
+    }
+    .step-body h3 { margin-bottom: 6px; }
+    .step-body p { margin: 0 0 10px; font-size: 13px; }
+
+    /* ── Architecture diagram (text) ── */
+    .arch-diagram {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 20px 24px;
+      font-size: 13px;
+      color: var(--muted);
+      white-space: pre;
+      overflow-x: auto;
+      line-height: 1.6;
+    }
+    .arch-diagram .hi { color: var(--cyan); }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 28px 0;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="inner">
+    <span class="nav-logo">🔬 <span>Transducin</span></span>
+    <div class="nav-links">
+      <a href="#devices">Devices</a>
+      <a href="#quickstart">Quickstart</a>
+      <a href="#api">API</a>
+      <a href="https://github.com/oftalmos-org/transducin">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="container">
+
+  <!-- Hero -->
+  <div class="hero">
+    <div class="hero-badge">Open-source · Apache 2.0</div>
+    <h1>OCT instruments →<br><em>DICOM SR</em> in seconds</h1>
+    <p class="hero-sub">
+      Transducin converts proprietary ophthalmic OCT files into standard
+      DICOM Structured Reports (TID 1500), stores them in an Orthanc PACS,
+      and pushes measurements to your EHR automatically.
+    </p>
+    <div class="hero-buttons">
+      <a class="btn btn-primary" href="#quickstart">Get started</a>
+      <a class="btn btn-outline" href="https://github.com/oftalmos-org/transducin">View on GitHub</a>
+    </div>
+  </div>
+
+  <!-- Devices -->
+  <section id="devices">
+    <h2>Device support</h2>
+    <p>Transducin currently supports Nidek/Optovue instruments and is expanding to other major vendors.</p>
+    <div class="device-grid">
+      <div class="device-card">
+        <div class="vendor">Nidek / Optovue</div>
+        <div class="model">Avanti RTVue XR</div>
+        <span class="status supported">✓ Supported</span>
+      </div>
+      <div class="device-card">
+        <div class="vendor">Nidek / Optovue</div>
+        <div class="model">iVue / AngioVue</div>
+        <span class="status supported">✓ Supported</span>
+      </div>
+      <div class="device-card">
+        <div class="vendor">Zeiss</div>
+        <div class="model">Cirrus HD-OCT</div>
+        <span class="status supported">✓ Supported</span>
+      </div>
+      <div class="device-card">
+        <div class="vendor">Heidelberg</div>
+        <div class="model">Spectralis</div>
+        <span class="status planned">Planned</span>
+      </div>
+      <div class="device-card">
+        <div class="vendor">Topcon</div>
+        <div class="model">DRI OCT Triton</div>
+        <span class="status planned">Planned</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quickstart -->
+  <section id="quickstart">
+    <h2>Quickstart</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num"></div>
+        <div class="step-body">
+          <h3>Clone &amp; configure</h3>
+          <p>Create a <code>.env</code> file with your Orthanc connection and optional Graefe webhook.</p>
+          <pre>git clone https://github.com/oftalmos-org/transducin.git
+cd transducin
+cp .env.example .env
+# Edit .env: set ORTHANC_HOST, ORTHANC_HTTP_PASS, GRAEFE_WEBHOOK_URL</pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num"></div>
+        <div class="step-body">
+          <h3>Start with Docker Compose</h3>
+          <p>Spins up Transducin API + hot-folder watcher. Orthanc is assumed to be running separately.</p>
+          <pre>docker compose up -d</pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num"></div>
+        <div class="step-body">
+          <h3>Drop an OCT file</h3>
+          <p>Copy any <code>.opt</code> or <code>.EX.DCM</code> file into the watched input folder.
+          Transducin detects it, extracts measurements, generates a DICOM SR, and stores it in Orthanc.</p>
+          <pre>cp my_scan.opt /path/to/transducin/input/</pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num"></div>
+        <div class="step-body">
+          <h3>Open the dashboard</h3>
+          <p>Visit <code>http://localhost:8004</code> to confirm the study was processed and query patient measurements.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section id="api">
+    <h2>Architecture</h2>
+    <p>Transducin is a single Python service with three components: a hot-folder watcher, a conversion pipeline, and a REST API.</p>
+    <div class="arch-diagram"><span class="hi">.opt / .EX.DCM</span>  →  <span class="hi">HotFolderWatcher</span>  →  <span class="hi">DeviceAdapter</span>  →  <span class="hi">OCTClinicalData</span>
+                                                              ↓
+                                                     <span class="hi">SRBuilder (TID 1500)</span>
+                                                              ↓
+                                        <span class="hi">Orthanc C-STORE</span>  +  <span class="hi">Graefe webhook</span>
+
+REST API (port 8004):
+  GET  /health                                → pipeline + Orthanc status
+  GET  /stats                                 → aggregate counts (no PHI)
+  GET  /patients/{noel_id}/oct-latest         → most recent SR measurements
+  GET  /patients/{noel_id}/oct-trend          → last 5 studies, chronological
+  POST /store-summary                         → pgvector embedding store
+  POST /refraction                            → refraction DICOM SR builder</div>
+
+    <br>
+    <h3>NOEL patient ID protocol</h3>
+    <p>
+      All DICOM instances use a privacy-preserving patient identifier derived deterministically
+      from demographics: <code>NOEL_ID = apellido_paterno[:2] + apellido_materno[0] + nombre[0] + YYYYMMDD</code>.
+      No full names are stored in DICOM tags.
+    </p>
+  </section>
+
+</div>
+
+<footer>
+  Transducin is developed at <strong>RetinaOS</strong> by Dr. J.N. Jaurrieta Hinojos · Chihuahua, México ·
+  <a href="https://github.com/oftalmos-org/transducin/blob/main/LICENSE">Apache 2.0</a>
+</footer>
+
+</body>
+</html>

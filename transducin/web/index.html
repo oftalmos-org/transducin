@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transducin — Dashboard</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <style>
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --border:   #30363d;
+      --cyan:     #72dcff;
+      --green:    #3fb950;
+      --yellow:   #d29922;
+      --red:      #f85149;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --radius:   8px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, "Segoe UI", sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+    a { color: var(--cyan); text-decoration: none; }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: .5px;
+    }
+    .logo span { color: var(--cyan); }
+    .version { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+    .dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot.error { background: var(--red); }
+
+    /* ── Main ── */
+    main { max-width: 900px; margin: 0 auto; padding: 28px 20px; }
+
+    /* ── Stat tiles ── */
+    .tiles {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+    .tile {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+    }
+    .tile-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px; }
+    .tile-value { font-size: 28px; font-weight: 700; line-height: 1; }
+    .tile-value.cyan { color: var(--cyan); }
+    .tile-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* ── Section ── */
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .7px;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    /* ── Search bar ── */
+    .search-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .search-row input {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 9px 14px;
+      color: var(--text);
+      font-size: 14px;
+      font-family: "SF Mono", "Menlo", monospace;
+      letter-spacing: .5px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .search-row input::placeholder { color: var(--muted); }
+    .search-row input:focus { border-color: var(--cyan); }
+    .search-row button {
+      background: var(--cyan);
+      color: #000;
+      border: none;
+      border-radius: var(--radius);
+      padding: 9px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .search-row button:disabled { opacity: .4; cursor: default; }
+    .search-row button:hover:not(:disabled) { opacity: .85; }
+
+    /* ── Result card ── */
+    .result-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      margin-bottom: 16px;
+    }
+    .result-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .noel-badge {
+      font-family: "SF Mono", "Menlo", monospace;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--cyan);
+    }
+    .meta { font-size: 12px; color: var(--muted); }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .metric-box {
+      background: rgba(114,220,255,.05);
+      border: 1px solid rgba(114,220,255,.15);
+      border-radius: 6px;
+      padding: 10px 12px;
+    }
+    .metric-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 3px; }
+    .metric-value { font-size: 20px; font-weight: 700; color: var(--cyan); }
+    .metric-unit { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .sqi-warn .metric-value { color: var(--yellow); }
+
+    /* ── Trend table ── */
+    .trend-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 8px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    td { font-size: 13px; padding: 7px 8px; border-bottom: 1px solid rgba(48,54,61,.5); }
+    tr:last-child td { border-bottom: none; }
+    .td-mono { font-family: "SF Mono", "Menlo", monospace; }
+
+    /* ── Sparkline ── */
+    .spark-wrap { margin-top: 14px; }
+    svg.sparkline { width: 100%; height: 48px; overflow: visible; }
+
+    /* ── States ── */
+    .msg { padding: 14px; border-radius: var(--radius); font-size: 13px; }
+    .msg.error { background: rgba(248,81,73,.1); border: 1px solid rgba(248,81,73,.3); color: var(--red); }
+    .msg.info  { background: rgba(139,148,158,.08); border: 1px solid var(--border); color: var(--muted); }
+
+    /* ── Footer ── */
+    footer {
+      text-align: center;
+      padding: 20px;
+      font-size: 11px;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      margin-top: 40px;
+    }
+    footer a { color: var(--muted); }
+    footer a:hover { color: var(--cyan); }
+  </style>
+</head>
+
+<body x-data="transducin()" x-init="init()">
+
+  <header>
+    <div class="logo">
+      🔬 <span>Transducin</span>
+      <span class="version">v1.1.0</span>
+    </div>
+    <div class="status-pill">
+      <div class="dot" :class="health.ok ? 'ok' : 'error'"></div>
+      <span x-text="health.ok ? 'Orthanc ' + health.orthanc_host : 'Sin conexión'"></span>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- Stat tiles -->
+    <div class="tiles">
+      <div class="tile">
+        <div class="tile-label">Estudios</div>
+        <div class="tile-value cyan" x-text="stats.studies ?? '–'"></div>
+        <div class="tile-sub">en Orthanc</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Series</div>
+        <div class="tile-value" x-text="stats.series ?? '–'"></div>
+        <div class="tile-sub">total</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Instancias</div>
+        <div class="tile-value" x-text="stats.instances ?? '–'"></div>
+        <div class="tile-sub"><span x-text="stats.disk_mb ? stats.disk_mb + ' MB' : ''"></span></div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">pgvector</div>
+        <div class="tile-value" :style="health.pgvector ? 'color:var(--green)' : 'color:var(--muted)'" x-text="health.pgvector ? 'ON' : 'OFF'"></div>
+        <div class="tile-sub">embeddings</div>
+      </div>
+    </div>
+
+    <!-- Patient search -->
+    <div class="section-title">Consulta de paciente</div>
+    <div class="search-row">
+      <input
+        type="text"
+        placeholder="NOEL ID — p. ej. JAHJ19870831"
+        x-model="query"
+        @keydown.enter="search()"
+        maxlength="12"
+        autocomplete="off"
+        autocorrect="off"
+        spellcheck="false"
+      />
+      <button @click="search()" :disabled="loading || query.length < 12">
+        <span x-show="!loading">Buscar</span>
+        <span x-show="loading">…</span>
+      </button>
+    </div>
+
+    <!-- Error / empty state -->
+    <div x-show="errorMsg" class="msg error" x-text="errorMsg"></div>
+    <div x-show="!errorMsg && searched && !latest" class="msg info">
+      Sin estudios SR en Orthanc para este NOEL ID.
+    </div>
+
+    <!-- Latest OCT -->
+    <div x-show="latest" x-cloak class="result-card">
+      <div class="result-header">
+        <span class="noel-badge" x-text="latest?.noel_id"></span>
+        <span class="meta">
+          <span x-text="latest?.laterality === 'R' ? 'ojo derecho' : latest?.laterality === 'L' ? 'ojo izquierdo' : ''"></span>
+          &nbsp;·&nbsp;
+          <span x-text="fmtDate(latest?.study_date)"></span>
+          &nbsp;·&nbsp;
+          <span x-text="latest?.vendor"></span>
+        </span>
+      </div>
+
+      <div class="metrics-grid">
+        <template x-if="latest?.cmt_um != null">
+          <div class="metric-box">
+            <div class="metric-label">Grosor mac. central</div>
+            <div class="metric-value" x-text="latest.cmt_um"> <span class="metric-unit">µm</span></div>
+          </div>
+        </template>
+        <template x-if="latest?.rnfl_global_um != null">
+          <div class="metric-box">
+            <div class="metric-label">RNFL global</div>
+            <div class="metric-value" x-text="latest.rnfl_global_um"><span class="metric-unit">µm</span></div>
+          </div>
+        </template>
+        <template x-if="latest?.cdr != null">
+          <div class="metric-box">
+            <div class="metric-label">C/D ratio</div>
+            <div class="metric-value" x-text="latest.cdr.toFixed(2)"></div>
+          </div>
+        </template>
+        <template x-if="latest?.sqi_10 != null">
+          <div class="metric-box" :class="latest.sqi_warn ? 'sqi-warn' : ''">
+            <div class="metric-label">SQI <span x-show="latest.sqi_warn" style="color:var(--yellow)">⚠</span></div>
+            <div class="metric-value" x-text="latest.sqi_10"><span class="metric-unit">/10</span></div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Trend table -->
+      <template x-if="trend.length > 1">
+        <div>
+          <div class="trend-title">Tendencia — últimos <span x-text="trend.length"></span> estudios</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Grosor mac. central</th>
+                <th>RNFL</th>
+                <th>SQI</th>
+                <th>Ojo</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="p in trend" :key="p.study_date">
+                <tr>
+                  <td class="td-mono" x-text="fmtDate(p.study_date)"></td>
+                  <td x-text="p.cmt_um ? p.cmt_um + ' µm' : '—'"></td>
+                  <td x-text="p.rnfl_global_um ? p.rnfl_global_um + ' µm' : '—'"></td>
+                  <td x-text="p.sqi_10 ?? '—'"></td>
+                  <td x-text="p.laterality === 'R' ? 'der.' : p.laterality === 'L' ? 'izq.' : p.laterality"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+
+          <!-- CMT sparkline -->
+          <template x-if="sparkPoints.length > 1">
+            <div class="spark-wrap">
+              <svg class="sparkline" :viewBox="'0 0 ' + (sparkPoints.length * 60) + ' 48'">
+                <polyline
+                  :points="sparkPoints.map((p,i) => (i*60+10)+','+(44-p)).join(' ')"
+                  fill="none"
+                  stroke="var(--cyan)"
+                  stroke-width="2"
+                  stroke-linejoin="round"
+                  stroke-linecap="round"
+                />
+                <template x-for="(p,i) in sparkPoints" :key="i">
+                  <circle :cx="i*60+10" :cy="44-p" r="3" fill="var(--cyan)"/>
+                </template>
+              </svg>
+              <div style="font-size:10px;color:var(--muted);text-align:center">GMC µm — tendencia temporal</div>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+
+  </main>
+
+  <footer>
+    Transducin — OCT → DICOM SR pipeline ·
+    <a href="/docs" target="_blank">API docs</a> ·
+    <a href="https://github.com/oftalmos-org/transducin" target="_blank">GitHub</a>
+  </footer>
+
+  <script>
+    function transducin() {
+      return {
+        health: { ok: false, orthanc_host: '', pgvector: false },
+        stats:  {},
+        query:  '',
+        loading: false,
+        searched: false,
+        latest: null,
+        trend: [],
+        errorMsg: '',
+
+        async init() {
+          await Promise.all([this.loadHealth(), this.loadStats()]);
+        },
+
+        async loadHealth() {
+          try {
+            const r = await fetch('/health');
+            const d = await r.json();
+            this.health = {
+              ok: d.status === 'ok',
+              orthanc_host: (d.orthanc || '').replace('http://', '').split(':')[0],
+              pgvector: d.pgvector,
+            };
+          } catch { this.health.ok = false; }
+        },
+
+        async loadStats() {
+          try {
+            const r = await fetch('/stats');
+            if (r.ok) this.stats = await r.json();
+          } catch {}
+        },
+
+        async search() {
+          const id = this.query.trim().toUpperCase();
+          if (!/^[A-Z]{4}\d{8}$/.test(id)) {
+            this.errorMsg = 'NOEL ID inválido — formato esperado: 4 letras + 8 dígitos (ej. JAHJ19870831)';
+            return;
+          }
+          this.loading = true;
+          this.errorMsg = '';
+          this.latest = null;
+          this.trend = [];
+          this.searched = false;
+
+          try {
+            const [rLat, rTrend] = await Promise.all([
+              fetch(`/patients/${id}/oct-latest`),
+              fetch(`/patients/${id}/oct-trend`),
+            ]);
+
+            this.searched = true;
+
+            if (rLat.ok) {
+              this.latest = await rLat.json();
+            } else if (rLat.status !== 404) {
+              const e = await rLat.json().catch(() => ({}));
+              this.errorMsg = e.detail || `Error ${rLat.status}`;
+            }
+
+            if (rTrend.ok) {
+              this.trend = await rTrend.json();
+            }
+
+          } catch (e) {
+            this.errorMsg = 'Error de red: ' + e.message;
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        get sparkPoints() {
+          const vals = this.trend.map(p => p.cmt_um).filter(v => v != null);
+          if (vals.length < 2) return [];
+          const min = Math.min(...vals);
+          const max = Math.max(...vals);
+          const range = max - min || 1;
+          return vals.map(v => Math.round(((v - min) / range) * 32));
+        },
+
+        fmtDate(d) {
+          if (!d || d.length < 8) return d || '';
+          return `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
+        },
+      };
+    }
+  </script>
+</body>
+</html>
