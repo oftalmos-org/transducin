@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- `E2EReader.read_thickness_map()` y `FDAReader.read_thickness_map()` ya calculan CMT, ETDRS, mRNFL y mGCIPL (y pRNFL en circle scans) desde la segmentación embebida; los adapters Spectralis (D1) y Topcon (D2) dejan de devolver `None` (ADR-022, enmienda)
+- `read_layer_volumes()` en ambos readers; `transducin/readers/_layers.py` (`LayerVolume`, `ThicknessMapData`)
+- `measure_e2e_volume()` / `measure_fda_volume()`: lógica de medición compartida entre extractores y readers
+- Tests con archivos sintéticos: `tests/test_readers_layers.py`, `tests/_synthetic.py`
+
+### Fixes
+- `FDAReader` fallaba con numpy ≥ 2.3 (`np.fromstring` binario eliminado)
+- Capas FDA ausentes (valor crudo 0) ahora son NaN y no "altura de imagen"
+- Adapters D1/D2: sin lateralidad conocida no se miden sectores (antes el extractor asumía ojo derecho)
+
+---
+
 ## [1.1.0] — 2026-11-02
 
 ### Fixes

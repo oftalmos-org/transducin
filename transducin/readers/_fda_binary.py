@@ -197,3 +197,17 @@ thumbnail_header = Struct(
 )
 
 patientext_info_header = Struct("unknown" / Int8un[128])
+
+# PARAM_OBS_02: tamaño 90 (completo) o 6 (corto). Solo se usa image_quality.
+param_obs_02_header = Struct(
+    "0x1" / Int16un,
+    "0xffff" / Int16un[2],
+    "camera_model" / PaddedString(12, "ascii"),
+    "image_quality" / PaddedString(24, "ascii"),
+    "0x300" / Int16un,
+    "0x1" / Int16un,
+    "0x0" / Int16un,
+    "color_temp" / PaddedString(24, "ascii"),
+    "0x2014" / Int16un,
+    "zeros" / Int8un[12],
+)

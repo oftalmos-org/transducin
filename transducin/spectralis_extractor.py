@@ -316,6 +316,168 @@ def _study_date(vol) -> str:
         return str(dt)[:8].replace("-", "")
 
 
+# ── Medición reutilizable (sin dependencia de oct_converter) ─────────────────
+
+def measure_e2e_volume(
+    contours: dict,
+    pixel_spacing: Optional[list],
+    metadata: Optional[dict],
+    laterality: str,
+    cd_base: dict,
+    sqi_mean: Optional[float] = None,
+    label: str = "",
+    require_laterality: bool = False,
+) -> Optional[OCTClinicalData]:
+    """Calcula mediciones clínicas de UN volumen E2E a partir de sus contornos.
+
+    Es la lógica de ``extract_from_e2e`` aislada de la lectura del archivo, de modo
+    que la comparten el extractor (oct_converter) y el reader vendorizado
+    (``transducin.readers.e2e_reader``).
+
+    Args:
+        contours:           {"contour0": [arr|None, ...], ...} (un arr por B-scan).
+        pixel_spacing:      [scalex, scaley_axial_mm, slice_th] o None.
+        metadata:           dict con "bscan_data" (lista de dicts posX1/posX2/scaley).
+        laterality:         "R" | "L" | otro.
+        cd_base:            kwargs de OCTClinicalData SIN ``laterality``.
+        require_laterality: si True y la lateralidad no es R/L, no mide (retorna
+                            None) en lugar de asumir "R". El extractor legado
+                            conserva el comportamiento histórico (asume "R").
+
+    Returns:
+        OCTClinicalData con mediciones, o None si no hay nada medible.
+    """
+    from transducin.revo_opt_reader import (
+        compute_etdrs,
+        compute_gcl_ipl,
+        compute_rnfl_sectors,
+    )
+
+    ilm      = _build_layer_map(contours, "contour0")   # ILM
+    bm       = _build_layer_map(contours, "contour9")   # BM
+    rnfl_gcl = _build_layer_map(contours, "contour1")   # RNFL/GCL boundary
+    ipl_inl  = _build_layer_map(contours, "contour3")   # IPL/INL boundary
+
+    if ilm is None or bm is None:
+        logger.debug("E2E: ILM o BM no disponibles — saltando volumen")
+        return None
+
+    n_b, n_a = ilm.shape
+    scan_type = _detect_scan_type(n_b, n_a)
+
+    # ── Geometría física ──────────────────────────────────────────────────
+    ps = pixel_spacing or []
+    if len(ps) >= 2 and 0.001 < ps[1] < 0.1:
+        axial_um_file = ps[1] * 1000.0
+    else:
+        axial_um_file = None
+
+    geo = _geometry_from_metadata(metadata or {}, n_a, n_b)
+    if axial_um_file is not None:
+        geo["axial_um"] = axial_um_file
+
+    params = {
+        "axial_um":      geo["axial_um"],
+        "lateral_um":    geo["lateral_um"],
+        "scan_width_mm": geo["scan_width_mm"],
+        "n_bscans":      n_b,
+        "n_ascans":      n_a,
+    }
+
+    lat = str(laterality or "").upper()
+    if lat not in ("R", "L"):
+        if require_laterality:
+            logger.warning("E2E %s: lateralidad desconocida — no se miden sectores", label)
+            return None
+        lat = "R"
+
+    logger.info(
+        "E2E volumen %s: %d B-scans × %d A-scans, tipo=%s lat=%s, axial=%.2fµm/px",
+        label, n_b, n_a, scan_type, lat, params["axial_um"],
+    )
+
+    cd_base = dict(cd_base, laterality=lat)
+
+    # ── Circle scan → pRNFL ───────────────────────────────────────────────
+    if scan_type == "rnfl_circle":
+        if rnfl_gcl is None:
+            logger.debug("E2E circle: sin contour1 (RNFL_GCL) — saltando")
+            return None
+        prnfl = _compute_prnfl_circle(ilm, rnfl_gcl, params["axial_um"], lat)
+        if prnfl is None or prnfl.global_avg is None:
+            logger.debug("E2E circle: pRNFL no calculable — saltando")
+            return None
+        cd = OCTClinicalData(
+            **cd_base,
+            study_type = "rnfl_circle",
+            rnfl       = prnfl,
+            sqi_mean   = sqi_mean,
+            extraction_confidence = "confirmed",
+        )
+        cd.add_note(
+            f"CONFIRMED: pRNFL={prnfl.global_avg:.1f}µm "
+            f"S={prnfl.superior} I={prnfl.inferior} "
+            f"N={prnfl.nasal} T={prnfl.temporal}µm "
+            f"(circle scan {n_a} A-scans, axial={params['axial_um']:.2f}µm/px)"
+        )
+        return cd if cd.has_measurements() else None
+
+    # ── Macular / ONH cube → CMT + ETDRS + mRNFL + mGCIPL ────────────────
+    etdrs = compute_etdrs(ilm, bm, params, laterality=lat)
+    cmt_um = round(float(etdrs.C), 1) if (etdrs and etdrs.C is not None) else None
+
+    rnfl = None
+    if rnfl_gcl is not None and ilm.shape == rnfl_gcl.shape:
+        rnfl = compute_rnfl_sectors(ilm, rnfl_gcl, params, laterality=lat)
+
+    gcl_ipl = None
+    if rnfl_gcl is not None and ipl_inl is not None and rnfl_gcl.shape == ipl_inl.shape:
+        gcl_ipl = compute_gcl_ipl(rnfl_gcl, ipl_inl, params, laterality=lat)
+
+    cd = OCTClinicalData(
+        **cd_base,
+        study_type = scan_type,   # "macular" o "unknown"
+        cmt_um     = cmt_um,
+        etdrs_grid = etdrs,
+        rnfl       = rnfl,
+        gcl_ipl    = gcl_ipl,
+        gcl_avg_um = round(float(gcl_ipl.global_avg), 1)
+                     if (gcl_ipl and gcl_ipl.global_avg is not None) else None,
+        sqi_mean   = sqi_mean,
+        extraction_confidence = "confirmed" if cmt_um is not None else "assumed",
+    )
+
+    if cmt_um is not None:
+        cd.add_note(
+            f"CONFIRMED: CMT={cmt_um}µm desde ILM/BM Spectralis E2E "
+            f"(axial={params['axial_um']:.2f}µm/px, "
+            f"lateral={params['lateral_um']:.2f}µm/A-scan)"
+        )
+    if rnfl and rnfl.global_avg is not None:
+        cd.add_note(
+            f"CONFIRMED: mRNFL={rnfl.global_avg:.1f}µm "
+            f"S={rnfl.superior:.1f} N={rnfl.nasal:.1f} "
+            f"I={rnfl.inferior:.1f} T={rnfl.temporal:.1f} µm"
+        )
+    if gcl_ipl and gcl_ipl.global_avg is not None:
+        cd.add_note(
+            f"CONFIRMED: mGCIPL={gcl_ipl.global_avg:.1f}µm "
+            f"S={gcl_ipl.superior:.1f} N={gcl_ipl.nasal:.1f} "
+            f"I={gcl_ipl.inferior:.1f} T={gcl_ipl.temporal:.1f} µm"
+        )
+
+    if not cd.has_measurements():
+        logger.warning("  Sin mediciones para volumen en %s", label)
+        return None
+    logger.info(
+        "  OK: CMT=%s mRNFL=%s mGCIPL=%s",
+        f"{cmt_um}µm" if cmt_um else "N/A",
+        f"{rnfl.global_avg:.1f}µm" if rnfl else "N/A",
+        f"{gcl_ipl.global_avg:.1f}µm" if gcl_ipl else "N/A",
+    )
+    return cd
+
+
 # ── Extractor principal ──────────────────────────────────────────────────────
 
 def extract_from_e2e(
@@ -338,11 +500,6 @@ def extract_from_e2e(
         Lista de OCTClinicalData, uno por volumen macular con mediciones.
     """
     from oct_converter.readers.e2e import E2E
-    from transducin.revo_opt_reader import (
-        compute_etdrs,
-        compute_gcl_ipl,
-        compute_rnfl_sectors,
-    )
 
     filepath = Path(filepath)
     results: list[OCTClinicalData] = []
@@ -382,146 +539,25 @@ def extract_from_e2e(
             logger.debug("E2E: volumen sin contours — saltando")
             continue
 
-        # ── Mapas 2D de capas ──────────────────────────────────────────────
-        ilm     = _build_layer_map(contours, "contour0")   # ILM
-        bm      = _build_layer_map(contours, "contour9")   # BM
-        rnfl_gcl = _build_layer_map(contours, "contour1")  # RNFL/GCL boundary
-        ipl_inl  = _build_layer_map(contours, "contour3")  # IPL/INL boundary
-
-        if ilm is None or bm is None:
-            logger.debug("E2E: ILM o BM no disponibles — saltando volumen")
-            continue
-
-        n_b, n_a = ilm.shape
-        scan_type = _detect_scan_type(n_b, n_a)
-
-        # ── Geometría física ──────────────────────────────────────────────
-        ps = getattr(vol, "pixel_spacing", None) or []
-        if len(ps) >= 2 and 0.001 < ps[1] < 0.1:
-            axial_um_file = ps[1] * 1000.0
-        else:
-            axial_um_file = None
-
-        geo = _geometry_from_metadata(metadata, n_a, n_b)
-        if axial_um_file is not None:
-            geo["axial_um"] = axial_um_file
-
-        params = {
-            "axial_um":      geo["axial_um"],
-            "lateral_um":    geo["lateral_um"],
-            "scan_width_mm": geo["scan_width_mm"],
-            "n_bscans":      n_b,
-            "n_ascans":      n_a,
-        }
-
-        lat = str(getattr(vol, "laterality", "") or "").upper()
-        if lat not in ("R", "L"):
-            lat = "R"
-
-        logger.info(
-            "E2E volumen %s: %d B-scans × %d A-scans, tipo=%s lat=%s, "
-            "axial=%.2fµm/px",
-            filepath.stem, n_b, n_a, scan_type, lat, params["axial_um"],
-        )
-
-        study_date = _study_date(vol)
         cd_base = dict(
             noel_id      = noel_id,
             vendor       = "heidelberg_spectralis",
             source_file  = str(filepath),
-            study_date   = study_date,
+            study_date   = _study_date(vol),
             study_time   = "",
-            laterality   = lat,
             patient_name = _patient_name(vol),
             patient_dob  = str(getattr(vol, "patient_dob", "") or ""),
         )
-
-        # ── Circle scan → pRNFL ───────────────────────────────────────────
-        if scan_type == "rnfl_circle":
-            if rnfl_gcl is None:
-                logger.debug("E2E circle: sin contour1 (RNFL_GCL) — saltando")
-                continue
-            prnfl = _compute_prnfl_circle(ilm, rnfl_gcl, params["axial_um"], lat)
-            if prnfl is None or prnfl.global_avg is None:
-                logger.debug("E2E circle: pRNFL no calculable — saltando")
-                continue
-            cd = OCTClinicalData(
-                **cd_base,
-                study_type = "rnfl_circle",
-                rnfl       = prnfl,
-                sqi_mean   = sqi_mean,
-                extraction_confidence = "confirmed",
-            )
-            cd.add_note(
-                f"CONFIRMED: pRNFL={prnfl.global_avg:.1f}µm "
-                f"S={prnfl.superior} I={prnfl.inferior} "
-                f"N={prnfl.nasal} T={prnfl.temporal}µm "
-                f"(circle scan {n_a} A-scans, axial={params['axial_um']:.2f}µm/px)"
-            )
-            if cd.has_measurements():
-                results.append(cd)
-                logger.info("  OK: pRNFL=%.1fµm S=%s I=%s N=%s T=%s",
-                            prnfl.global_avg, prnfl.superior, prnfl.inferior,
-                            prnfl.nasal, prnfl.temporal)
-            continue
-
-        # ── Macular / ONH cube → CMT + ETDRS + mRNFL + mGCIPL ───────────
-        # ── CMT + ETDRS ───────────────────────────────────────────────────
-        etdrs = compute_etdrs(ilm, bm, params, laterality=lat)
-        cmt_um = round(float(etdrs.C), 1) if (etdrs and etdrs.C is not None) else None
-
-        # ── mRNFL ─────────────────────────────────────────────────────────
-        rnfl = None
-        if rnfl_gcl is not None and ilm.shape == rnfl_gcl.shape:
-            rnfl = compute_rnfl_sectors(ilm, rnfl_gcl, params, laterality=lat)
-
-        # ── mGCIPL ───────────────────────────────────────────────────────
-        gcl_ipl = None
-        if rnfl_gcl is not None and ipl_inl is not None and rnfl_gcl.shape == ipl_inl.shape:
-            gcl_ipl = compute_gcl_ipl(rnfl_gcl, ipl_inl, params, laterality=lat)
-
-        # ── OCTClinicalData ───────────────────────────────────────────────
-        cd = OCTClinicalData(
-            **cd_base,
-            study_type = scan_type,   # "macular" o "unknown"
-            cmt_um     = cmt_um,
-            etdrs_grid = etdrs,
-            rnfl       = rnfl,
-            gcl_ipl    = gcl_ipl,
-            gcl_avg_um = round(float(gcl_ipl.global_avg), 1)
-                         if (gcl_ipl and gcl_ipl.global_avg is not None) else None,
-            sqi_mean   = sqi_mean,
-            extraction_confidence = "confirmed" if cmt_um is not None else "assumed",
+        cd = measure_e2e_volume(
+            contours,
+            getattr(vol, "pixel_spacing", None),
+            metadata,
+            getattr(vol, "laterality", ""),
+            cd_base,
+            sqi_mean,
+            label=filepath.stem,
         )
-
-        if cmt_um is not None:
-            cd.add_note(
-                f"CONFIRMED: CMT={cmt_um}µm desde ILM/BM Spectralis E2E "
-                f"(axial={params['axial_um']:.2f}µm/px, "
-                f"lateral={params['lateral_um']:.2f}µm/A-scan)"
-            )
-        if rnfl and rnfl.global_avg is not None:
-            cd.add_note(
-                f"CONFIRMED: mRNFL={rnfl.global_avg:.1f}µm "
-                f"S={rnfl.superior:.1f} N={rnfl.nasal:.1f} "
-                f"I={rnfl.inferior:.1f} T={rnfl.temporal:.1f} µm"
-            )
-        if gcl_ipl and gcl_ipl.global_avg is not None:
-            cd.add_note(
-                f"CONFIRMED: mGCIPL={gcl_ipl.global_avg:.1f}µm "
-                f"S={gcl_ipl.superior:.1f} N={gcl_ipl.nasal:.1f} "
-                f"I={gcl_ipl.inferior:.1f} T={gcl_ipl.temporal:.1f} µm"
-            )
-
-        if cd.has_measurements():
+        if cd is not None:
             results.append(cd)
-            logger.info(
-                "  OK: CMT=%s N/RNFL=%s mGCIPL=%s",
-                f"{cmt_um}µm" if cmt_um else "N/A",
-                f"{rnfl.global_avg:.1f}µm" if rnfl else "N/A",
-                f"{gcl_ipl.global_avg:.1f}µm" if gcl_ipl else "N/A",
-            )
-        else:
-            logger.warning("  Sin mediciones para volumen en %s", filepath.name)
 
     return results

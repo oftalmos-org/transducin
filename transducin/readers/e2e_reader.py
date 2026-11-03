@@ -5,37 +5,36 @@
 # Copyright (c) marksgraham/OCT-Converter contributors
 # https://github.com/marksgraham/OCT-Converter
 #
-# Adapted for Transducin: minimal laterality extraction + read_thickness_map() stub.
-# Full thickness map extraction (CMT/ETDRS/RNFL) requires sample .e2e files
-# for validation and will be implemented in a future session.
+# Adapted for Transducin: laterality + layer contours (chunk 10019) + bscan metadata
+# (chunk 10004). No pixel data and no patient name/DOB are read (privacy by design).
+# read_thickness_map() delegates the measurement to
+# transducin.spectralis_extractor.measure_e2e_volume (shared with the legacy extractor).
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime
+import logging
+import struct
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+
 from transducin.readers import _e2e_binary as e2e_binary
+from transducin.readers._layers import (
+    LayerVolume,
+    ThicknessMapData,
+    sort_maps,
+    thickness_map_from_clinical,
+)
+
+logger = logging.getLogger("transducin.readers.e2e")
 
 
 @dataclass
 class _OCTVolume:
     """Minimal OCT volume container — carries only what Transducin needs."""
     laterality: Optional[str] = None
-
-
-@dataclass
-class ThicknessMapData:
-    """Pre-computed thickness data embedded in the .e2e file.
-
-    Currently a stub — populated once sample .e2e files are available
-    for validating the chunk offsets.
-    """
-    laterality: Optional[str] = None
-    cmt_um: Optional[int] = None
-    etdrs_sectors: Optional[dict] = None   # keys: C, S1,S2,N1,N2,I1,I2,T1,T2
-    rnfl_sectors: Optional[dict] = None    # keys: G,T,S,N,I
-    scan_date: Optional[datetime] = None
 
 
 class E2EReader:
@@ -114,12 +113,154 @@ class E2EReader:
                         pass
         return None
 
-    def read_thickness_map(self) -> list[ThicknessMapData]:
-        """Extract pre-computed thickness maps from the .e2e file.
+    # ── Segmentación de capas ────────────────────────────────────────────────
 
-        Stub — returns empty list until sample files are available for validation.
-        The Heidelberg software embeds CMT/ETDRS/RNFL data in proprietary chunk
-        types that require empirical validation against known-correct values before
-        production use.
+    def read_layer_volumes(self) -> list[LayerVolume]:
+        """Lee contornos de capas (chunk 10019) agrupados por volumen.
+
+        Un volumen es la tupla (patient_db_id, study_id, series_id). Solo se
+        devuelven los volúmenes que tienen contornos. No se leen píxeles ni PHI.
+        Portado de oct_converter/readers/e2e.py (MIT).
         """
-        return []
+        max_slice: dict[str, float] = {}
+        starts: list[int] = []
+        contour_dict: dict[str, dict[str, dict[int, np.ndarray]]] = {}
+        bscan_by_vol: dict[str, list[dict]] = {}
+        qual_by_vol: dict[str, list[float]] = {}
+        lat_by_vol: dict[str, str] = {}
+        first_date: Optional[datetime] = None
+        float_max = np.finfo(np.float32).max
+
+        with open(self.filepath, "rb") as f:
+            for position in self.directory_stack:
+                f.seek(position + self.byte_skip)
+                directory_chunk = e2e_binary.main_directory_structure.parse(f.read(52))
+                for _ in range(directory_chunk.num_entries):
+                    entry = e2e_binary.sub_directory_structure.parse(f.read(44))
+                    vs = f"{entry.patient_db_id}_{entry.study_id}_{entry.series_id}"
+                    sl = entry.slice_id / 2
+                    if vs not in max_slice or sl > max_slice[vs]:
+                        max_slice[vs] = sl
+                    if entry.start > entry.pos:
+                        starts.append(entry.start)
+
+            for start in starts:
+                f.seek(start + self.byte_skip)
+                try:
+                    chunk = e2e_binary.chunk_structure.parse(f.read(60))
+                except Exception:
+                    continue
+                vs = f"{chunk.patient_db_id}_{chunk.study_id}_{chunk.series_id}"
+
+                if chunk.type == 10019:      # contour data
+                    try:
+                        head = e2e_binary.contour_structure.parse(f.read(16))
+                        if head.width <= 0:
+                            continue
+                        raw = f.read(head.width * 4)
+                        if len(raw) < head.width * 4:
+                            continue
+                        arr = np.frombuffer(raw, dtype="<f4").astype(np.float32)
+                        arr[(arr < 1e-9) | (arr == float_max)] = np.nan
+                    except Exception:
+                        continue
+                    contour_dict.setdefault(vs, {}).setdefault(
+                        f"contour{head.id}", {}
+                    )[int(chunk.slice_id / 2)] = arr
+
+                elif chunk.type == 10004:    # bscan metadata
+                    payload = f.read(104)
+                    try:
+                        m = e2e_binary.bscan_metadata.parse(payload)
+                    except Exception:
+                        continue
+                    bscan_by_vol.setdefault(vs, []).append({
+                        "scaley": float(m.scaley),
+                        "posX1": float(m.posX1), "posX2": float(m.posX2),
+                        "posY1": float(m.posY1), "posY2": float(m.posY2),
+                    })
+                    # imgQuality: mismo offset (byte 84) que
+                    # spectralis_extractor._extract_e2e_scan_quality, para paridad.
+                    if len(payload) >= 88:
+                        q = struct.unpack_from("<f", payload, 84)[0]
+                        if 0.0 <= q <= 1.0:
+                            qual_by_vol.setdefault(vs, []).append(q)
+                    if first_date is None:
+                        try:
+                            unix = m.acquisitionTime / 10_000_000 - 11_644_473_600
+                            first_date = datetime(1970, 1, 1) + timedelta(seconds=unix)
+                        except Exception:
+                            pass
+
+                elif chunk.type == 3:        # scan preamble → lateralidad
+                    try:
+                        pre = e2e_binary.pre_data.parse(f.read(chunk.size))
+                        if pre.laterality in ("R", "L") and vs not in lat_by_vol:
+                            lat_by_vol[vs] = pre.laterality
+                    except Exception:
+                        pass
+
+        all_bscan = [d for lst in bscan_by_vol.values() for d in lst]
+        all_qual = [q for lst in qual_by_vol.values() for q in lst]
+        file_lats = set(lat_by_vol.values())
+
+        volumes: list[LayerVolume] = []
+        for vs, conts in contour_dict.items():
+            max_idx = max(i for sl in conts.values() for i in sl)
+            n_slices = max(int(max_slice.get(vs, max_idx)) + 1, max_idx + 1)
+            contours: dict[str, list] = {}
+            for name, per_slice in conts.items():
+                lst: list = [None] * n_slices
+                for i, arr in per_slice.items():
+                    lst[i] = arr
+                contours[name] = lst
+            first = next(iter(next(iter(conts.values())).values()))
+
+            bdata = bscan_by_vol.get(vs) or all_bscan
+            quals = qual_by_vol.get(vs) or all_qual
+            # Lateralidad: la del volumen; si falta, la del archivo solo si es unívoca.
+            lat = lat_by_vol.get(vs) or (next(iter(file_lats)) if len(file_lats) == 1 else None)
+            volumes.append(LayerVolume(
+                volume_id=vs,
+                contours=contours,
+                pixel_spacing=[0.01, bdata[0]["scaley"], 0.05] if bdata else None,
+                laterality=lat,
+                acquisition_date=first_date,
+                bscan_data=bdata,
+                n_bscans=n_slices,
+                n_ascans=len(first),
+                sqi_mean=round(float(np.mean(quals)), 4) if quals else None,
+            ))
+        return volumes
+
+    def read_thickness_map(self) -> list[ThicknessMapData]:
+        """CMT / ETDRS / mRNFL / mGCIPL (o pRNFL en circle scans) desde los contornos.
+
+        Retorna [] si el archivo no trae segmentación (degradación elegante).
+        Los macular con CMT van primero.
+        """
+        from transducin.spectralis_extractor import measure_e2e_volume
+
+        maps: list[ThicknessMapData] = []
+        try:
+            volumes = self.read_layer_volumes()
+        except Exception as exc:
+            logger.warning("E2E: no se pudo leer la segmentación de %s: %s",
+                           self.filepath.name, exc)
+            return maps
+
+        for vol in volumes:
+            cd_base = dict(
+                noel_id="", vendor="heidelberg_spectralis",
+                source_file=str(self.filepath),
+                study_date=vol.acquisition_date.strftime("%Y%m%d") if vol.acquisition_date else "",
+                study_time="",
+            )
+            cd = measure_e2e_volume(
+                vol.contours, vol.pixel_spacing, {"bscan_data": vol.bscan_data},
+                vol.laterality or "", cd_base, vol.sqi_mean,
+                label=self.filepath.stem, require_laterality=True,
+            )
+            if cd is not None:
+                maps.append(thickness_map_from_clinical(cd, vol.acquisition_date))
+        return sort_maps(maps)
