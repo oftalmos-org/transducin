@@ -262,6 +262,16 @@ validation/site_b_results.csv
 validation/debug_*.py
 validation/debug_*.png
 validation/recover_truncated.py
+# Resultados de corpus completo — contienen PHI real (NOEL IDs, nombres de pacientes)
+# Nunca publicar; guardar en ~/Developer/RetinaDev/proyectos/validation_outputs/
+validation/full_corpus_results.csv
+validation/full_corpus_stats.txt
+validation/pipeline_stats.txt
+validation/pipeline_results.csv
+validation/*_corpus_*.csv
+validation/*_corpus_*.txt
+validation/pipeline_*.txt
+validation/pipeline_*.csv
 *.tar.gz
 transducin-*/
 files/
