@@ -129,6 +129,158 @@ def _study_date(vol) -> str:
         return str(dt)[:8].replace("-", "")
 
 
+# ── Medición reutilizable (sin dependencia de oct_converter) ─────────────────
+
+def measure_fda_volume(
+    contours: dict,
+    n_b: int,
+    n_a: int,
+    pixel_spacing: Optional[list],
+    laterality: str,
+    cd_base: dict,
+    sqi_mean: Optional[float] = None,
+    label: str = "",
+    require_laterality: bool = False,
+) -> Optional[OCTClinicalData]:
+    """Calcula mediciones clínicas de un volumen FDA a partir de sus contornos.
+
+    Es la lógica de ``extract_from_fda`` aislada de la lectura del archivo; la
+    comparten el extractor (oct_converter) y el reader vendorizado
+    (``transducin.readers.fda_reader``).
+
+    Args:
+        contours:      {"ILM": 2D, "BM": 2D, ...} en píxeles desde el TOP.
+        n_b, n_a:      B-scans y A-scans del volumen.
+        pixel_spacing: [x_mm/A-scan, y_mm/B-scan, z_mm/px] o None.
+        laterality:    "R" | "L" | otro.
+        cd_base:       kwargs de OCTClinicalData SIN ``laterality``.
+        require_laterality: si True y la lateralidad no es R/L, no mide
+                       (retorna None) en vez de asumir "R" como el extractor legado.
+    """
+    from transducin.revo_opt_reader import (
+        compute_etdrs,
+        compute_gcl_ipl,
+        compute_rnfl_sectors,
+    )
+
+    scan_type = _detect_scan_type_fda(n_b, n_a, set(contours.keys()))
+
+    ilm      = _validate_layer(contours.get("ILM"),      n_b, n_a)
+    bm       = _validate_layer(contours.get("BM"),       n_b, n_a)
+    rnfl_gcl = _validate_layer(contours.get("RNFL_GCL"), n_b, n_a)
+    ipl_inl  = _validate_layer(contours.get("IPL_INL"),  n_b, n_a)
+
+    if ilm is None:
+        logger.debug("FDA: ILM no disponible en %s — saltando", label)
+        return None
+
+    geo = _geometry_from_pixel_spacing(pixel_spacing or [], n_b)
+    params = {
+        "axial_um":      geo["axial_um"],
+        "lateral_um":    geo["lateral_um"],
+        "scan_width_mm": geo["scan_width_mm"],
+        "n_bscans":      n_b,
+        "n_ascans":      n_a,
+    }
+
+    lat = str(laterality or "").upper()
+    if lat not in ("R", "L"):
+        if require_laterality:
+            logger.warning("FDA %s: lateralidad desconocida — no se miden sectores", label)
+            return None
+        lat = "R"
+
+    logger.info(
+        "FDA volumen %s: %d B-scans × %d A-scans, tipo=%s lat=%s axial=%.2fµm/px",
+        label, n_b, n_a, scan_type, lat, params["axial_um"],
+    )
+
+    cd_base = dict(cd_base, laterality=lat)
+
+    # ── Circle scan → pRNFL ───────────────────────────────────────────────
+    if scan_type == "rnfl_circle":
+        from transducin.spectralis_extractor import _compute_prnfl_circle
+        if rnfl_gcl is None:
+            return None
+        prnfl = _compute_prnfl_circle(ilm, rnfl_gcl, params["axial_um"], lat)
+        if not (prnfl and prnfl.global_avg is not None):
+            return None
+        cd = OCTClinicalData(
+            **cd_base,
+            study_type = "rnfl_circle",
+            rnfl       = prnfl,
+            sqi_mean   = sqi_mean,
+            extraction_confidence = "confirmed",
+        )
+        cd.add_note(
+            f"CONFIRMED: pRNFL={prnfl.global_avg:.1f}µm "
+            f"S={prnfl.superior} I={prnfl.inferior} "
+            f"N={prnfl.nasal} T={prnfl.temporal}µm (Topcon FDA circle)"
+        )
+        if cd.has_measurements():
+            logger.info("  OK: pRNFL=%.1fµm", prnfl.global_avg)
+            return cd
+        return None
+
+    if bm is None:
+        logger.debug("FDA: BM no disponible en %s — saltando", label)
+        return None
+
+    etdrs  = compute_etdrs(ilm, bm, params, laterality=lat)
+    cmt_um = round(float(etdrs.C), 1) if (etdrs and etdrs.C is not None) else None
+
+    rnfl = None
+    if rnfl_gcl is not None and ilm.shape == rnfl_gcl.shape:
+        rnfl = compute_rnfl_sectors(ilm, rnfl_gcl, params, laterality=lat)
+
+    gcl_ipl = None
+    if rnfl_gcl is not None and ipl_inl is not None and rnfl_gcl.shape == ipl_inl.shape:
+        gcl_ipl = compute_gcl_ipl(rnfl_gcl, ipl_inl, params, laterality=lat)
+
+    cd = OCTClinicalData(
+        **cd_base,
+        study_type = scan_type,
+        cmt_um     = cmt_um,
+        etdrs_grid   = etdrs,
+        rnfl         = rnfl,
+        gcl_ipl      = gcl_ipl,
+        gcl_avg_um   = round(float(gcl_ipl.global_avg), 1)
+                       if (gcl_ipl and gcl_ipl.global_avg is not None) else None,
+        sqi_mean     = sqi_mean,
+        extraction_confidence = "confirmed" if cmt_um is not None else "assumed",
+    )
+
+    if cmt_um is not None:
+        cd.add_note(
+            f"CONFIRMED: CMT={cmt_um}µm desde ILM/BM Topcon FDA "
+            f"(axial={params['axial_um']:.2f}µm/px, "
+            f"lateral={params['lateral_um']:.2f}µm/A-scan)"
+        )
+    if rnfl and rnfl.global_avg is not None:
+        cd.add_note(
+            f"CONFIRMED: mRNFL={rnfl.global_avg:.1f}µm "
+            f"S={rnfl.superior:.1f} N={rnfl.nasal:.1f} "
+            f"I={rnfl.inferior:.1f} T={rnfl.temporal:.1f} µm"
+        )
+    if gcl_ipl and gcl_ipl.global_avg is not None:
+        cd.add_note(
+            f"CONFIRMED: mGCIPL={gcl_ipl.global_avg:.1f}µm "
+            f"S={gcl_ipl.superior:.1f} N={gcl_ipl.nasal:.1f} "
+            f"I={gcl_ipl.inferior:.1f} T={gcl_ipl.temporal:.1f} µm"
+        )
+
+    if not cd.has_measurements():
+        logger.warning("  Sin mediciones para %s", label)
+        return None
+    logger.info(
+        "  OK: CMT=%s mRNFL=%s mGCIPL=%s",
+        f"{cmt_um}µm" if cmt_um else "N/A",
+        f"{rnfl.global_avg:.1f}µm" if rnfl else "N/A",
+        f"{gcl_ipl.global_avg:.1f}µm" if gcl_ipl else "N/A",
+    )
+    return cd
+
+
 # ── Extractor principal ──────────────────────────────────────────────────────
 
 def extract_from_fda(
@@ -149,11 +301,6 @@ def extract_from_fda(
         utilizable o no tiene mediciones válidas.
     """
     from oct_converter.readers.fda import FDA
-    from transducin.revo_opt_reader import (
-        compute_etdrs,
-        compute_gcl_ipl,
-        compute_rnfl_sectors,
-    )
 
     filepath = Path(filepath)
     results: list[OCTClinicalData] = []
@@ -210,133 +357,23 @@ def extract_from_fda(
         logger.warning("FDA: %s dimensiones insuficientes (%d B-scans, %d A-scans)", filepath.name, n_b, n_a)
         return results
 
-    scan_type = _detect_scan_type_fda(n_b, n_a, set(contours.keys()))
-
-    # ── Capas ─────────────────────────────────────────────────────────────
-    ilm      = _validate_layer(contours.get("ILM"),      n_b, n_a)
-    bm       = _validate_layer(contours.get("BM"),       n_b, n_a)
-    rnfl_gcl = _validate_layer(contours.get("RNFL_GCL"), n_b, n_a)
-    ipl_inl  = _validate_layer(contours.get("IPL_INL"),  n_b, n_a)
-
-    if ilm is None:
-        logger.debug("FDA: ILM no disponible en %s — saltando", filepath.name)
-        return results
-
-    # ── Geometría física ──────────────────────────────────────────────────
-    ps  = getattr(vol, "pixel_spacing", None) or []
-    geo = _geometry_from_pixel_spacing(ps, n_b)
-
-    params = {
-        "axial_um":      geo["axial_um"],
-        "lateral_um":    geo["lateral_um"],
-        "scan_width_mm": geo["scan_width_mm"],
-        "n_bscans":      n_b,
-        "n_ascans":      n_a,
-    }
-
-    lat = str(getattr(vol, "laterality", "") or "").upper()
-    if lat not in ("R", "L"):
-        lat = "R"
-
-    logger.info(
-        "FDA volumen %s: %d B-scans × %d A-scans, tipo=%s lat=%s axial=%.2fµm/px",
-        filepath.stem, n_b, n_a, scan_type, lat, params["axial_um"],
-    )
-
     cd_base = dict(
         noel_id      = noel_id,
         vendor       = "topcon_triton",
         source_file  = str(filepath),
         study_date   = _study_date(vol),
         study_time   = "",
-        laterality   = lat,
         patient_name = _patient_name(vol),
         patient_dob  = str(getattr(vol, "patient_dob", "") or ""),
     )
-
-    # ── Circle scan → pRNFL ───────────────────────────────────────────────
-    if scan_type == "rnfl_circle":
-        from transducin.spectralis_extractor import _compute_prnfl_circle
-        if rnfl_gcl is not None:
-            prnfl = _compute_prnfl_circle(ilm, rnfl_gcl, params["axial_um"], lat)
-            if prnfl and prnfl.global_avg is not None:
-                cd = OCTClinicalData(
-                    **cd_base,
-                    study_type = "rnfl_circle",
-                    rnfl       = prnfl,
-                    sqi_mean   = sqi_mean,
-                    extraction_confidence = "confirmed",
-                )
-                cd.add_note(
-                    f"CONFIRMED: pRNFL={prnfl.global_avg:.1f}µm "
-                    f"S={prnfl.superior} I={prnfl.inferior} "
-                    f"N={prnfl.nasal} T={prnfl.temporal}µm (Topcon FDA circle)"
-                )
-                if cd.has_measurements():
-                    results.append(cd)
-                    logger.info("  OK: pRNFL=%.1fµm", prnfl.global_avg)
-        return results
-
-    if bm is None:
-        logger.debug("FDA: BM no disponible en %s — saltando", filepath.name)
-        return results
-
-    # ── CMT + ETDRS ───────────────────────────────────────────────────────
-    etdrs  = compute_etdrs(ilm, bm, params, laterality=lat)
-    cmt_um = round(float(etdrs.C), 1) if (etdrs and etdrs.C is not None) else None
-
-    # ── mRNFL ─────────────────────────────────────────────────────────────
-    rnfl = None
-    if rnfl_gcl is not None and ilm.shape == rnfl_gcl.shape:
-        rnfl = compute_rnfl_sectors(ilm, rnfl_gcl, params, laterality=lat)
-
-    # ── mGCIPL ────────────────────────────────────────────────────────────
-    gcl_ipl = None
-    if rnfl_gcl is not None and ipl_inl is not None and rnfl_gcl.shape == ipl_inl.shape:
-        gcl_ipl = compute_gcl_ipl(rnfl_gcl, ipl_inl, params, laterality=lat)
-
-    # ── OCTClinicalData ───────────────────────────────────────────────────
-    cd = OCTClinicalData(
-        **cd_base,
-        study_type = scan_type,
-        cmt_um     = cmt_um,
-        etdrs_grid   = etdrs,
-        rnfl         = rnfl,
-        gcl_ipl      = gcl_ipl,
-        gcl_avg_um   = round(float(gcl_ipl.global_avg), 1)
-                       if (gcl_ipl and gcl_ipl.global_avg is not None) else None,
-        sqi_mean     = sqi_mean,
-        extraction_confidence = "confirmed" if cmt_um is not None else "assumed",
+    cd = measure_fda_volume(
+        contours, n_b, n_a,
+        getattr(vol, "pixel_spacing", None),
+        getattr(vol, "laterality", ""),
+        cd_base,
+        sqi_mean,
+        label=filepath.stem,
     )
-
-    if cmt_um is not None:
-        cd.add_note(
-            f"CONFIRMED: CMT={cmt_um}µm desde ILM/BM Topcon FDA "
-            f"(axial={params['axial_um']:.2f}µm/px, "
-            f"lateral={params['lateral_um']:.2f}µm/A-scan)"
-        )
-    if rnfl and rnfl.global_avg is not None:
-        cd.add_note(
-            f"CONFIRMED: mRNFL={rnfl.global_avg:.1f}µm "
-            f"S={rnfl.superior:.1f} N={rnfl.nasal:.1f} "
-            f"I={rnfl.inferior:.1f} T={rnfl.temporal:.1f} µm"
-        )
-    if gcl_ipl and gcl_ipl.global_avg is not None:
-        cd.add_note(
-            f"CONFIRMED: mGCIPL={gcl_ipl.global_avg:.1f}µm "
-            f"S={gcl_ipl.superior:.1f} N={gcl_ipl.nasal:.1f} "
-            f"I={gcl_ipl.inferior:.1f} T={gcl_ipl.temporal:.1f} µm"
-        )
-
-    if cd.has_measurements():
+    if cd is not None:
         results.append(cd)
-        logger.info(
-            "  OK: CMT=%s mRNFL=%s mGCIPL=%s",
-            f"{cmt_um}µm" if cmt_um else "N/A",
-            f"{rnfl.global_avg:.1f}µm" if rnfl else "N/A",
-            f"{gcl_ipl.global_avg:.1f}µm" if gcl_ipl else "N/A",
-        )
-    else:
-        logger.warning("  Sin mediciones para %s", filepath.name)
-
     return results

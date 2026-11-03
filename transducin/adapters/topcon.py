@@ -4,20 +4,19 @@
 # DeviceAdapter para Topcon DRI OCT Triton / Atlantis — archivos .fda y .fds.
 #
 # Usa el reader vendorizado en transducin/readers/fda_reader.py (MIT, basado en
-# marksgraham/OCT-Converter). read_thickness_map() es un stub hasta que lleguen
-# archivos .fda/.fds de muestra para validar la extracción de espesores.
+# marksgraham/OCT-Converter). read_thickness_map() lee @CONTOUR_INFO y calcula
+# CMT/ETDRS/mRNFL/mGCIPL; no requiere el paquete oct_converter.
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from transducin.base_adapter import DeviceAdapter
-from transducin.clinical_data import ETDRSGrid, OCTClinicalData, RNFLSectors
+from transducin.clinical_data import OCTClinicalData
 
 # Reutiliza los helpers de mapeo del adaptador Spectralis
-from transducin.adapters.spectralis import _to_etdrs_grid, _to_rnfl_sectors
+from transducin.adapters.spectralis import _measurements_from_reader
 from transducin.readers.fda_reader import topcon_reader as _topcon_reader_factory
 
 
@@ -29,9 +28,9 @@ def _topcon_reader(path: Path):
 class TopconFdaAdapter(DeviceAdapter):
     """Adaptador para archivos .fda y .fds del Topcon DRI OCT.
 
-    Requiere oftalmos-org/oct-converter (fork con read_thickness_map()) para
-    extracción de CMT/ETDRS/RNFL. Con oct-converter upstream, extract() retorna
-    metadata básica y medidas None (degradación elegante).
+    Extrae CMT, ETDRS, mRNFL, mGCIPL (macular) o pRNFL (circle scan) desde
+    @CONTOUR_INFO con el reader vendorizado. Sin segmentación, o sin lateralidad,
+    retorna medidas None (degradación elegante).
     """
 
     @property
@@ -49,63 +48,21 @@ class TopconFdaAdapter(DeviceAdapter):
     def extract(self, path: Path) -> OCTClinicalData:
         reader = _topcon_reader(path)
 
-        # ── Metadata básica desde el volumen OCT ──────────────────────────────
         laterality: Optional[str] = None
-        study_date: str = ""
-        study_time: str = ""
-        study_type: str = "macular"
-
         try:
             volumes = reader.read_oct_volume()
             if volumes:
-                vol = volumes[0]
-                lat = (getattr(vol, "laterality", None) or "").upper()
+                lat = (getattr(volumes[0], "laterality", None) or "").upper()
                 if lat in ("L", "R"):
                     laterality = lat
         except Exception:
             pass
 
-        # ── Medidas cuantitativas (solo disponibles en el fork) ───────────────
-        cmt_um: Optional[float] = None
-        etdrs_grid: Optional[ETDRSGrid] = None
-        rnfl: Optional[RNFLSectors] = None
-        confidence = "unknown"
-
-        if hasattr(reader, "read_thickness_map"):
-            try:
-                maps = reader.read_thickness_map()
-                if maps:
-                    m = maps[0]
-                    if laterality is None:
-                        lat = (getattr(m, "laterality", None) or "").upper()
-                        if lat in ("L", "R"):
-                            laterality = lat
-                    cmt_um = getattr(m, "cmt_um", None)
-                    etdrs_grid = _to_etdrs_grid(getattr(m, "etdrs_sectors", None))
-                    rnfl = _to_rnfl_sectors(getattr(m, "rnfl_sectors", None))
-                    scan_date: Optional[datetime] = getattr(m, "scan_date", None)
-                    if scan_date:
-                        study_date = scan_date.strftime("%Y%m%d")
-                        study_time = scan_date.strftime("%H%M%S")
-                    if cmt_um is not None:
-                        confidence = "confirmed"
-                    else:
-                        confidence = "assumed"
-            except Exception:
-                pass
-
+        meas = _measurements_from_reader(reader, laterality)
         return OCTClinicalData(
             noel_id="",  # resuelto desde filename en hot_folder_watcher
             vendor="topcon_dri_oct",
-            laterality=laterality or "",
-            study_type=study_type,
-            study_date=study_date,
-            study_time=study_time,
-            cmt_um=cmt_um,
-            etdrs_grid=etdrs_grid,
-            rnfl=rnfl,
-            sqi_mean=None,
-            extraction_confidence=confidence,
+            **meas,
         )
 
     def to_dicom(

@@ -23,8 +23,8 @@ REGISTRY: list[DeviceAdapter] = [
     RevoOptAdapter(),
     CirrusDcmAdapter(),
     CirrusPdfAdapter(),
-    SpectralisE2EAdapter(),  # D1 — Heidelberg Spectralis .e2e (requiere fork oct-converter)
-    TopconFdaAdapter(),      # D2 — Topcon DRI OCT .fda/.fds (requiere fork oct-converter)
+    SpectralisE2EAdapter(),  # D1 — Heidelberg Spectralis .e2e (reader vendorizado)
+    TopconFdaAdapter(),      # D2 — Topcon DRI OCT .fda/.fds (reader vendorizado)
 ]
 
 # Extensiones agregadas de todos los adapters registrados.
