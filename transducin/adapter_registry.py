@@ -16,11 +16,15 @@ from transducin.base_adapter import DeviceAdapter
 from transducin.adapters.revo import RevoOptAdapter
 from transducin.adapters.cirrus import CirrusDcmAdapter
 from transducin.adapters.cirrus_pdf import CirrusPdfAdapter
+from transducin.adapters.spectralis import SpectralisE2EAdapter
+from transducin.adapters.topcon import TopconFdaAdapter
 
 REGISTRY: list[DeviceAdapter] = [
     RevoOptAdapter(),
     CirrusDcmAdapter(),
     CirrusPdfAdapter(),
+    SpectralisE2EAdapter(),  # D1 — Heidelberg Spectralis .e2e (requiere fork oct-converter)
+    TopconFdaAdapter(),      # D2 — Topcon DRI OCT .fda/.fds (requiere fork oct-converter)
 ]
 
 # Extensiones agregadas de todos los adapters registrados.
