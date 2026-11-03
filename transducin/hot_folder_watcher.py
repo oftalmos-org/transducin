@@ -207,7 +207,8 @@ def _convert_opt_to_dcm(
         return []
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
-        noel = clinical_data.noel_id or "UNKNOWN"
+        # PatientID = noel_id o "" (nunca un literal ni derivado de PHI; ver NOEL Protocol).
+        noel = clinical_data.noel_id or ""
         date = clinical_data.study_date or ""
         lat  = clinical_data.laterality or ""
         dcm_paths = opt_to_dicom(
@@ -215,6 +216,8 @@ def _convert_opt_to_dcm(
             noel_id=noel, study_date=date, laterality=lat,
             patient_name=clinical_data.patient_name or "",
             patient_dob=clinical_data.patient_dob or "",
+            study_type=clinical_data.study_type or "",   # → ProtocolName (0018,1030), que Gass usa
+            study_time=clinical_data.study_time or "",
         )
         return dcm_paths
     except Exception as e:
