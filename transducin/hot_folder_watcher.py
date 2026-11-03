@@ -374,6 +374,8 @@ _ADAPTER_DISPATCH: dict[str, Any] = {
     "revo_opt":   lambda p, o, c: process_opt_file(p, o, do_cstore=c),
     "cirrus_dcm": lambda p, o, c: process_czm_file(p, o, do_cstore=c),
     "cirrus_pdf": lambda p, o, c: process_cirrus_pdf_file(p, o, do_cstore=c),
+    "spectralis": lambda p, o, c: process_spectralis_file(p, o, do_cstore=c),
+    "topcon":     lambda p, o, c: process_topcon_file(p, o, do_cstore=c),
 }
 
 
@@ -662,6 +664,158 @@ def process_cirrus_pdf_file(
     except Exception as e:
         logger.error("  Error procesando PDF Cirrus %s: %s", pdf_path.name, e)
 
+    return success
+
+
+# ── Pipeline Heidelberg Spectralis .e2e ─────────────────────────────────────
+
+def process_spectralis_file(
+    e2e_path: Path,
+    output_dir: Path,
+    do_cstore: bool = True,
+) -> bool:
+    """Extrae mediciones de un archivo .e2e Spectralis, genera SR y envía a Orthanc.
+
+    Returns:
+        True si el SR fue generado sin errores críticos.
+    """
+    from transducin.adapters.spectralis import SpectralisE2EAdapter
+    logger.info("═══ Spectralis .e2e: %s", e2e_path.name)
+    return _process_generic_oct_file(
+        path=e2e_path,
+        output_dir=output_dir,
+        do_cstore=do_cstore,
+        adapter=SpectralisE2EAdapter(),
+    )
+
+
+# ── Pipeline Topcon DRI OCT .fda/.fds ────────────────────────────────────────
+
+def process_topcon_file(
+    fda_path: Path,
+    output_dir: Path,
+    do_cstore: bool = True,
+) -> bool:
+    """Extrae mediciones de un archivo .fda/.fds Topcon, genera SR y envía a Orthanc.
+
+    Returns:
+        True si el SR fue generado sin errores críticos.
+    """
+    from transducin.adapters.topcon import TopconFdaAdapter
+    logger.info("═══ Topcon DRI OCT: %s", fda_path.name)
+    return _process_generic_oct_file(
+        path=fda_path,
+        output_dir=output_dir,
+        do_cstore=do_cstore,
+        adapter=TopconFdaAdapter(),
+    )
+
+
+def _process_generic_oct_file(
+    path: Path,
+    output_dir: Path,
+    do_cstore: bool,
+    adapter: Any,
+) -> bool:
+    """Pipeline genérico para adapters que usan extract() + to_dicom() + build_sr().
+
+    Estructura idéntica a process_opt_file() adaptada para el protocolo DeviceAdapter.
+    """
+    import re as _re
+    success = True
+
+    # 1. Resolver NOEL ID desde el nombre del archivo (patrón XXXX99999999_*)
+    _NOEL_PREFIX_RE = _re.compile(r"^([A-Z]{3,4}\d{8})_", _re.IGNORECASE)
+    _m = _NOEL_PREFIX_RE.match(path.stem)
+    filename_noel = _m.group(1).upper() if _m else ""
+
+    # 2. Extraer datos clínicos
+    try:
+        clinical_data = adapter.extract(path)
+        clinical_data.noel_id = filename_noel
+        clinical_data.source_file = str(path)
+        logger.info("  Extracción: noel=%s lat=%s type=%s confidence=%s",
+                    clinical_data.noel_id or "(none)",
+                    clinical_data.laterality,
+                    clinical_data.study_type,
+                    clinical_data.extraction_confidence)
+    except Exception as e:
+        logger.error("  Extracción FALLÓ: %s", e)
+        return False
+
+    # 3. Convertir a DICOM imágenes (vacío si to_dicom() aún no implementado)
+    dcm_image_paths: list[Path] = []
+    try:
+        raw_paths = adapter.to_dicom(path, clinical_data, output_dir / "images")
+        dcm_image_paths = [p for p in (raw_paths or []) if Path(p).exists()]
+        for p in dcm_image_paths:
+            logger.info("  Imagen DICOM: %s", Path(p).name)
+    except NotImplementedError:
+        pass  # to_dicom() pendiente de archivos de muestra — continuar con SR
+    except Exception as e:
+        logger.warning("  to_dicom() FALLÓ: %s", e)
+        success = False
+
+    # 4. Generar SR
+    sr_path: Optional[Path] = None
+    _study_uid: str = ""
+    if not clinical_data.noel_id:
+        logger.warning("  SR omitido: noel_id desconocido.")
+    else:
+        try:
+            sr_dir = output_dir / "sr"
+            sr_dir.mkdir(parents=True, exist_ok=True)
+            stem = path.stem.replace(" ", "_")
+            sr_path = sr_dir / f"{stem}_SR.dcm"
+
+            import pydicom
+            from pydicom.uid import generate_uid as _gen_uid
+            ref_ds = pydicom.dcmread(str(dcm_image_paths[0])) if dcm_image_paths else None
+            _fallback_uid = (ref_ds.StudyInstanceUID if ref_ds else None) or _gen_uid()
+            _study_uid = resolve_study_uid(
+                noel_id=clinical_data.noel_id,
+                study_date=clinical_data.study_date or "",
+                fallback_uid=str(_fallback_uid),
+                orthanc_base_url=_orthanc_rest_url(),
+                auth=_orthanc_auth(),
+            )
+            build_sr(clinical_data, reference_dataset=ref_ds,
+                     output_path=sr_path, study_instance_uid=_study_uid)
+            logger.info("  SR generado: %s (study_uid=…%s)", sr_path.name, _study_uid[-12:])
+        except Exception as e:
+            logger.error("  Generación SR FALLÓ: %s", e)
+            sr_path = None
+            success = False
+
+    # 5. C-STORE
+    if do_cstore:
+        for dcm_p in dcm_image_paths:
+            if not _cstore(dcm_p):
+                logger.error("  C-STORE imagen FALLÓ: %s", Path(dcm_p).name)
+                success = False
+        if sr_path and sr_path.exists():
+            if not _cstore(sr_path):
+                logger.error("  C-STORE SR FALLÓ: %s", sr_path.name)
+                success = False
+    else:
+        logger.info("  C-STORE omitido (do_cstore=False)")
+
+    # 6. Mover a processed/
+    try:
+        processed_dir = path.parent / "processed"
+        processed_dir.mkdir(exist_ok=True)
+        dest = processed_dir / _standardized_name(clinical_data, path.suffix)
+        if dest.exists():
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            dest = processed_dir / _standardized_name(clinical_data, path.suffix, ts)
+        shutil.move(str(path), str(dest))
+        logger.info("  Movido a processed/: %s", dest.name)
+    except Exception as e:
+        logger.error("  No se pudo mover a processed/: %s", e)
+
+    status = "OK" if success else "PARCIAL"
+    logger.info("  Resultado: %s — %s", status, path.name)
+    _notify_graefe(clinical_data, _study_uid)
     return success
 
 
