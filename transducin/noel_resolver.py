@@ -1,11 +1,12 @@
 # transducin/noel_resolver.py
 # SPDX-License-Identifier: Apache-2.0
 #
-# 3-tier NOEL ID resolution for all OCT pipelines (Revo, Cirrus, etc.).
+# 4-tier NOEL ID resolution for all OCT pipelines (Revo, Cirrus, etc.).
 #
-# Tier 1: SOCT.db lookup by patient name (± DOB)
+# Tier 1: SOCT.db exact/token lookup by patient name (± DOB)
 # Tier 2: Filename cross-reference (NOEL-prefixed sibling files)
-# Tier 3: PatientName as PatientID (last resort, WARNING logged)
+# Tier 3: SOCT.db fuzzy lookup — handles typos/abbreviations (difflib, no new deps)
+# Tier 4: PatientName as PatientID (last resort, WARNING logged)
 #
 # Usage:
 #   from transducin.noel_resolver import resolve_noel_id
@@ -18,6 +19,7 @@
 
 from __future__ import annotations
 
+import difflib
 import logging
 import os
 import sqlite3
@@ -201,10 +203,85 @@ def _lookup_filename_index(
     return resolved
 
 
-# ── Tier 3: PatientName as PatientID ─────────────────────────────────────────
+# ── Tier 3: SOCT.db fuzzy lookup ─────────────────────────────────────────────
+
+_FUZZY_THRESHOLD = 0.82  # SequenceMatcher ratio — ajustar si hay falsos positivos
+
+
+def _lookup_soct_db_fuzzy(
+    patient_name: str,
+    patient_dob: Optional[str] = None,
+) -> Optional[str]:
+    """Fuzzy match against SOCT.db patient names using difflib (stdlib, no new deps).
+
+    Handles common variations: ARTEAGA/ARTEGA, EDWARDS/EDWARS, truncated names.
+    Only accepts a match if similarity >= _FUZZY_THRESHOLD. DOB disambiguates
+    multiple fuzzy candidates.
+    """
+    if not SOCT_DB_PATH.is_file():
+        return None
+
+    try:
+        conn = sqlite3.connect(str(SOCT_DB_PATH), timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        cur = conn.cursor()
+        cur.execute("SELECT ref, fname, lname, dob FROM patients WHERE ref IS NOT NULL AND ref != ''")
+        rows = cur.fetchall()
+        conn.close()
+    except sqlite3.Error as e:
+        logger.warning("SOCT.db fuzzy query failed: %s", e)
+        return None
+
+    input_full = _normalize(patient_name.replace("^", " ").replace("_", " "))
+
+    scored: list[tuple[float, str, str, str, int]] = []
+    for ref, db_fname, db_lname, db_dob_jdn in rows:
+        db_full = _normalize(f"{db_lname} {db_fname}")
+        ratio = difflib.SequenceMatcher(None, input_full, db_full).ratio()
+        if ratio >= _FUZZY_THRESHOLD:
+            scored.append((ratio, ref, db_fname, db_lname, db_dob_jdn or 0))
+
+    if not scored:
+        return None
+
+    scored.sort(reverse=True)
+    best_ratio = scored[0][0]
+
+    # Keep only candidates within 0.05 of the best ratio
+    top = [s for s in scored if s[0] >= best_ratio - 0.05]
+
+    if len(top) == 1:
+        ref = top[0][1]
+        logger.info(
+            "Tier 3 fuzzy: SOCT.db match (ratio=%.2f) — '%s' → %s",
+            top[0][0], patient_name, ref,
+        )
+        return ref
+
+    # Multiple fuzzy candidates — try DOB disambiguation
+    dob_date = _parse_dob(patient_dob) if patient_dob else None
+    if dob_date:
+        dob_matches = [c for c in top if c[4] and _jdn_to_date(c[4]) == dob_date]
+        if len(dob_matches) == 1:
+            ref = dob_matches[0][1]
+            logger.info(
+                "Tier 3 fuzzy (DOB match): '%s' → %s (ratio=%.2f)",
+                patient_name, ref, dob_matches[0][0],
+            )
+            return ref
+
+    refs = [c[1] for c in top]
+    logger.warning(
+        "Tier 3 fuzzy: %d candidates for '%s': %s — cannot disambiguate",
+        len(top), patient_name, refs,
+    )
+    return None
+
+
+# ── Tier 4: PatientName as PatientID ─────────────────────────────────────────
 
 def _fallback_name_as_id(patient_name: str) -> str:
-    """Tier 3: compute 4-letter NOEL initials when no DOB is available.
+    """Tier 4: compute 4-letter NOEL initials when no DOB is available.
 
     Returns the NOEL algorithm's name-prefix only (paterno[:2] + materno[0] +
     nombre[0]) — without the date suffix. Example: "GARCIA LOPEZ^ANA MARIA"
@@ -218,7 +295,7 @@ def _fallback_name_as_id(patient_name: str) -> str:
     initials = noel_initials(patient_name)
     pid = initials or "UNKNOWN"
     logger.warning(
-        "Tier 3: no NOEL ID for '%s' — using initials as PatientID: %s "
+        "Tier 4: no NOEL ID for '%s' — using initials as PatientID: %s "
         "(NOT a real NOEL; patient missing from SOCT.db)",
         patient_name, pid,
     )
@@ -232,11 +309,12 @@ def resolve_noel_id(
     patient_dob: Optional[str] = None,
     filename_index: Optional[dict[str, str]] = None,
 ) -> str:
-    """Resolve NOEL ID for a patient using 3-tier lookup.
+    """Resolve NOEL ID for a patient using 4-tier lookup.
 
-    Tier 1: SOCT.db (authoritative, works for all devices)
+    Tier 1: SOCT.db exact/token match (± DOB)
     Tier 2: Filename cross-reference (NOEL-prefixed sibling .OPT files)
-    Tier 3: PatientName as PatientID (WARNING logged, never blocks pipeline)
+    Tier 3: SOCT.db fuzzy match (difflib, handles typos/abbreviations)
+    Tier 4: PatientName as PatientID (WARNING logged, never blocks pipeline)
 
     Args:
         patient_name: "APELLIDOS^NOMBRES" (DICOM) or "APELLIDOS_NOMBRES" (filename)
@@ -244,13 +322,13 @@ def resolve_noel_id(
         filename_index: {name_key → noel_id} from build_noel_index() (optional)
 
     Returns:
-        NOEL ID string (always non-empty — Tier 3 guarantees a value).
+        NOEL ID string (always non-empty — Tier 4 guarantees a value).
     """
     if not patient_name or patient_name.upper() in ("UNKNOWN", "UNKNOWN^UNKNOWN"):
-        logger.warning("Tier 3: empty/unknown patient name — PatientID=UNKNOWN")
+        logger.warning("Tier 4: empty/unknown patient name — PatientID=UNKNOWN")
         return "UNKNOWN"
 
-    # Tier 1: SOCT.db
+    # Tier 1: SOCT.db exact/token match
     noel = _lookup_soct_db(patient_name, patient_dob)
     if noel and is_valid_noel(noel):
         return noel
@@ -260,7 +338,12 @@ def resolve_noel_id(
     if noel and is_valid_noel(noel):
         return noel
 
-    # Tier 3: PatientName as PatientID
+    # Tier 3: SOCT.db fuzzy match
+    noel = _lookup_soct_db_fuzzy(patient_name, patient_dob)
+    if noel and is_valid_noel(noel):
+        return noel
+
+    # Tier 4: PatientName as PatientID (last resort)
     return _fallback_name_as_id(patient_name)
 
 
