@@ -602,7 +602,9 @@ def extract_from_opt(
                 cd.add_note(f"CONFIRMED: cmt_um={cmt:.1f} µm — mean(BM-TOP/ILM) central 1mm, axial {result['params']['axial_um']:.3f} µm/px")
                 logger.info("CMT calculado: %.1f µm", cmt)
             else:
-                cd.add_note("ASSUMED: capas NFL/BM presentes pero sin valores válidos en parche central")
+                reason = result.get("cmt_failure_reason") or "bottom_zero"
+                cd.cmt_failure_reason = reason
+                cd.add_note(f"UNKNOWN: cmt_um ausente — razón={reason}")
 
             # SQI (Signal Quality Index)
             sqi = result.get("sqi")
@@ -799,7 +801,9 @@ def extract_from_opt(
     # ── Nivel 3: UNKNOWN — datos encriptados ─────────────────────────────────
     cd.add_note("UNKNOWN: patient_dob — PATIENT.DAT encriptado")
     if cd.cmt_um is None:
-        cd.add_note("UNKNOWN: cmt_um, etdrs_grid, rnfl — capas no disponibles para este tipo de estudio")
+        if cd.cmt_failure_reason is None:
+            cd.cmt_failure_reason = "not_macular"
+        cd.add_note(f"UNKNOWN: cmt_um — razón={cd.cmt_failure_reason}")
 
     # Determinar confianza global
     if cd.noel_id and cd.laterality and cd.study_date:

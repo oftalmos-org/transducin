@@ -132,6 +132,13 @@ class OCTClinicalData:
     # Confianza y trazabilidad
     extraction_confidence: str = "unknown"   # "confirmed" | "assumed" | "unknown"
     confidence_notes: list[str] = field(default_factory=list)
+    # Razón diagnóstica cuando cmt_um es None en un estudio macular
+    # "bottom_zero"   — capa BOTTOM presente pero en ceros (drusen, fibrosis sub-RPE)
+    # "sqi_low"       — SQI por debajo del umbral mínimo (imagen de baja calidad)
+    # "dims_unknown"  — dimensiones del cubo no reconocidas
+    # "layer_missing" — chunk BM y BOTTOM ausentes del archivo
+    # "not_macular"   — study_type != macular (CMT no aplica)
+    cmt_failure_reason: Optional[str] = None
 
     def add_note(self, note: str) -> None:
         self.confidence_notes.append(note)

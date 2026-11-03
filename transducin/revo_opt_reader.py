@@ -1683,6 +1683,22 @@ def read_opt(filepath: str | Path) -> dict:
     # Métricas con filtrado SQI (laterality se aplica en opt_extractor con el valor correcto)
     # CMT y ETDRS = grosor retinal total (BM − TOP/ILM). mRNFL macular = (NFL − TOP).
     cmt_um  = compute_cmt(top, bm, params, sqi=sqi)
+
+    # Diagnóstico cuando CMT es None — ayuda a distinguir patología vs bug de pipeline.
+    # Valores: "layer_missing" | "bottom_zero" | "sqi_low" | "dims_unknown"
+    cmt_failure_reason: Optional[str] = None
+    if cmt_um is None:
+        import numpy as _np
+        if top is None or bm is None:
+            cmt_failure_reason = "layer_missing"
+        elif bm is not None and _np.all(bm == 0):
+            cmt_failure_reason = "bottom_zero"  # drusen masivos, fibrosis sub-RPE
+        elif sqi is not None and _np.all(sqi < _SQI_MIN_QUALITY):
+            cmt_failure_reason = "sqi_low"
+        elif params is None:
+            cmt_failure_reason = "dims_unknown"
+        else:
+            cmt_failure_reason = "bottom_zero"  # caso más frecuente si llegamos aquí
     etdrs   = compute_etdrs(top, bm, params, sqi=sqi)
     rnfl    = compute_rnfl_sectors(nfl, gcl, params, sqi=sqi)
     gcl_ipl = compute_gcl_ipl(gcl, inl, params, sqi=sqi)
@@ -1720,6 +1736,7 @@ def read_opt(filepath: str | Path) -> dict:
         "n_frames":  len(bscans),
         "shape":     shape,
         "cmt_um":    cmt_um,
+        "cmt_failure_reason": cmt_failure_reason,
         "etdrs":     etdrs,
         "rnfl":      rnfl,
         "gcl_ipl":   gcl_ipl,
