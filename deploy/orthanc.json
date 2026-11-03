@@ -1,0 +1,25 @@
+{
+  "Name": "Transducin-Orthanc",
+  "HttpServerEnabled": true,
+  "HttpPort": 8042,
+  "DicomPort": 4242,
+  "DicomAet": "ORTHANC",
+  "AuthenticationEnabled": true,
+  "RegisteredUsers": {},
+  "DicomModalities": {
+    "TRANSDUCIN": ["TRANSDUCIN", "transducin-watcher", 4242]
+  },
+  "StorageDirectory": "/var/lib/orthanc/db",
+  "IndexDirectory": "/var/lib/orthanc/db",
+  "Plugins": [],
+  "MaximumStorageSize": 0,
+  "MaximumPatientCount": 0,
+  "HttpTimeout": 60,
+  "DicomScpTimeout": 30,
+  "HttpCompressionEnabled": true,
+  "KeepAliveTimeout": 60,
+  "JobsHistorySize": 10,
+  "SaveJobs": true,
+  "OverwriteInstances": false,
+  "CaseSensitivePN": false
+}

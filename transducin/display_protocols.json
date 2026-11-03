@@ -81,5 +81,13 @@
     "secondary_metrics": [],
     "label_es": "OCT",
     "color": "#6B7280"
+  },
+
+  "_image_endpoints": {
+    "_comment": "Endpoints REST de Transducin API (puerto 8004) para obtener imágenes clínicas por NOEL ID. Usados por Gass.",
+    "bscan":         "GET /patients/{noel_id}/oct-latest/bscan",
+    "slo":           "GET /patients/{noel_id}/oct-latest/slo",
+    "etdrs_overlay": "GET /patients/{noel_id}/oct-latest/etdrs-overlay",
+    "rnfl_bullseye": "GET /patients/{noel_id}/oct-latest/rnfl-bullseye"
   }
 }
