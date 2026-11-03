@@ -17,6 +17,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `FDAReader` fallaba con numpy ≥ 2.3 (`np.fromstring` binario eliminado)
 - Capas FDA ausentes (valor crudo 0) ahora son NaN y no "altura de imagen"
 - Adapters D1/D2: sin lateralidad conocida no se miden sectores (antes el extractor asumía ojo derecho)
+- Watcher `.opt`: sin NOEL ID el DICOM ya no lleva `PatientID="UNKNOWN"` sino `""`
+- Watcher `.opt`: ahora pasa `study_type`/`study_time` a `opt_to_dicom()`; antes `ProtocolName (0018,1030)` salía vacío y Gass no podía clasificar el scan
+- Tests de regresión en `tests/test_watcher_dicom.py`
 
 ---
 
