@@ -192,6 +192,7 @@
       <a href="#devices">Devices</a>
       <a href="#quickstart">Quickstart</a>
       <a href="#api">API</a>
+      <a href="#cite">Cite</a>
       <a href="https://github.com/oftalmos-org/transducin">GitHub</a>
     </div>
   </div>
@@ -217,7 +218,7 @@
   <!-- Devices -->
   <section id="devices">
     <h2>Device support</h2>
-    <p>Transducin currently supports Nidek/Optovue instruments and is expanding to other major vendors.</p>
+    <p>Transducin converts proprietary OCT formats to DICOM SR TID&nbsp;1500. Supported instruments:</p>
     <div class="device-grid">
       <div class="device-card">
         <div class="vendor">Nidek / Optovue</div>
@@ -237,14 +238,18 @@
       <div class="device-card">
         <div class="vendor">Heidelberg</div>
         <div class="model">Spectralis (.e2e)</div>
-        <span class="status v2">v2.0</span>
+        <span class="status v2">v2.0 — beta</span>
       </div>
       <div class="device-card">
         <div class="vendor">Topcon</div>
-        <div class="model">DRI OCT Triton (.fda)</div>
-        <span class="status v2">v2.0</span>
+        <div class="model">DRI OCT Triton (.fda/.fds)</div>
+        <span class="status v2">v2.0 — beta</span>
       </div>
     </div>
+    <p style="font-size:12px;color:var(--muted);margin-top:10px;">
+      <strong>Beta devices</strong> — readers vendorized; no sample files used for automated CI yet.
+      Contributions of anonymized .e2e / .fda test files welcome.
+    </p>
   </section>
 
   <!-- Quickstart -->
@@ -300,12 +305,16 @@ cp .env.example .env
                                         <span class="hi">Orthanc C-STORE</span>  +  <span class="hi">Graefe webhook</span>
 
 REST API (port 8004):
-  GET  /health                                → pipeline + Orthanc status
-  GET  /stats                                 → aggregate counts (no PHI)
-  GET  /patients/{noel_id}/oct-latest         → most recent SR measurements
-  GET  /patients/{noel_id}/oct-trend          → last 5 studies, chronological
-  POST /store-summary                         → pgvector embedding store
-  POST /refraction                            → refraction DICOM SR builder</div>
+  GET  /health                                        → pipeline + Orthanc status
+  GET  /stats                                         → aggregate counts (no PHI)
+  GET  /patients/{noel_id}/oct-latest                 → most recent SR measurements
+  GET  /patients/{noel_id}/oct-trend                  → last 5 studies, chronological
+  GET  /patients/{noel_id}/oct-latest/bscan           → central B-scan (JPEG, proxied from Orthanc)
+  GET  /patients/{noel_id}/oct-latest/slo             → SLO en-face image (JPEG)
+  GET  /patients/{noel_id}/oct-latest/etdrs-overlay   → ETDRS 9-sector grid PNG (generated)
+  GET  /patients/{noel_id}/oct-latest/rnfl-bullseye   → RNFL bull's-eye PNG (generated)
+  POST /store-summary                                 → pgvector embedding store
+  POST /refraction                                    → refraction DICOM SR builder</div>
 
     <br>
     <h3>NOEL patient ID protocol</h3>
@@ -317,6 +326,20 @@ REST API (port 8004):
   </section>
 
 </div>
+
+<!-- Cite -->
+<section id="cite" style="margin-top:40px;">
+  <div class="container">
+    <h2>Cite</h2>
+    <p>If you use Transducin in research, please cite:</p>
+    <pre>Jaurrieta Hinojos JN. Transducin: an open-source OCT-to-DICOM SR pipeline
+for ophthalmic structured reporting. <em>Journal of Intelligent Imaging in Medicine</em>.
+2026 (in press). Available at: https://github.com/oftalmos-org/transducin</pre>
+    <p style="font-size:12px;color:var(--muted);margin-top:8px;">
+      DOI and final citation will be updated upon publication in JIIM.
+    </p>
+  </div>
+</section>
 
 <footer>
   Transducin is developed at <strong>RetinaOS</strong> by Dr. J.N. Jaurrieta Hinojos · Chihuahua, México ·

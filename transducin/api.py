@@ -37,7 +37,7 @@ from typing import Any, AsyncGenerator, Optional
 import httpx
 import pydicom
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -242,11 +242,11 @@ async def _download_instance_bytes(http: httpx.AsyncClient, instance_oid: str) -
 async def _get_latest_sr_instance(
     http: httpx.AsyncClient,
     noel_id: str,
-) -> Optional[tuple[pydicom.Dataset, str, str, str]]:
+) -> Optional[tuple[pydicom.Dataset, str, str, str, str]]:
     """Obtiene el SR más reciente del paciente.
 
     Returns:
-        Tuple (dataset, study_date, vendor, laterality) o None si no hay SR.
+        Tuple (dataset, study_date, vendor, laterality, study_oid) o None si no hay SR.
     """
     study_oids = await _orthanc_find_studies(http, noel_id)
     if not study_oids:
@@ -290,7 +290,7 @@ async def _get_latest_sr_instance(
     vendor = str(getattr(ds, "Manufacturer", "") or "unknown").lower().replace(" ", "_")
     lat_raw = str(getattr(ds, "ImageLaterality", "") or getattr(ds, "Laterality", "") or "")
 
-    return ds, study_date, vendor, lat_raw
+    return ds, study_date, vendor, lat_raw, latest["oid"]
 
 
 # ── Modelos Pydantic ──────────────────────────────────────────────────────────
@@ -371,7 +371,7 @@ async def oct_latest(noel_id: str) -> OCTLatestResponse:
     if result is None:
         raise HTTPException(status_code=404, detail=f"No se encontró SR para {noel_id}")
 
-    ds, study_date, vendor, lat = result
+    ds, study_date, vendor, lat, _study_oid = result
     measurements = _parse_sr_content(ds)
 
     sqi = measurements.get("sqi_mean")
@@ -604,6 +604,301 @@ async def build_refraction(req: RefractionRequest) -> RefractionResponse:
     except Exception as exc:
         logger.error("POST /refraction error: %s", exc)
         return RefractionResponse(ok=False, detail=str(exc))
+
+
+# ── Imagen clínica: helpers ───────────────────────────────────────────────────
+
+def _clinical_color(value: Optional[float], low: float, high: float) -> str:
+    """Devuelve color hex según si value está dentro del rango normal [low, high]."""
+    if value is None:
+        return "#4B5563"  # gris — sin dato
+    if value < low:
+        return "#EF4444"  # rojo — por debajo del rango
+    if value > high:
+        return "#3B82F6"  # azul — por encima del rango
+    return "#10B981"  # verde — dentro del rango
+
+
+def _render_etdrs_grid(cmt_um: Optional[float]) -> bytes:
+    """Genera PNG de la grilla ETDRS 9-sector a partir del grosor macular central."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    fig, ax = plt.subplots(figsize=(4.5, 4.5), facecolor="#0d1117")
+    ax.set_facecolor("#0d1117")
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.set_xlim(-3.6, 3.6)
+    ax.set_ylim(-3.6, 3.6)
+
+    # Anillo externo 6mm
+    ax.add_patch(plt.Circle((0, 0), 3.0, color="#1F2937", zorder=1))
+    # Anillo interno 3mm
+    ax.add_patch(plt.Circle((0, 0), 1.5, color="#111827", zorder=2))
+    # Centro 1mm — coloreado por grosor
+    center_color = _clinical_color(cmt_um, 250, 400)
+    ax.add_patch(plt.Circle((0, 0), 0.5, color=center_color, zorder=3))
+
+    # Bordes de los anillos
+    for r, lw in [(0.5, 2.0), (1.5, 1.2), (3.0, 1.2)]:
+        ax.add_patch(plt.Circle((0, 0), r, color="#6B7280", fill=False, linewidth=lw, zorder=4))
+
+    # Divisores de sectores en anillo interno (45° cada 90°)
+    for deg in [45, 135, 225, 315]:
+        rad = np.radians(deg)
+        ax.plot([0.5 * np.cos(rad), 1.5 * np.cos(rad)],
+                [0.5 * np.sin(rad), 1.5 * np.sin(rad)],
+                color="#374151", linewidth=0.8, zorder=4)
+    for deg in [45, 135, 225, 315]:
+        rad = np.radians(deg)
+        ax.plot([1.5 * np.cos(rad), 3.0 * np.cos(rad)],
+                [1.5 * np.sin(rad), 3.0 * np.sin(rad)],
+                color="#374151", linewidth=0.8, zorder=4)
+
+    # Valor central
+    cmt_str = f"{cmt_um:.0f}" if cmt_um is not None else "N/A"
+    ax.text(0, 0.12, cmt_str, ha="center", va="center",
+            fontsize=12, fontweight="bold", color="white", zorder=5)
+    ax.text(0, -0.22, "μm", ha="center", va="center",
+            fontsize=7.5, color="#9CA3AF", zorder=5)
+
+    # Etiquetas sectoriales
+    ax.text(0, 2.2, "S", ha="center", va="center", fontsize=8, color="#9CA3AF")
+    ax.text(0, -2.2, "I", ha="center", va="center", fontsize=8, color="#9CA3AF")
+    ax.text(-2.2, 0, "T", ha="center", va="center", fontsize=8, color="#9CA3AF")
+    ax.text(2.2, 0, "N", ha="center", va="center", fontsize=8, color="#9CA3AF")
+
+    # Título y leyenda de escala
+    ax.text(0, 3.25, "ETDRS — Grosor Macular", ha="center", va="bottom",
+            fontsize=8, color="#9CA3AF")
+    ax.text(0, -3.25, "1 mm · 3 mm · 6 mm", ha="center", va="top",
+            fontsize=7, color="#6B7280")
+
+    # Leyenda de colores
+    legend_x, legend_y = -3.5, -3.0
+    for color, label in [("#EF4444", "<250"), ("#10B981", "250-400"), ("#3B82F6", ">400")]:
+        ax.plot(legend_x, legend_y, "s", color=color, markersize=5, zorder=5)
+        ax.text(legend_x + 0.25, legend_y, label,
+                ha="left", va="center", fontsize=6, color="#9CA3AF")
+        legend_x += 1.8
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", dpi=120, bbox_inches="tight",
+                facecolor="#0d1117", edgecolor="none")
+    plt.close(fig)
+    buf.seek(0)
+    return buf.read()
+
+
+def _render_rnfl_bullseye(rnfl_um: Optional[float]) -> bytes:
+    """Genera PNG del bull's-eye de RNFL peripapillar."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    fig, ax = plt.subplots(figsize=(4.5, 4.5), facecolor="#0d1117")
+    ax.set_facecolor("#0d1117")
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.set_xlim(-1.25, 1.25)
+    ax.set_ylim(-1.25, 1.25)
+
+    inner_r, outer_r = 0.38, 0.92
+
+    # Sectores de referencia normativa RNFL: S e I tienen mayor grosor
+    sector_defs = [
+        (45,  135, "#1D4ED8", "S"),   # Superior — más grueso normalmente
+        (225, 315, "#1D4ED8", "I"),   # Inferior — más grueso normalmente
+        (135, 225, "#374151", "T"),   # Temporal
+        (315, 405, "#374151", "N"),   # Nasal
+    ]
+    for start_deg, end_deg, bg_color, _label in sector_defs:
+        theta = np.linspace(np.radians(start_deg), np.radians(end_deg), 40)
+        xs = np.concatenate([inner_r * np.cos(theta), outer_r * np.cos(theta[::-1])])
+        ys = np.concatenate([inner_r * np.sin(theta), outer_r * np.sin(theta[::-1])])
+        ax.fill(xs, ys, color=bg_color, alpha=0.35, zorder=1)
+
+    # Anillos de borde
+    for r, lw in [(inner_r, 1.2), (outer_r, 1.5)]:
+        ax.add_patch(plt.Circle((0, 0), r, color="#6B7280", fill=False,
+                                linewidth=lw, zorder=3))
+
+    # Centro coloreado por RNFL global (normal: 80-110 μm)
+    center_color = _clinical_color(rnfl_um, 80, 110)
+    ax.add_patch(plt.Circle((0, 0), inner_r, color=center_color, zorder=2))
+
+    # Valor global
+    rnfl_str = f"{rnfl_um:.0f}" if rnfl_um is not None else "N/A"
+    ax.text(0, 0.09, rnfl_str, ha="center", va="center",
+            fontsize=13, fontweight="bold", color="white", zorder=4)
+    ax.text(0, -0.18, "μm global", ha="center", va="center",
+            fontsize=7, color="#9CA3AF", zorder=4)
+
+    # Etiquetas de cuadrantes
+    ax.text(0,  1.1, "S", ha="center", va="bottom", fontsize=9, color="#E5E7EB", fontweight="bold")
+    ax.text(0, -1.1, "I", ha="center", va="top",    fontsize=9, color="#E5E7EB", fontweight="bold")
+    ax.text(-1.1, 0, "T", ha="right",  va="center", fontsize=9, color="#E5E7EB", fontweight="bold")
+    ax.text(1.1,  0, "N", ha="left",   va="center", fontsize=9, color="#E5E7EB", fontweight="bold")
+
+    # Título
+    ax.text(0, 1.22, "RNFL Bull's-Eye Peripapillar", ha="center", va="bottom",
+            fontsize=7.5, color="#9CA3AF")
+
+    # Líneas divisoras de cuadrantes
+    for deg in [45, 135, 225, 315]:
+        rad = np.radians(deg)
+        ax.plot([inner_r * np.cos(rad), outer_r * np.cos(rad)],
+                [inner_r * np.sin(rad), outer_r * np.sin(rad)],
+                color="#4B5563", linewidth=0.8, zorder=3)
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", dpi=120, bbox_inches="tight",
+                facecolor="#0d1117", edgecolor="none")
+    plt.close(fig)
+    buf.seek(0)
+    return buf.read()
+
+
+# ── Imagen clínica: endpoints ─────────────────────────────────────────────────
+
+_IMAGE_MODALITIES = {"OPT", "SC", "OP", "CFP"}  # Modalities que contienen imágenes OCT/fundus
+
+
+async def _get_central_rendered_image(
+    http: httpx.AsyncClient, study_oid: str
+) -> Optional[bytes]:
+    """Busca la primera serie de imagen en el estudio y retorna la instancia central renderizada."""
+    series_list = await _orthanc_series_list(http, study_oid)
+    image_series = [
+        s for s in series_list
+        if s.get("MainDicomTags", {}).get("Modality") in _IMAGE_MODALITIES
+    ]
+    if not image_series:
+        return None
+    instances = await _orthanc_instances(http, image_series[0]["ID"])
+    if not instances:
+        return None
+    central_idx = len(instances) // 2
+    resp = await http.get(f"{_ORTHANC_BASE}/instances/{instances[central_idx]['ID']}/rendered")
+    if resp.status_code != 200:
+        return None
+    return resp.content
+
+
+@app.get(
+    "/patients/{noel_id}/oct-latest/bscan",
+    summary="B-scan central del OCT más reciente",
+    response_class=Response,
+)
+async def oct_bscan(noel_id: str) -> Response:
+    """Retorna el B-scan central de la serie de imagen más reciente del paciente.
+
+    Requiere que el estudio OCT haya sido almacenado en Orthanc como serie OPT/SC.
+    Si el estudio solo contiene el SR (no la imagen cruda), devuelve 404.
+    """
+    http: httpx.AsyncClient = app.state.http
+    result = await _get_latest_sr_instance(http, noel_id)
+    if result is None:
+        raise HTTPException(404, f"Sin estudios SR para {noel_id}")
+    _, _, _, _, study_oid = result
+
+    img_bytes = await _get_central_rendered_image(http, study_oid)
+    if img_bytes is None:
+        raise HTTPException(
+            404,
+            "Sin serie de imagen en Orthanc para este estudio — solo SR disponible",
+        )
+    return Response(content=img_bytes, media_type="image/jpeg")
+
+
+@app.get(
+    "/patients/{noel_id}/oct-latest/slo",
+    summary="Imagen SLO en-face del OCT más reciente",
+    response_class=Response,
+)
+async def oct_slo(noel_id: str) -> Response:
+    """Retorna la imagen SLO en-face (serie OP u OPT confocal) del estudio más reciente.
+
+    Si el estudio solo contiene SR devuelve 404.
+    """
+    http: httpx.AsyncClient = app.state.http
+    result = await _get_latest_sr_instance(http, noel_id)
+    if result is None:
+        raise HTTPException(404, f"Sin estudios SR para {noel_id}")
+    _, _, _, _, study_oid = result
+
+    # Preferir serie OP (confocal SLO) sobre OPT
+    series_list = await _orthanc_series_list(http, study_oid)
+    slo_series = [
+        s for s in series_list
+        if s.get("MainDicomTags", {}).get("Modality") in ("OP", "CFP")
+    ]
+    if not slo_series:
+        slo_series = [
+            s for s in series_list
+            if s.get("MainDicomTags", {}).get("Modality") in _IMAGE_MODALITIES
+        ]
+    if not slo_series:
+        raise HTTPException(404, "Sin serie SLO/en-face en Orthanc")
+
+    instances = await _orthanc_instances(http, slo_series[0]["ID"])
+    if not instances:
+        raise HTTPException(404, "Sin instancias en serie SLO")
+    resp = await http.get(f"{_ORTHANC_BASE}/instances/{instances[0]['ID']}/rendered")
+    if resp.status_code != 200:
+        raise HTTPException(404, "Orthanc no pudo renderizar la imagen SLO")
+    return Response(content=resp.content, media_type="image/jpeg")
+
+
+@app.get(
+    "/patients/{noel_id}/oct-latest/etdrs-overlay",
+    summary="ETDRS grid coloreado por grosor macular",
+    response_class=Response,
+)
+async def oct_etdrs_overlay(noel_id: str) -> Response:
+    """Genera PNG de la grilla ETDRS 9-sector coloreada por grosor macular central (CMT).
+
+    Generado desde las mediciones del SR DICOM — no requiere imagen cruda en Orthanc.
+    """
+    http: httpx.AsyncClient = app.state.http
+    result = await _get_latest_sr_instance(http, noel_id)
+    if result is None:
+        raise HTTPException(404, f"Sin estudios SR para {noel_id}")
+    ds, _, _, _, _ = result
+    measurements = _parse_sr_content(ds)
+    try:
+        png = _render_etdrs_grid(measurements.get("cmt_um"))
+    except Exception as exc:
+        logger.error("etdrs-overlay render error: %s", exc)
+        raise HTTPException(500, f"Error generando imagen: {exc}")
+    return Response(content=png, media_type="image/png")
+
+
+@app.get(
+    "/patients/{noel_id}/oct-latest/rnfl-bullseye",
+    summary="Bull's-eye RNFL peripapillar",
+    response_class=Response,
+)
+async def oct_rnfl_bullseye(noel_id: str) -> Response:
+    """Genera PNG del bull's-eye RNFL peripapillar coloreado por grosor global.
+
+    Generado desde las mediciones del SR DICOM — no requiere imagen cruda en Orthanc.
+    """
+    http: httpx.AsyncClient = app.state.http
+    result = await _get_latest_sr_instance(http, noel_id)
+    if result is None:
+        raise HTTPException(404, f"Sin estudios SR para {noel_id}")
+    ds, _, _, _, _ = result
+    measurements = _parse_sr_content(ds)
+    try:
+        png = _render_rnfl_bullseye(measurements.get("rnfl_global"))
+    except Exception as exc:
+        logger.error("rnfl-bullseye render error: %s", exc)
+        raise HTTPException(500, f"Error generando imagen: {exc}")
+    return Response(content=png, media_type="image/png")
 
 
 # ── Dashboard web ─────────────────────────────────────────────────────────────
