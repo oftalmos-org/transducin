@@ -69,6 +69,7 @@ def _measurements_from_reader(reader, laterality: str | None) -> dict:
         "gcl_avg_um": None,
         "sqi_mean": None,
         "extraction_confidence": "unknown",
+        "confidence_notes": [],
     }
     if not hasattr(reader, "read_thickness_map"):
         return out
@@ -94,6 +95,9 @@ def _measurements_from_reader(reader, laterality: str | None) -> dict:
     st = getattr(m, "study_type", None)
     if isinstance(st, str) and st:
         out["study_type"] = st
+    notes = getattr(m, "notes", None)
+    if isinstance(notes, list):
+        out["confidence_notes"] = [n for n in notes if isinstance(n, str)]
     scan_date = getattr(m, "scan_date", None)
     if isinstance(scan_date, datetime):
         out["study_date"] = scan_date.strftime("%Y%m%d")
@@ -140,11 +144,14 @@ class SpectralisE2EAdapter(DeviceAdapter):
             pass
 
         meas = _measurements_from_reader(reader, laterality)
-        return OCTClinicalData(
+        cd = OCTClinicalData(
             noel_id="",  # resuelto desde filename en hot_folder_watcher
             vendor="heidelberg_spectralis",
             **meas,
         )
+        if meas["extraction_confidence"] != "unknown":  # hubo alguna medición calculada
+            cd.measurement_provenance = "vendor_contour_derived"
+        return cd
 
     def to_dicom(
         self,

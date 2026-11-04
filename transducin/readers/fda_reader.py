@@ -19,6 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
+from transducin.etdrs_policy import STRICT
 from transducin.readers import _fda_binary as fda_binary
 from transducin.readers._layers import (
     LayerVolume,
@@ -177,6 +178,31 @@ class FDAReader:
                     pass
         return None
 
+    def read_device_info(self) -> dict:
+        """Modelo, ROM y software del equipo (@HW_INFO_03 y @MAIN_MODULE_INFO). Sin datos de paciente."""
+        info: dict = {"model": None, "rom": None, "software": None}
+        try:
+            for key, struct_ in (
+                (b"@HW_INFO_03", fda_binary.hw_info_03_header),
+                (b"@HW_INFO_02", fda_binary.hw_info_02_header),
+            ):
+                for loc, size in self._chunk_positions(key)[:1]:
+                    with open(self.filepath, "rb") as f:
+                        f.seek(loc)
+                        h = struct_.parse(f.read(size))
+                    info["model"], info["rom"] = h.model_name.strip(), h.rom_ver.strip()
+                if info["model"]:
+                    break
+            for loc, size in self._chunk_positions(b"@MAIN_MODULE_INFO")[:1]:
+                with open(self.filepath, "rb") as f:
+                    f.seek(loc)
+                    m = fda_binary.main_module_info_header.parse(f.read(size))
+                ver = ".".join(str(getattr(m, f"file_version_{i}")) for i in range(1, 5))
+                info["software"] = f"{m.software_name.strip()} {ver}"
+        except Exception as exc:  # degradación elegante ante archivos parciales
+            logger.debug("FDA: no se pudo leer la info del equipo: %s", exc)
+        return info
+
     def _read_image_quality(self) -> float | None:
         """PARAM_OBS_02.image_quality → 0–1 (misma regla que topcon_fda_extractor)."""
         for loc, size in self._chunk_positions(b"@PARAM_OBS_02")[:1]:
@@ -247,11 +273,22 @@ class FDAReader:
         from transducin.topcon_fda_extractor import measure_fda_volume
 
         maps: list[ThicknessMapData] = []
+        self.unidentified_contours: list[str] = []
         try:
             volumes = self.read_layer_volumes()
         except Exception as exc:
             logger.warning("FDA: no se pudo leer la segmentación de %s: %s", self.filepath.name, exc)
             return maps
+        # Contornos cuya identidad anatómica no está documentada (p. ej. RETINA_1..4 del
+        # 3D OCT-1000 Mark II): se conservan, pero NO se calculan espesores con ellos.
+        known = set(_LAYER_NAMES.values())
+        self.unidentified_contours = sorted({k for v in volumes for k in v.contours if k not in known})
+        if self.unidentified_contours:
+            logger.warning(
+                "FDA %s: contornos sin identificar %s; no se calculan espesores",
+                self.filepath.name,
+                self.unidentified_contours,
+            )
 
         for vol in volumes:
             cd_base = {
@@ -271,6 +308,7 @@ class FDAReader:
                 vol.sqi_mean,
                 label=self.filepath.stem,
                 require_laterality=True,
+                etdrs_policy=STRICT,
             )
             if cd is not None:
                 maps.append(thickness_map_from_clinical(cd, vol.acquisition_date))

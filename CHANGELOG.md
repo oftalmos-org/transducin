@@ -23,6 +23,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `docker-compose.yml`: la imagen `orthancteam/orthanc:24.6.0` no existe (ahora `24.6.3`) y el healthcheck usaba `curl`, ausente en la imagen (ahora bash + `/dev/tcp`)
 - CI: `ci.yml` instala `construct`; `ruff check` y `ruff format --check` pasan (se ignoran `BLE001`/`S110`/`S112` por degradación elegante deliberada)
 
+### Added (Topcon 3D OCT-1000 Mark II, experimental)
+- Espesor ILM→BM **experimental** (`transducin/topcon_experimental.py`, `scripts/topcon_experimental_thickness.py --experimental`, `TopconFdaAdapter(experimental=True).experimental_thickness()`): solo 3DOCT-1000MK2, usa `RETINA_1`/`RETINA_4` sin modificarlos, verifica la escala axial (3,5 µm/px), marca contornos ausentes y geometría inválida, `measurement_provenance = vendor_contour_derived`; **no** alimenta `cmt_um`, SR, DICOM cuantitativo ni Graefe
+- Mapeo `RETINA_1..4 → ILM / IS/OS / OS/RPE / BM` como **hipótesis versionada e inmutable** (`transducin/topcon_retina_map.py`), no usada por el lector ni el adapter de producción
+- Visor interactivo de contornos (`scripts/topcon_contour_viewer.py`): HTML autocontenido; etiquetas nativas y anotaciones manuales separadas; exportación JSON
+- Política de cobertura ETDRS por adaptador (`transducin/etdrs_policy.py`): Revo/Cirrus sin cambios; Spectralis y Topcon con `STRICT`
+- `boct_converter`: lateralidad solo con token OD/OS aislado o explícita (`--laterality`), calibración explícita (`--pixel-spacing-mm`, `--slice-thickness-mm`) y aviso en `ImageComments` si no hay calibración
+- `FDAReader.read_device_info()`; `ThicknessMapData.notes` (avisos de cálculo)
+- Documentación en `validation/`: contornos Topcon, contraste con Heidelberg (eyepydata), problemas de OCT-Converter, política ETDRS
+
 ### Added (deploy)
 - `deploy/start_transducin.sh` y `deploy/org.oftalmos.transducin.plist`: LaunchAgent de la API (puerto 8004) en lumen
 

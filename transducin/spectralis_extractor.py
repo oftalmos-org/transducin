@@ -328,6 +328,7 @@ def measure_e2e_volume(
     sqi_mean: float | None = None,
     label: str = "",
     require_laterality: bool = False,
+    etdrs_policy=None,
 ) -> OCTClinicalData | None:
     """Calcula mediciones clínicas de UN volumen E2E a partir de sus contornos.
 
@@ -341,6 +342,8 @@ def measure_e2e_volume(
         metadata:           dict con "bscan_data" (lista de dicts posX1/posX2/scaley).
         laterality:         "R" | "L" | otro.
         cd_base:            kwargs de OCTClinicalData SIN ``laterality``.
+        etdrs_policy:       EtdrsCoveragePolicy | None. None = comportamiento histórico (sin comprobar cobertura);
+                            los adaptadores nuevos pasan una política (transducin.etdrs_policy).
         require_laterality: si True y la lateralidad no es R/L, no mide (retorna
                             None) en lugar de asumir "R". El extractor legado
                             conserva el comportamiento histórico (asume "R").
@@ -348,8 +351,8 @@ def measure_e2e_volume(
     Returns:
         OCTClinicalData con mediciones, o None si no hay nada medible.
     """
+    from transducin.etdrs_policy import compute_etdrs_with_policy, unavailable_summary
     from transducin.revo_opt_reader import (
-        compute_etdrs,
         compute_gcl_ipl,
         compute_rnfl_sectors,
     )
@@ -419,6 +422,7 @@ def measure_e2e_volume(
             rnfl=prnfl,
             sqi_mean=sqi_mean,
             extraction_confidence="confirmed",
+            measurement_provenance="vendor_contour_derived",
         )
         cd.add_note(
             f"CONFIRMED: pRNFL={prnfl.global_avg:.1f}µm "
@@ -429,7 +433,7 @@ def measure_e2e_volume(
         return cd if cd.has_measurements() else None
 
     # ── Macular / ONH cube → CMT + ETDRS + mRNFL + mGCIPL ────────────────
-    etdrs = compute_etdrs(ilm, bm, params, laterality=lat)
+    etdrs, cov_report = compute_etdrs_with_policy(ilm, bm, params, laterality=lat, policy=etdrs_policy)
     cmt_um = round(float(etdrs.C), 1) if (etdrs and etdrs.C is not None) else None
 
     rnfl = None
@@ -450,6 +454,7 @@ def measure_e2e_volume(
         gcl_avg_um=round(float(gcl_ipl.global_avg), 1) if (gcl_ipl and gcl_ipl.global_avg is not None) else None,
         sqi_mean=sqi_mean,
         extraction_confidence="confirmed" if cmt_um is not None else "assumed",
+        measurement_provenance="vendor_contour_derived",
     )
 
     if cmt_um is not None:
@@ -470,6 +475,10 @@ def measure_e2e_volume(
             f"S={gcl_ipl.superior:.1f} N={gcl_ipl.nasal:.1f} "
             f"I={gcl_ipl.inferior:.1f} T={gcl_ipl.temporal:.1f} µm"
         )
+
+    cov_note = unavailable_summary(cov_report)
+    if cov_note:
+        cd.add_note(cov_note)
 
     if not cd.has_measurements():
         logger.warning("  Sin mediciones para volumen en %s", label)

@@ -200,6 +200,9 @@ def build_fda(
     quality: str | None = "85",
     with_contours: bool = True,
     zero_layers: tuple[str, ...] = (),
+    layer_ids: dict[str, str] | None = None,
+    model_name: str | None = None,  # si se da, escribe @HW_INFO_03 con ese modelo
+    rom_ver: str = "1.10",  # renombra MULTILAYERS_n (p. ej. a RETINA_n)
 ) -> Path:
     """Escribe un .fda mínimo (sin píxeles de imagen) con segmentación sintética."""
     if thick_px is None:
@@ -212,6 +215,12 @@ def build_fda(
         "MULTILAYERS_7": ilm + thick_px,
     }
     out = fb.header.build({"file_code": "FOCT", "file_type": "FDA", "major_ver": 1, "minor_ver": 0})
+    if model_name is not None:
+        hw = {"model_name": model_name, "serial_number": "SYNTH", "spect_sn": "", "rom_ver": rom_ver, "unknown": ""}
+        for k in ("eq_calib", "spect_calib"):
+            for u in ("year", "month", "day", "hour", "minute"):
+                hw[f"{k}_{u}"] = 0
+        out += _fda_chunk(b"@HW_INFO_03", fb.hw_info_03_header.build(hw))
     if eye is not None:
         out += _fda_chunk(
             b"@CAPTURE_INFO_02",
@@ -276,7 +285,14 @@ def build_fda(
             out += _fda_chunk(
                 b"@CONTOUR_INFO",
                 fb.contour_info_header.build(
-                    {"id": lid, "method": 0, "format": 0, "width": n_a, "height": n_b, "size": seg.size * 2}
+                    {
+                        "id": (layer_ids or {}).get(lid, lid),
+                        "method": 0,
+                        "format": 0,
+                        "width": n_a,
+                        "height": n_b,
+                        "size": seg.size * 2,
+                    }
                 )
                 + seg.tobytes(),
             )

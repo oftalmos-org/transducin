@@ -50,6 +50,11 @@ where = [""]
 include = ["transducin*"]
 exclude= ["my_example_volumes*"]
 
+[tool.pytest.ini_options]
+markers = [
+    "real_data: requiere archivos reales en $TRANSDUCIN_REAL_DATA_DIR (se omite si faltan)",
+]
+
 [tool.ruff]
 line-length = 120
 
