@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- LaunchAgent de Transducin API (lumen). Instalar en ~/Library/LaunchAgents/.
+     Rutas ajustadas al usuario `noel` en lumen; patrón de org.oftalmos.rhodopsin. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>org.oftalmos.transducin</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/noel/Developer/RetinaOS/Transducin/deploy/start_transducin.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/noel/Developer/RetinaOS/Transducin</string>
+    <key>StandardOutPath</key>
+    <string>/Users/noel/Developer/RetinaOS/Transducin/logs/transducin-api.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/noel/Developer/RetinaOS/Transducin/logs/transducin-api.log</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>
