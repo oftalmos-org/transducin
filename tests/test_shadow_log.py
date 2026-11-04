@@ -346,3 +346,13 @@ def test_aggregate_exposes_evidence_and_unique_studies(tmp_path):
     assert agg["n_records"] == 2 and agg["unique_studies"]["revo_opt"] == 1
     assert "revo_opt|macular" in agg["by_route_study_type"]
     assert agg["by_route"]["revo_opt|sr"]["laterality_state"]
+
+
+def test_key_permission_check_is_skipped_only_on_windows(tmp_path, monkeypatch):
+    kf = tmp_path / "k"
+    kf.write_bytes(KEY)
+    os.chmod(kf, 0o666)  # en Windows así aparece siempre un archivo normal
+    env = {"TRANSDUCIN_SHADOW_LOG_DIR": str(tmp_path / "l"), "TRANSDUCIN_SHADOW_HMAC_KEY_FILE": str(kf)}
+    assert sl.load_config(env) is None
+    monkeypatch.setattr(sl, "_is_windows", lambda: True)
+    assert sl.load_config(env) is not None
