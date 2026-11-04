@@ -26,7 +26,6 @@ import sqlite3
 import unicodedata
 from datetime import date
 from pathlib import Path
-from typing import Optional
 
 from transducin.noel_id import is_valid_noel
 
@@ -42,6 +41,7 @@ _JDN_OFFSET = 1721425
 
 # ── Text normalization ────────────────────────────────────────────────────────
 
+
 def _normalize(text: str) -> str:
     """Normalize text for comparison: strip accents, casefold, underscores→spaces."""
     if not text:
@@ -55,7 +55,7 @@ def _normalize(text: str) -> str:
     return text.casefold().strip()
 
 
-def _jdn_to_date(jdn: int) -> Optional[date]:
+def _jdn_to_date(jdn: int) -> date | None:
     """Convert Julian Day Number (as stored in SOCT.db) to a Python date."""
     try:
         return date.fromordinal(int(jdn) - _JDN_OFFSET)
@@ -63,7 +63,7 @@ def _jdn_to_date(jdn: int) -> Optional[date]:
         return None
 
 
-def _parse_dob(dob_str: str) -> Optional[date]:
+def _parse_dob(dob_str: str) -> date | None:
     """Parse DOB from common formats: YYYYMMDD, YYYY-MM-DD, DD/MM/YYYY."""
     if not dob_str:
         return None
@@ -83,6 +83,7 @@ def _parse_dob(dob_str: str) -> Optional[date]:
 
 
 # ── Tier 1: SOCT.db lookup ───────────────────────────────────────────────────
+
 
 def _split_patient_name(patient_name: str) -> tuple[str, str]:
     """Split PatientName into (lname, fname).
@@ -104,8 +105,8 @@ def _split_patient_name(patient_name: str) -> tuple[str, str]:
 
 def _lookup_soct_db(
     patient_name: str,
-    patient_dob: Optional[str] = None,
-) -> Optional[str]:
+    patient_dob: str | None = None,
+) -> str | None:
     """Query SOCT.db for NOEL ID by patient name (± DOB).
 
     Returns the `ref` field if a unique match is found, None otherwise.
@@ -167,18 +168,16 @@ def _lookup_soct_db(
 
     # Multiple matches — try to disambiguate by DOB
     if dob_date:
-        dob_matches = [
-            c for c in candidates
-            if c[3] and _jdn_to_date(c[3]) == dob_date
-        ]
+        dob_matches = [c for c in candidates if c[3] and _jdn_to_date(c[3]) == dob_date]
         if len(dob_matches) == 1:
             ref = dob_matches[0][0]
             logger.info("Tier 1: SOCT.db match (disambiguated by DOB) — '%s' → %s", patient_name, ref)
             return ref
 
     refs = [c[0] for c in candidates]
-    logger.warning("Tier 1: %d matches in SOCT.db for '%s': %s — cannot disambiguate",
-                    len(candidates), patient_name, refs)
+    logger.warning(
+        "Tier 1: %d matches in SOCT.db for '%s': %s — cannot disambiguate", len(candidates), patient_name, refs
+    )
     return None
 
 
@@ -186,10 +185,11 @@ def _lookup_soct_db(
 # The caller provides a pre-built {patient_name_key → noel_id} index
 # (from opt_extractor.build_noel_index).
 
+
 def _lookup_filename_index(
     patient_name: str,
-    filename_index: Optional[dict[str, str]],
-) -> Optional[str]:
+    filename_index: dict[str, str] | None,
+) -> str | None:
     """Look up NOEL ID from sibling filenames (Tier 2)."""
     if not filename_index:
         return None
@@ -210,8 +210,8 @@ _FUZZY_THRESHOLD = 0.82  # SequenceMatcher ratio — ajustar si hay falsos posit
 
 def _lookup_soct_db_fuzzy(
     patient_name: str,
-    patient_dob: Optional[str] = None,
-) -> Optional[str]:
+    patient_dob: str | None = None,
+) -> str | None:
     """Fuzzy match against SOCT.db patient names using difflib (stdlib, no new deps).
 
     Handles common variations: ARTEAGA/ARTEGA, EDWARDS/EDWARS, truncated names.
@@ -254,7 +254,9 @@ def _lookup_soct_db_fuzzy(
         ref = top[0][1]
         logger.info(
             "Tier 3 fuzzy: SOCT.db match (ratio=%.2f) — '%s' → %s",
-            top[0][0], patient_name, ref,
+            top[0][0],
+            patient_name,
+            ref,
         )
         return ref
 
@@ -266,19 +268,24 @@ def _lookup_soct_db_fuzzy(
             ref = dob_matches[0][1]
             logger.info(
                 "Tier 3 fuzzy (DOB match): '%s' → %s (ratio=%.2f)",
-                patient_name, ref, dob_matches[0][0],
+                patient_name,
+                ref,
+                dob_matches[0][0],
             )
             return ref
 
     refs = [c[1] for c in top]
     logger.warning(
         "Tier 3 fuzzy: %d candidates for '%s': %s — cannot disambiguate",
-        len(top), patient_name, refs,
+        len(top),
+        patient_name,
+        refs,
     )
     return None
 
 
 # ── Tier 4: PatientName as PatientID ─────────────────────────────────────────
+
 
 def _fallback_name_as_id(patient_name: str) -> str:
     """Tier 4: compute 4-letter NOEL initials when no DOB is available.
@@ -292,22 +299,24 @@ def _fallback_name_as_id(patient_name: str) -> str:
     initials.
     """
     from transducin.noel_id import noel_initials
+
     initials = noel_initials(patient_name)
     pid = initials or "UNKNOWN"
     logger.warning(
-        "Tier 4: no NOEL ID for '%s' — using initials as PatientID: %s "
-        "(NOT a real NOEL; patient missing from SOCT.db)",
-        patient_name, pid,
+        "Tier 4: no NOEL ID for '%s' — using initials as PatientID: %s (NOT a real NOEL; patient missing from SOCT.db)",
+        patient_name,
+        pid,
     )
     return pid
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+
 def resolve_noel_id(
     patient_name: str,
-    patient_dob: Optional[str] = None,
-    filename_index: Optional[dict[str, str]] = None,
+    patient_dob: str | None = None,
+    filename_index: dict[str, str] | None = None,
 ) -> str:
     """Resolve NOEL ID for a patient using 4-tier lookup.
 
@@ -349,8 +358,8 @@ def resolve_noel_id(
 
 def resolve_patient_demographics(
     patient_name: str,
-    patient_dob: Optional[str] = None,
-    filename_index: Optional[dict[str, str]] = None,
+    patient_dob: str | None = None,
+    filename_index: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Resolve NOEL ID + demographics from SOCT.db in one call.
 
@@ -421,8 +430,13 @@ def resolve_patient_demographics(
                         result["patient_dob"] = d.strftime("%Y%m%d")
                 result["patient_sex"] = {1: "M", 2: "F"}.get(db_gender, "")
                 result["patient_name"] = f"{db_lname}^{db_fname}"
-                logger.info("Demographics: '%s' → %s DOB=%s sex=%s",
-                            patient_name, ref, result["patient_dob"], result["patient_sex"])
+                logger.info(
+                    "Demographics: '%s' → %s DOB=%s sex=%s",
+                    patient_name,
+                    ref,
+                    result["patient_dob"],
+                    result["patient_sex"],
+                )
                 return result
 
     # Fall through to resolve_noel_id for Tier 2/3
@@ -434,8 +448,8 @@ def resolve_patient_demographics(
 
 if __name__ == "__main__":
     import sys
-    logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(message)s",
-                        stream=sys.stdout)
+
+    logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(message)s", stream=sys.stdout)
 
     print("=" * 60)
     print("noel_resolver.py — self-test")
@@ -455,32 +469,18 @@ if __name__ == "__main__":
     # Tier 1: SOCT.db lookups (require DB present)
     if SOCT_DB_PATH.is_file():
         print("\n-- Tier 1: SOCT.db --")
-        check("DICOM format",
-              resolve_noel_id("JAURRIETA HINOJOS^JESUS NOEL"),
-              "JAHJ19870831")
-        check("Revo filename format",
-              resolve_noel_id("SYNTHETIC_PATIENT"),
-              "SYPA19800101")
-        check("With accents (synthetic)",
-              resolve_noel_id("GARCIA LOPEZ^ANA MARIA"),
-              "GALA19671225")
-        check("With DOB disambiguation",
-              resolve_noel_id("MARTINEZ REYES^JUAN", patient_dob="19800101"),
-              "MAJE19800101")
-        check("3-letter NOEL",
-              resolve_noel_id("PEREZ GOMEZ^LUIS"),
-              "PEGL20000101")
+        check("DICOM format", resolve_noel_id("JAURRIETA HINOJOS^JESUS NOEL"), "JAHJ19870831")
+        check("Revo filename format", resolve_noel_id("SYNTHETIC_PATIENT"), "SYPA19800101")
+        check("With accents (synthetic)", resolve_noel_id("GARCIA LOPEZ^ANA MARIA"), "GALA19671225")
+        check("With DOB disambiguation", resolve_noel_id("MARTINEZ REYES^JUAN", patient_dob="19800101"), "MAJE19800101")
+        check("3-letter NOEL", resolve_noel_id("PEREZ GOMEZ^LUIS"), "PEGL20000101")
     else:
         print("\n  SOCT.db not found — skipping Tier 1 tests")
 
     # Tier 3: fallback
     print("\n-- Tier 3: fallback --")
-    check("Unknown name",
-          resolve_noel_id("UNKNOWN^UNKNOWN"),
-          "UNKNOWN")
-    check("Name as ID",
-          resolve_noel_id("GARCIA LOPEZ^MARIA"),
-          "GARCIA_LOPEZ_MARIA")
+    check("Unknown name", resolve_noel_id("UNKNOWN^UNKNOWN"), "UNKNOWN")
+    check("Name as ID", resolve_noel_id("GARCIA LOPEZ^MARIA"), "GARCIA_LOPEZ_MARIA")
 
     print(f"\n{'ALL TESTS PASSED' if errors == 0 else f'{errors} TESTS FAILED'}")
     sys.exit(0 if errors == 0 else 1)

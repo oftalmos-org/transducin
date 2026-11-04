@@ -33,16 +33,14 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
-
-import pydicom
-from pydicom.dataset import Dataset
-from pydicom.uid import generate_uid
 
 import highdicom as hd
 import highdicom.sr as hd_sr
+import pydicom
 from highdicom.coding_schemes import CodingSchemeIdentificationItem
+from pydicom.dataset import Dataset
 from pydicom.sr.codedict import codes as dcm_codes
+from pydicom.uid import generate_uid
 
 from transducin.clinical_data import VisualFieldData, study_description_label
 from transducin.dicom_config import (
@@ -54,7 +52,7 @@ from transducin.dicom_config import (
     RETINAOS_TRANSFER_SYNTAX,
     SOP_PERIMETRY,
 )
-from transducin.noel_id import is_valid_noel, dob_from_noel
+from transducin.noel_id import dob_from_noel, is_valid_noel
 
 logger = logging.getLogger(__name__)
 
@@ -63,35 +61,36 @@ from transducin import __version__ as _TRANSDUCIN_VERSION
 # ── Measurement codes ────────────────────────────────────────────────────────
 
 # SNOMED-CT — los que tienen código estándar
-_MD_CODE  = hd_sr.CodedConcept("392023002", "SCT", "Mean deviation of visual field")
+_MD_CODE = hd_sr.CodedConcept("392023002", "SCT", "Mean deviation of visual field")
 _PSD_CODE = hd_sr.CodedConcept("392024008", "SCT", "Pattern standard deviation of visual field")
 
 # 99OFTALMOS — provisionales hasta que Supplement 247 TID 6002 sea adoptado
-_VFI_CODE     = hd_sr.CodedConcept("VFINDEX",   PRIVATE_SCHEME, "Visual Field Index")
-_GHT_CODE     = hd_sr.CodedConcept("GHTEST",    PRIVATE_SCHEME, "Glaucoma Hemifield Test")
-_FL_CODE      = hd_sr.CodedConcept("FIXLOSS",   PRIVATE_SCHEME, "Fixation losses")
-_FP_CODE      = hd_sr.CodedConcept("FALSEPOS",  PRIVATE_SCHEME, "False positive rate")
-_FN_CODE      = hd_sr.CodedConcept("FALSENEG",  PRIVATE_SCHEME, "False negative rate")
-_FOVT_CODE    = hd_sr.CodedConcept("FOVTHRES",  PRIVATE_SCHEME, "Foveal threshold")
+_VFI_CODE = hd_sr.CodedConcept("VFINDEX", PRIVATE_SCHEME, "Visual Field Index")
+_GHT_CODE = hd_sr.CodedConcept("GHTEST", PRIVATE_SCHEME, "Glaucoma Hemifield Test")
+_FL_CODE = hd_sr.CodedConcept("FIXLOSS", PRIVATE_SCHEME, "Fixation losses")
+_FP_CODE = hd_sr.CodedConcept("FALSEPOS", PRIVATE_SCHEME, "False positive rate")
+_FN_CODE = hd_sr.CodedConcept("FALSENEG", PRIVATE_SCHEME, "False negative rate")
+_FOVT_CODE = hd_sr.CodedConcept("FOVTHRES", PRIVATE_SCHEME, "Foveal threshold")
 
 # Unidades UCUM
-_DB    = hd_sr.CodedConcept("dB",  "UCUM", "decibel")
-_PCT   = hd_sr.CodedConcept("%",   "UCUM", "percent")
-_RATIO = hd_sr.CodedConcept("1",   "UCUM", "no units")
+_DB = hd_sr.CodedConcept("dB", "UCUM", "decibel")
+_PCT = hd_sr.CodedConcept("%", "UCUM", "percent")
+_RATIO = hd_sr.CodedConcept("1", "UCUM", "no units")
 
 # Procedimiento reportado
 _VF_PROC = hd_sr.CodedConcept("252780009", "SCT", "Static visual field test")
 
 # Sitios anatómicos
-_SITE_EYE         = hd_sr.CodedConcept("81745001",  "SCT", "Eye")
+_SITE_EYE = hd_sr.CodedConcept("81745001", "SCT", "Eye")
 _SITE_VISUAL_PATH = hd_sr.CodedConcept("416533001", "SCT", "Visual pathway structure")
 
 # Lateralidad
 _LAT_RIGHT = hd_sr.CodedConcept("24028007", "SCT", "Right")
-_LAT_LEFT  = hd_sr.CodedConcept("7771000",  "SCT", "Left")
+_LAT_LEFT = hd_sr.CodedConcept("7771000", "SCT", "Left")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _lat_code(laterality: str) -> hd_sr.CodedConcept:
     return _LAT_RIGHT if laterality.upper() in ("R", "OD") else _LAT_LEFT
@@ -116,7 +115,7 @@ def _measurement(
     value: float,
     unit: hd_sr.CodedConcept,
     label: str,
-    finding_sites: Optional[list] = None,
+    finding_sites: list | None = None,
 ) -> hd_sr.Measurement:
     return hd_sr.Measurement(
         name=name_code,
@@ -149,9 +148,10 @@ def _to_dicom_pn(name: str) -> str:
 
 # ── Visual Field measurement group ──────────────────────────────────────────
 
+
 def _build_vf_group(
     data: VisualFieldData,
-) -> Optional[hd_sr.MeasurementsAndQualitativeEvaluations]:
+) -> hd_sr.MeasurementsAndQualitativeEvaluations | None:
     """Grupo TID 1501 para mediciones de campo visual: MD, PSD, VFI, GHT,
     reliability y foveal threshold."""
     lat = data.laterality or "R"
@@ -161,22 +161,37 @@ def _build_vf_group(
 
     # ── Índices globales ─────────────────────────────────────────────────────
     if data.md_db is not None:
-        measurements.append(_measurement(
-            _MD_CODE, data.md_db, _DB, "MD",
-            finding_sites=sites,
-        ))
+        measurements.append(
+            _measurement(
+                _MD_CODE,
+                data.md_db,
+                _DB,
+                "MD",
+                finding_sites=sites,
+            )
+        )
 
     if data.psd_db is not None:
-        measurements.append(_measurement(
-            _PSD_CODE, data.psd_db, _DB, "PSD",
-            finding_sites=sites,
-        ))
+        measurements.append(
+            _measurement(
+                _PSD_CODE,
+                data.psd_db,
+                _DB,
+                "PSD",
+                finding_sites=sites,
+            )
+        )
 
     if data.vfi_pct is not None:
-        measurements.append(_measurement(
-            _VFI_CODE, data.vfi_pct, _PCT, "VFI",
-            finding_sites=sites,
-        ))
+        measurements.append(
+            _measurement(
+                _VFI_CODE,
+                data.vfi_pct,
+                _PCT,
+                "VFI",
+                finding_sites=sites,
+            )
+        )
 
     # GHT como evaluación cualitativa (es texto, no numérico)
     if data.ght:
@@ -194,38 +209,55 @@ def _build_vf_group(
 
     # ── Reliability ──────────────────────────────────────────────────────────
     if data.fixation_losses is not None:
-        measurements.append(_measurement(
-            _FL_CODE, round(data.fixation_losses * 100, 1), _PCT,
-            "Fixation losses",
-            finding_sites=sites,
-        ))
+        measurements.append(
+            _measurement(
+                _FL_CODE,
+                round(data.fixation_losses * 100, 1),
+                _PCT,
+                "Fixation losses",
+                finding_sites=sites,
+            )
+        )
 
     if data.false_pos_pct is not None:
-        measurements.append(_measurement(
-            _FP_CODE, data.false_pos_pct, _PCT, "False positives",
-            finding_sites=sites,
-        ))
+        measurements.append(
+            _measurement(
+                _FP_CODE,
+                data.false_pos_pct,
+                _PCT,
+                "False positives",
+                finding_sites=sites,
+            )
+        )
 
     if data.false_neg_pct is not None:
-        measurements.append(_measurement(
-            _FN_CODE, data.false_neg_pct, _PCT, "False negatives",
-            finding_sites=sites,
-        ))
+        measurements.append(
+            _measurement(
+                _FN_CODE,
+                data.false_neg_pct,
+                _PCT,
+                "False negatives",
+                finding_sites=sites,
+            )
+        )
 
     # ── Foveal threshold ─────────────────────────────────────────────────────
     if data.foveal_threshold_db is not None:
-        measurements.append(_measurement(
-            _FOVT_CODE, data.foveal_threshold_db, _DB, "Foveal threshold",
-            finding_sites=sites,
-        ))
+        measurements.append(
+            _measurement(
+                _FOVT_CODE,
+                data.foveal_threshold_db,
+                _DB,
+                "Foveal threshold",
+                finding_sites=sites,
+            )
+        )
 
     if not measurements and not qualitative_evals:
         return None
 
     return hd_sr.MeasurementsAndQualitativeEvaluations(
-        tracking_identifier=_make_tracking(
-            f"Transducin-VF-{lat}-{data.study_date}"
-        ),
+        tracking_identifier=_make_tracking(f"Transducin-VF-{lat}-{data.study_date}"),
         finding_sites=sites,
         algorithm_id=_algo_id(),
         measurements=measurements if measurements else None,
@@ -235,11 +267,12 @@ def _build_vf_group(
 
 # ── Build SR ─────────────────────────────────────────────────────────────────
 
+
 def build_vf_sr(
     data: VisualFieldData,
-    reference_dataset: Optional[Dataset] = None,
-    output_path: Optional[Path] = None,
-    study_instance_uid: Optional[str] = None,
+    reference_dataset: Dataset | None = None,
+    output_path: Path | None = None,
+    study_instance_uid: str | None = None,
 ) -> Dataset:
     """Construye un DICOM SR TID 1500 desde VisualFieldData.
 
@@ -295,11 +328,11 @@ def build_vf_sr(
 
     if not groups:
         logger.warning("VisualFieldData sin mediciones — SR generado sin grupo de medición.")
-        groups.append(hd_sr.MeasurementsAndQualitativeEvaluations(
-            tracking_identifier=_make_tracking(
-                f"Transducin-VF-empty-{data.laterality}"
-            ),
-        ))
+        groups.append(
+            hd_sr.MeasurementsAndQualitativeEvaluations(
+                tracking_identifier=_make_tracking(f"Transducin-VF-empty-{data.laterality}"),
+            )
+        )
 
     # ── MeasurementReport TID 1500 ────────────────────────────────────────────
     report = hd_sr.MeasurementReport(
@@ -330,14 +363,14 @@ def build_vf_sr(
     )
 
     sr.ManufacturerModelName = "PTS 925Wi"
-    sr.DeviceSerialNumber    = data.device_serial or ""
-    sr.PatientID             = data.noel_id
-    sr.PatientName           = _to_dicom_pn(data.patient_name) or data.noel_id
-    sr.PatientBirthDate      = data.patient_dob or dob_from_noel(data.noel_id)
-    sr.StudyDate             = data.study_date or now.strftime("%Y%m%d")
-    sr.StudyDescription      = study_description_label("visual_field", data.laterality)
-    sr.ContentDate           = now.strftime("%Y%m%d")
-    sr.ContentTime           = now.strftime("%H%M%S.%f")
+    sr.DeviceSerialNumber = data.device_serial or ""
+    sr.PatientID = data.noel_id
+    sr.PatientName = _to_dicom_pn(data.patient_name) or data.noel_id
+    sr.PatientBirthDate = data.patient_dob or dob_from_noel(data.noel_id)
+    sr.StudyDate = data.study_date or now.strftime("%Y%m%d")
+    sr.StudyDescription = study_description_label("visual_field", data.laterality)
+    sr.ContentDate = now.strftime("%Y%m%d")
+    sr.ContentTime = now.strftime("%H%M%S.%f")
 
     # Trazabilidad Transducin (private tags 0009,xx)
     sr.add_new((0x0009, 0x0010), "LO", MANUFACTURER)
@@ -351,7 +384,8 @@ def build_vf_sr(
         sr.save_as(str(output_path), write_like_original=False)
         logger.info(
             "VF SR guardado: %s (PatientID=%s, MD=%s, PSD=%s)",
-            output_path, data.noel_id,
+            output_path,
+            data.noel_id,
             f"{data.md_db:.1f}" if data.md_db is not None else "N/A",
             f"{data.psd_db:.1f}" if data.psd_db is not None else "N/A",
         )
@@ -372,33 +406,33 @@ def _minimal_vf_reference(data: VisualFieldData) -> Dataset:
     ds.file_meta = file_meta
     ds.ensure_file_meta()
 
-    ds.SOPClassUID       = SOP_PERIMETRY
-    ds.SOPInstanceUID    = generate_uid()
-    ds.StudyInstanceUID  = generate_uid()
+    ds.SOPClassUID = SOP_PERIMETRY
+    ds.SOPInstanceUID = generate_uid()
+    ds.StudyInstanceUID = generate_uid()
     ds.SeriesInstanceUID = generate_uid()
-    ds.PatientID         = data.noel_id
-    ds.PatientName       = _to_dicom_pn(data.patient_name) or data.noel_id
-    ds.PatientBirthDate  = data.patient_dob or dob_from_noel(data.noel_id)
-    ds.PatientSex        = ""
-    ds.StudyDate         = data.study_date or datetime.now().strftime("%Y%m%d")
-    ds.StudyTime         = ""
-    ds.AccessionNumber   = ""
-    ds.StudyID           = ""
-    ds.StudyDescription  = study_description_label("visual_field", data.laterality)
+    ds.PatientID = data.noel_id
+    ds.PatientName = _to_dicom_pn(data.patient_name) or data.noel_id
+    ds.PatientBirthDate = data.patient_dob or dob_from_noel(data.noel_id)
+    ds.PatientSex = ""
+    ds.StudyDate = data.study_date or datetime.now().strftime("%Y%m%d")
+    ds.StudyTime = ""
+    ds.AccessionNumber = ""
+    ds.StudyID = ""
+    ds.StudyDescription = study_description_label("visual_field", data.laterality)
     ds.ReferringPhysicianName = ""
-    ds.Modality          = "OPV"
-    ds.SeriesNumber      = 1
-    ds.InstanceNumber    = 1
-    ds.ImageLaterality   = data.laterality or ""
-    ds.Rows              = 1
-    ds.Columns           = 1
-    ds.BitsAllocated     = 8
-    ds.BitsStored        = 8
-    ds.HighBit           = 7
+    ds.Modality = "OPV"
+    ds.SeriesNumber = 1
+    ds.InstanceNumber = 1
+    ds.ImageLaterality = data.laterality or ""
+    ds.Rows = 1
+    ds.Columns = 1
+    ds.BitsAllocated = 8
+    ds.BitsStored = 8
+    ds.HighBit = 7
     ds.PixelRepresentation = 0
-    ds.SamplesPerPixel   = 1
+    ds.SamplesPerPixel = 1
     ds.PhotometricInterpretation = "MONOCHROME2"
-    ds.PixelData         = b"\x00"
+    ds.PixelData = b"\x00"
 
     return ds
 
@@ -453,6 +487,7 @@ if __name__ == "__main__":
 
         # Verificar que se puede releer
         import pydicom
+
         re = pydicom.dcmread(str(out))
         check("SR releíble", re.PatientID == "JAHJ19870831")
 

@@ -15,8 +15,9 @@
 #   python -m transducin.boct_converter -i <carpeta_entrada> -o <carpeta_salida>
 #   python -m transducin.boct_converter -i ~/Zeiss --glob "*.OCT" -o ~/Output
 
-from pathlib import Path
 import argparse
+from pathlib import Path
+
 from oct_converter.readers.boct import BOCT
 
 
@@ -31,7 +32,7 @@ def convert_directory(input_dir: str, output_dir: str, glob_patterns: str = "*.O
     Returns:
         (ok, fail) — número de archivos convertidos y fallidos.
     """
-    input_path  = Path(input_dir).expanduser().resolve()
+    input_path = Path(input_dir).expanduser().resolve()
     output_path = Path(output_dir).expanduser().resolve()
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -62,15 +63,10 @@ def convert_directory(input_dir: str, output_dir: str, glob_patterns: str = "*.O
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(
-        description="Convertir volúmenes OCT Bioptigen (.OCT) a DICOM estándar"
-    )
-    p.add_argument("-i", "--input",  required=True, help="Carpeta de entrada (recursiva)")
+    p = argparse.ArgumentParser(description="Convertir volúmenes OCT Bioptigen (.OCT) a DICOM estándar")
+    p.add_argument("-i", "--input", required=True, help="Carpeta de entrada (recursiva)")
     p.add_argument("-o", "--output", required=True, help="Carpeta de salida para .dcm")
-    p.add_argument(
-        "--glob", default="*.OCT",
-        help="Patrones separados por coma (default: *.OCT)"
-    )
+    p.add_argument("--glob", default="*.OCT", help="Patrones separados por coma (default: *.OCT)")
     args = p.parse_args()
 
     ok, fail = convert_directory(args.input, args.output, args.glob)

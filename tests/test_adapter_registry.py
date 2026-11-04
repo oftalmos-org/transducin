@@ -1,9 +1,8 @@
 """Tests for DeviceAdapter protocol and adapter registry."""
+
 from pathlib import Path
 
-import pytest
-
-from transducin.adapter_registry import REGISTRY, ALL_WATCHED_EXTENSIONS, find_adapter
+from transducin.adapter_registry import ALL_WATCHED_EXTENSIONS, REGISTRY, find_adapter
 from transducin.base_adapter import DeviceAdapter
 
 

@@ -12,24 +12,26 @@ from transducin.clinical_data import OCTClinicalData
 
 # Nombres legibles por vendor
 _VENDOR_NAMES: dict[str, str] = {
-    "optopol_revo":          "Optopol REVO FC130",
-    "zeiss_cirrus":          "Zeiss Cirrus HD-OCT",
+    "optopol_revo": "Optopol REVO FC130",
+    "zeiss_cirrus": "Zeiss Cirrus HD-OCT",
     "heidelberg_spectralis": "Heidelberg Spectralis",
-    "topcon_fda":            "Topcon DRI OCT (FDA)",
-    "topcon_maestro":        "Topcon Maestro",
-    "unknown":               "equipo desconocido",
+    "topcon_fda": "Topcon DRI OCT (FDA)",
+    "topcon_maestro": "Topcon Maestro",
+    "unknown": "equipo desconocido",
 }
 
 _LAT_NAMES: dict[str, str] = {
-    "R":  "ojo derecho (OD)",
-    "L":  "ojo izquierdo (OS)",
+    "R": "ojo derecho (OD)",
+    "L": "ojo izquierdo (OS)",
     "OD": "ojo derecho (OD)",
     "OS": "ojo izquierdo (OS)",
 }
 
+
 # Umbral SQI — leído en tiempo de llamada para respetar override en tests
 def _sqi_warn_threshold() -> float:
     return float(os.environ.get("TRANSDUCIN_SQI_MIN_WARN", "6")) / 10.0
+
 
 # CMT rango normal referencial (Cirrus normativa, µm)
 _CMT_NORMAL_MIN = 229.0
@@ -54,21 +56,19 @@ def generate_clinical_summary(cd: OCTClinicalData) -> str:
     """
     lines: list[str] = []
 
-    vendor   = _VENDOR_NAMES.get(cd.vendor, cd.vendor)
-    lat      = _LAT_NAMES.get(cd.laterality.upper(), cd.laterality)
+    vendor = _VENDOR_NAMES.get(cd.vendor, cd.vendor)
+    lat = _LAT_NAMES.get(cd.laterality.upper(), cd.laterality)
     date_str = _fmt_date(cd.study_date)
 
     lines.append(f"Estudio OCT — {vendor}")
     lines.append(f"Paciente NOEL ID: {cd.noel_id}")
-    lines.append(
-        f"Fecha: {date_str} | Ojo: {lat} | Tipo: {cd.study_type or 'no especificado'}"
-    )
+    lines.append(f"Fecha: {date_str} | Ojo: {lat} | Tipo: {cd.study_type or 'no especificado'}")
     lines.append("")
 
     # ── Calidad de adquisición (SQI) ──────────────────────────────────────────
     if cd.sqi_mean is not None:
         sqi_10 = cd.sqi_mean * 10.0
-        warn   = " [CALIDAD SUBÓPTIMA]" if cd.sqi_mean < _sqi_warn_threshold() else ""
+        warn = " [CALIDAD SUBÓPTIMA]" if cd.sqi_mean < _sqi_warn_threshold() else ""
         lines.append(f"Calidad de adquisición (SQI): {sqi_10:.1f}/10{warn}")
 
     # ── Grosor macular central (CMT) ──────────────────────────────────────────
@@ -86,8 +86,15 @@ def generate_clinical_summary(cd: OCTClinicalData) -> str:
         g = cd.etdrs_grid
         parts: list[str] = []
         for attr, label in [
-            ("C", "C"), ("S1", "S1"), ("N1", "N1"), ("I1", "I1"), ("T1", "T1"),
-            ("S2", "S2"), ("N2", "N2"), ("I2", "I2"), ("T2", "T2"),
+            ("C", "C"),
+            ("S1", "S1"),
+            ("N1", "N1"),
+            ("I1", "I1"),
+            ("T1", "T1"),
+            ("S2", "S2"),
+            ("N2", "N2"),
+            ("I2", "I2"),
+            ("T2", "T2"),
         ]:
             val = getattr(g, attr, None)
             if val is not None:
@@ -97,7 +104,7 @@ def generate_clinical_summary(cd: OCTClinicalData) -> str:
 
     # ── RNFL ──────────────────────────────────────────────────────────────────
     if cd.rnfl is not None and cd.rnfl.has_data():
-        r     = cd.rnfl
+        r = cd.rnfl
         parts = []
         if r.global_avg is not None:
             parts.append(f"global={r.global_avg:.0f}")
@@ -113,7 +120,7 @@ def generate_clinical_summary(cd: OCTClinicalData) -> str:
 
     # ── mGCIPL ───────────────────────────────────────────────────────────────
     if cd.gcl_ipl is not None and cd.gcl_ipl.has_data():
-        g     = cd.gcl_ipl
+        g = cd.gcl_ipl
         parts = []
         if g.global_avg is not None:
             parts.append(f"global={g.global_avg:.0f}")
@@ -154,9 +161,7 @@ def generate_clinical_summary(cd: OCTClinicalData) -> str:
         lines.append(f"Biometría: {' | '.join(bio_parts)}")
 
     # Fallback si no hay mediciones
-    _measurement_prefixes = (
-        "Calidad", "Grosor", "ETDRS", "RNFL", "mGCIPL", "Cabeza", "Biometría"
-    )
+    _measurement_prefixes = ("Calidad", "Grosor", "ETDRS", "RNFL", "mGCIPL", "Cabeza", "Biometría")
     if not any(ln.startswith(_measurement_prefixes) for ln in lines):
         lines.append("Sin mediciones disponibles.")
 
@@ -164,6 +169,7 @@ def generate_clinical_summary(cd: OCTClinicalData) -> str:
 
 
 # ── Tests internos ────────────────────────────────────────────────────────────
+
 
 def _run_tests() -> None:
     from transducin.clinical_data import ETDRSGrid, RNFLSectors

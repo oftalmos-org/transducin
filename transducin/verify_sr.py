@@ -13,10 +13,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
-from typing import Optional
 
 import pydicom
 from pydicom.dataset import Dataset
@@ -51,7 +50,7 @@ _CHECK_ICON = {"PASS": "\033[92m✓ PASS\033[0m", "FAIL": "\033[91m✗ FAIL\033[
 
 class CheckResult:
     def __init__(self, name: str, status: str, detail: str = ""):
-        self.name   = name
+        self.name = name
         self.status = status  # "PASS" | "FAIL" | "WARN"
         self.detail = detail
 
@@ -60,7 +59,7 @@ class CheckResult:
         return f"  {icon}  {self.name}" + (f": {self.detail}" if self.detail else "")
 
 
-def _find_codes_in_content(ds: Dataset, found: Optional[set] = None) -> set[str]:
+def _find_codes_in_content(ds: Dataset, found: set | None = None) -> set[str]:
     """Busca recursivamente CodeValue en ContentSequence."""
     if found is None:
         found = set()
@@ -74,13 +73,12 @@ def _find_codes_in_content(ds: Dataset, found: Optional[set] = None) -> set[str]
     return found
 
 
-def _orthanc_query(orthanc_url: str, sop_instance_uid: str) -> Optional[dict]:
+def _orthanc_query(orthanc_url: str, sop_instance_uid: str) -> dict | None:
     """Busca un SOPInstanceUID en Orthanc via REST API."""
     try:
         url = f"{orthanc_url.rstrip('/')}/tools/lookup"
         data = json.dumps(sop_instance_uid).encode()
-        req  = urllib.request.Request(url, data=data,
-                                       headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=5) as resp:
             result = json.loads(resp.read())
             return result if result else None
@@ -118,7 +116,7 @@ def verify_sr(dcm_path: str | Path, orthanc_url: str = ORTHANC_URL_DEFAULT) -> l
 
     # ── 2. SOPClassUID es un SR válido ─────────────────────────────────────
     sop_class = str(getattr(ds, "SOPClassUID", ""))
-    sr_name   = _SR_SOP_CLASSES.get(sop_class)
+    sr_name = _SR_SOP_CLASSES.get(sop_class)
     if sr_name:
         results.append(CheckResult("SOPClassUID es SR", "PASS", sr_name))
     else:
@@ -126,13 +124,13 @@ def verify_sr(dcm_path: str | Path, orthanc_url: str = ORTHANC_URL_DEFAULT) -> l
 
     # ── 3. Tags obligatorios TID 1500 ──────────────────────────────────────
     required_tags = [
-        ("PatientID",         "PatientID presente"),
-        ("StudyDate",         "StudyDate presente"),
-        ("ContentDate",       "ContentDate presente"),
-        ("ContentTime",       "ContentTime presente"),
-        ("SOPInstanceUID",    "SOPInstanceUID presente"),
-        ("StudyInstanceUID",  "StudyInstanceUID presente"),
-        ("ContentSequence",   "ContentSequence presente"),
+        ("PatientID", "PatientID presente"),
+        ("StudyDate", "StudyDate presente"),
+        ("ContentDate", "ContentDate presente"),
+        ("ContentTime", "ContentTime presente"),
+        ("SOPInstanceUID", "SOPInstanceUID presente"),
+        ("StudyInstanceUID", "StudyInstanceUID presente"),
+        ("ContentSequence", "ContentSequence presente"),
     ]
     for tag_name, label in required_tags:
         val = getattr(ds, tag_name, None)
@@ -146,8 +144,7 @@ def verify_sr(dcm_path: str | Path, orthanc_url: str = ORTHANC_URL_DEFAULT) -> l
     if is_valid_noel(pid):
         results.append(CheckResult("PatientID formato NOEL", "PASS", pid))
     else:
-        results.append(CheckResult("PatientID formato NOEL", "FAIL",
-                                   f"'{pid}' no cumple formato XXXX99999999"))
+        results.append(CheckResult("PatientID formato NOEL", "FAIL", f"'{pid}' no cumple formato XXXX99999999"))
 
     # ── 5. Códigos SNOMED-CT en ContentSequence ─────────────────────────────
     found_codes = _find_codes_in_content(ds)
@@ -157,12 +154,14 @@ def verify_sr(dcm_path: str | Path, orthanc_url: str = ORTHANC_URL_DEFAULT) -> l
             results.append(CheckResult(f"SNOMED {code}", "PASS", meaning))
             has_any_snomed = True
         else:
-            results.append(CheckResult(f"SNOMED {code}", "WARN",
-                                       f"{meaning} — no presente (puede ser normal si no aplica)"))
+            results.append(
+                CheckResult(f"SNOMED {code}", "WARN", f"{meaning} — no presente (puede ser normal si no aplica)")
+            )
 
     if not has_any_snomed:
-        results.append(CheckResult("Al menos 1 código SNOMED-CT", "FAIL",
-                                   "ContentSequence sin códigos SNOMED esperados"))
+        results.append(
+            CheckResult("Al menos 1 código SNOMED-CT", "FAIL", "ContentSequence sin códigos SNOMED esperados")
+        )
     else:
         results.append(CheckResult("Al menos 1 código SNOMED-CT", "PASS"))
 
@@ -171,11 +170,9 @@ def verify_sr(dcm_path: str | Path, orthanc_url: str = ORTHANC_URL_DEFAULT) -> l
     if sop_uid:
         orthanc_result = _orthanc_query(orthanc_url, sop_uid)
         if orthanc_result:
-            results.append(CheckResult("Encontrado en Orthanc", "PASS",
-                                       f"SOPInstanceUID={sop_uid[:30]}..."))
+            results.append(CheckResult("Encontrado en Orthanc", "PASS", f"SOPInstanceUID={sop_uid[:30]}..."))
         else:
-            results.append(CheckResult("Encontrado en Orthanc", "WARN",
-                                       "No encontrado o Orthanc no accesible"))
+            results.append(CheckResult("Encontrado en Orthanc", "WARN", "No encontrado o Orthanc no accesible"))
     else:
         results.append(CheckResult("Consulta Orthanc", "FAIL", "SOPInstanceUID vacío"))
 
@@ -184,12 +181,12 @@ def verify_sr(dcm_path: str | Path, orthanc_url: str = ORTHANC_URL_DEFAULT) -> l
 
 def print_report(results: list[CheckResult], dcm_path: str) -> int:
     """Imprime el reporte y retorna 0 (todo PASS) o 1 (hay FAILs)."""
-    print(f"\n{'═'*60}")
+    print(f"\n{'═' * 60}")
     print(f"  Transducin SR Verifier — {Path(dcm_path).name}")
-    print(f"{'═'*60}")
+    print(f"{'═' * 60}")
     for r in results:
         print(r)
-    print(f"{'═'*60}")
+    print(f"{'═' * 60}")
 
     fails = [r for r in results if r.status == "FAIL"]
     warns = [r for r in results if r.status == "WARN"]
@@ -206,8 +203,7 @@ def print_report(results: list[CheckResult], dcm_path: str) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Verificar SR DICOM TID 1500")
     parser.add_argument("dcm_path", help="Path al archivo .dcm SR")
-    parser.add_argument("--orthanc", default=ORTHANC_URL_DEFAULT,
-                        help=f"URL Orthanc (default: {ORTHANC_URL_DEFAULT})")
+    parser.add_argument("--orthanc", default=ORTHANC_URL_DEFAULT, help=f"URL Orthanc (default: {ORTHANC_URL_DEFAULT})")
     args = parser.parse_args()
 
     results = verify_sr(args.dcm_path, args.orthanc)
@@ -222,11 +218,12 @@ if __name__ == "__main__":
         main()
         sys.exit()
 
-    import tempfile
     import logging
+    import tempfile
+
     logging.basicConfig(level=logging.WARNING)
 
-    from transducin.clinical_data import OCTClinicalData, ETDRSGrid
+    from transducin.clinical_data import ETDRSGrid, OCTClinicalData
     from transducin.sr_builder import build_sr
 
     G, R, E = "\033[92m", "\033[91m", "\033[0m"
@@ -235,7 +232,7 @@ if __name__ == "__main__":
     def check(label, got, expected):
         global errors
         ok = got == expected
-        print(f"  {'✓' if ok else '✗'} [{G+'PASS'+E if ok else R+'FAIL'+E}] {label}")
+        print(f"  {'✓' if ok else '✗'} [{G + 'PASS' + E if ok else R + 'FAIL' + E}] {label}")
         if not ok:
             print(f"       got:      {got!r}")
             print(f"       expected: {expected!r}")
@@ -244,15 +241,15 @@ if __name__ == "__main__":
     print("\n══ verify_sr — tests unitarios ══")
 
     cd = OCTClinicalData(
-        noel_id     = "GHSI20000101",
-        study_date  = "20000101",
-        laterality  = "L",
-        study_type  = "macular",
-        patient_name = "SILTSPOOK^GHOST",
-        patient_dob  = "20000101",
-        cmt_um       = 312.0,
-        etdrs_grid   = ETDRSGrid(C=312.0, S1=350.0),
-        extraction_confidence = "confirmed",
+        noel_id="GHSI20000101",
+        study_date="20000101",
+        laterality="L",
+        study_type="macular",
+        patient_name="SILTSPOOK^GHOST",
+        patient_dob="20000101",
+        cmt_um=312.0,
+        etdrs_grid=ETDRSGrid(C=312.0, S1=350.0),
+        extraction_confidence="confirmed",
     )
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -262,12 +259,12 @@ if __name__ == "__main__":
         results = verify_sr(sr_path)
         status_map = {r.name: r.status for r in results}
 
-        check("Archivo existe PASS",        status_map.get("Archivo existe"),       "PASS")
-        check("Legible pydicom PASS",       status_map.get("Legible con pydicom"),  "PASS")
-        check("SOPClassUID SR válido PASS", status_map.get("SOPClassUID es SR"),    "PASS")
-        check("PatientID NOEL PASS",        status_map.get("PatientID formato NOEL"), "PASS")
-        check("SNOMED CMT presente",        status_map.get("SNOMED 422453003"),     "PASS")
-        check("≥1 SNOMED PASS",             status_map.get("Al menos 1 código SNOMED-CT"), "PASS")
+        check("Archivo existe PASS", status_map.get("Archivo existe"), "PASS")
+        check("Legible pydicom PASS", status_map.get("Legible con pydicom"), "PASS")
+        check("SOPClassUID SR válido PASS", status_map.get("SOPClassUID es SR"), "PASS")
+        check("PatientID NOEL PASS", status_map.get("PatientID formato NOEL"), "PASS")
+        check("SNOMED CMT presente", status_map.get("SNOMED 422453003"), "PASS")
+        check("≥1 SNOMED PASS", status_map.get("Al menos 1 código SNOMED-CT"), "PASS")
 
         # SR inválido — sin NOEL ID
         bad_cd = OCTClinicalData(noel_id="BAD-ID", study_date="20000101")
@@ -275,10 +272,10 @@ if __name__ == "__main__":
         build_sr(bad_cd, output_path=bad_sr)
         bad_results = verify_sr(bad_sr)
         bad_map = {r.name: r.status for r in bad_results}
-        check("PatientID inválido → FAIL",  bad_map.get("PatientID formato NOEL"), "FAIL")
+        check("PatientID inválido → FAIL", bad_map.get("PatientID formato NOEL"), "FAIL")
 
         rc = print_report(results, str(sr_path))
-        check("print_report retorna 0",     rc, 0)
+        check("print_report retorna 0", rc, 0)
 
-    print(f"\n{'══ TODOS LOS TESTS PASARON ══' if errors==0 else f'══ {errors} FALLARON ══'}\n")
+    print(f"\n{'══ TODOS LOS TESTS PASARON ══' if errors == 0 else f'══ {errors} FALLARON ══'}\n")
     sys.exit(0 if errors == 0 else 1)

@@ -242,13 +242,13 @@ import re
 import struct
 import zlib
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pydicom
 from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import generate_uid
 
+from transducin.clinical_data import study_description_label
 from transducin.dicom_config import (
     MANUFACTURER,
     MANUFACTURER_OPTOPOL,
@@ -257,7 +257,6 @@ from transducin.dicom_config import (
     SOP_OPT,
 )
 from transducin.noel_id import dob_from_noel
-from transducin.clinical_data import study_description_label
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +274,7 @@ _SOP_OPT = SOP_OPT
 
 
 # ── Parseo de chunks ──────────────────────────────────────────────────────────
+
 
 def _find_chunk_positions(data: bytes) -> list[int]:
     """Encuentra todas las posiciones del magic a5 a5 a5 ff en el archivo."""
@@ -313,22 +313,22 @@ def parse_opt_chunks(data: bytes) -> dict[str, dict]:
         if pos < len(data) and data[pos] == 0:
             pos += 1  # null terminator
 
-        meta   = struct.unpack_from("<I", data, pos)[0]
+        meta = struct.unpack_from("<I", data, pos)[0]
         pos += 4
         field2 = struct.unpack_from("<I", data, pos)[0]
         pos += 4
 
         data_offset = pos
-        next_magic  = positions[i + 1] if i + 1 < len(positions) else len(data)
-        real_size   = next_magic - data_offset
+        next_magic = positions[i + 1] if i + 1 < len(positions) else len(data)
+        real_size = next_magic - data_offset
 
         # Para nombres duplicados (PARAMS aparece dos veces) conservar el mayor
         if name not in chunks or real_size > chunks[name]["real_size"]:
             chunks[name] = {
-                "offset":    data_offset,
+                "offset": data_offset,
                 "real_size": real_size,
-                "meta":      meta,
-                "field2":    field2,
+                "meta": meta,
+                "field2": field2,
             }
 
     return chunks
@@ -339,7 +339,7 @@ def parse_opt_chunks(data: bytes) -> dict[str, dict]:
 _SEGMENTATION_MARKER_CHUNKS = ("BM", "TOP")
 
 
-def has_segmentation(opt_path: "str | Path") -> bool:
+def has_segmentation(opt_path: str | Path) -> bool:
     """True si el .opt contiene los chunks de segmentación (BM y TOP).
 
     Útil para detectar si el Revo ya terminó el análisis de capas y re-guardó
@@ -355,7 +355,7 @@ def has_segmentation(opt_path: "str | Path") -> bool:
         return False
 
 
-def _decompress_block(raw: bytes) -> Optional[bytes]:
+def _decompress_block(raw: bytes) -> bytes | None:
     """Descomprime un chunk con prefijo (1 byte tipo + 4 bytes LE compressed_size)."""
     if len(raw) < 6:
         return None
@@ -375,6 +375,7 @@ def _decompress_block(raw: bytes) -> Optional[bytes]:
 
 
 # ── OCTPARAMS ────────────────────────────────────────────────────────────────
+
 
 def parse_octparams(data: bytes, chunks: dict[str, dict]) -> dict:
     """Extrae parámetros de escaneo del chunk OCTPARAMS.
@@ -397,12 +398,12 @@ def parse_octparams(data: bytes, chunks: dict[str, dict]) -> dict:
         Con fallbacks si el chunk no existe o no es parseable.
     """
     result = {
-        "axial_um":         _DEFAULT_AXIAL_UM_PX,
-        "lateral_um":       9.766,
-        "scan_width_mm":    10.0,
-        "n_bscans":         None,
-        "n_ascans":         None,
-        "depth_px":         None,
+        "axial_um": _DEFAULT_AXIAL_UM_PX,
+        "lateral_um": 9.766,
+        "scan_width_mm": 10.0,
+        "n_bscans": None,
+        "n_ascans": None,
+        "depth_px": None,
         "scan_center_x_mm": None,
     }
     c = chunks.get("OCTPARAMS")
@@ -413,8 +414,8 @@ def parse_octparams(data: bytes, chunks: dict[str, dict]) -> dict:
     if dec is None or len(dec) < 8:
         return result
     for i in range(0, len(dec) - 7, 8):
-        tag  = dec[i]
-        typ  = dec[i + 3]
+        tag = dec[i]
+        typ = dec[i + 3]
         vraw = dec[i + 4 : i + 8]
         if typ == 0x12:
             val = struct.unpack_from("<I", vraw)[0]
@@ -441,7 +442,8 @@ def parse_octparams(data: bytes, chunks: dict[str, dict]) -> dict:
 
 # ── Capas de segmentación ─────────────────────────────────────────────────────
 
-def extract_layer(data: bytes, chunks: dict[str, dict], name: str) -> Optional[np.ndarray]:
+
+def extract_layer(data: bytes, chunks: dict[str, dict], name: str) -> np.ndarray | None:
     """Extrae una capa de segmentación retiniana como array (n_bscans, n_ascans) float32.
 
     El chunk almacena: uint32 width | uint32 n_frames | width×n_frames float32 (profundidad px).
@@ -453,17 +455,15 @@ def extract_layer(data: bytes, chunks: dict[str, dict], name: str) -> Optional[n
     dec = _decompress_block(raw)
     if dec is None or len(dec) < 12:
         return None
-    width    = struct.unpack_from("<I", dec, 0)[0]
+    width = struct.unpack_from("<I", dec, 0)[0]
     n_frames = struct.unpack_from("<I", dec, 4)[0]
-    n_vals   = width * n_frames
+    n_vals = width * n_frames
     if len(dec) < 8 + n_vals * 4:
         return None
     return np.frombuffer(dec[8 : 8 + n_vals * 4], dtype="<f4").reshape(n_frames, width)
 
 
-def _extract_layer_with_fallback(
-    data: bytes, chunks: dict[str, dict], name: str, fallback: str
-) -> Optional[np.ndarray]:
+def _extract_layer_with_fallback(data: bytes, chunks: dict[str, dict], name: str, fallback: str) -> np.ndarray | None:
     """extract_layer con fallback si el resultado es all-zeros.
 
     SOCT 11.5.0 guarda la capa BM como 'BOTTOM'; SOCT 21.1.2 la guarda como 'BM'.
@@ -478,9 +478,7 @@ def _extract_layer_with_fallback(
     return arr  # retorna el primario (None o zeros) si ninguno tiene datos
 
 
-def extract_disc_center(
-    data: bytes, chunks: dict[str, dict], params: dict
-) -> tuple[float, float]:
+def extract_disc_center(data: bytes, chunks: dict[str, dict], params: dict) -> tuple[float, float]:
     """Extrae el centro del disco óptico desde el chunk DMARKERS.
 
     DMARKERS almacena: uint32 n_frames | n_frames × 4 float32 (x1, y1, x2, y2).
@@ -516,9 +514,9 @@ def extract_disc_center(
         return default_b, default_a
 
     b_indices = np.where(valid_rows)[0]
-    b_center  = float(b_indices.mean())
+    b_center = float(b_indices.mean())
     a_centers = (markers[valid_rows, 0] + markers[valid_rows, 2]) / 2.0
-    a_center  = float(np.nanmean(a_centers))
+    a_center = float(np.nanmean(a_centers))
 
     return b_center, a_center
 
@@ -528,11 +526,11 @@ def compute_peripapillary_rnfl(
     top: np.ndarray,
     params: dict,
     laterality: str = "R",
-    b_center: Optional[float] = None,
-    a_center: Optional[float] = None,
+    b_center: float | None = None,
+    a_center: float | None = None,
     ring_radius_um: float = 1700.0,
-    ring_width_um:  float = 200.0,
-) -> Optional[object]:
+    ring_width_um: float = 200.0,
+) -> object | None:
     """Calcula RNFL peripapillar en sectores S/I/N/T desde cubo de disco óptico.
 
     El RNFL peripapillar se mide sobre el anillo de 3.4 mm de diámetro (radio 1700 µm)
@@ -569,35 +567,35 @@ def compute_peripapillary_rnfl(
     if nfl is None or top is None or nfl.shape != top.shape:
         return None
 
-    n_b, n_a    = nfl.shape
-    axial_um    = params["axial_um"]
-    lateral_um  = params["lateral_um"]
-    bscan_um    = params["scan_width_mm"] * 1000.0 / n_b
+    n_b, n_a = nfl.shape
+    axial_um = params["axial_um"]
+    lateral_um = params["lateral_um"]
+    bscan_um = params["scan_width_mm"] * 1000.0 / n_b
 
     b0 = b_center if b_center is not None else n_b / 2.0
     a0 = a_center if a_center is not None else n_a / 2.0
 
-    thickness = (nfl - top) * axial_um     # RNFL en µm
+    thickness = (nfl - top) * axial_um  # RNFL en µm
 
-    db = (np.arange(n_b) - b0) * bscan_um   # µm desde centro; positivo = inferior
+    db = (np.arange(n_b) - b0) * bscan_um  # µm desde centro; positivo = inferior
     da = (np.arange(n_a) - a0) * lateral_um  # µm desde centro; positivo = derecha
     B, A = np.meshgrid(db, da, indexing="ij")
-    R    = np.sqrt(B ** 2 + A ** 2)
+    R = np.sqrt(B**2 + A**2)
 
     r_min = ring_radius_um - ring_width_um / 2
     r_max = ring_radius_um + ring_width_um / 2
-    ring  = (R >= r_min) & (R < r_max)
+    ring = (R >= r_min) & (R < r_max)
 
     # Para OD: temporal = lado derecho de imagen (A > 0)
     # Para OS: temporal = lado izquierdo de imagen (A < 0)
     if laterality.upper() in ("R", "OD"):
-        angles = np.degrees(np.arctan2(-B, A))    # temporal a 0°
+        angles = np.degrees(np.arctan2(-B, A))  # temporal a 0°
     else:
-        angles = np.degrees(np.arctan2(-B, -A))   # temporal a 0° para OS
+        angles = np.degrees(np.arctan2(-B, -A))  # temporal a 0° para OS
 
     valid = (thickness > 0) & (thickness < 250)
 
-    def _sector(a_min: float, a_max: float) -> Optional[float]:
+    def _sector(a_min: float, a_max: float) -> float | None:
         if a_min < a_max:
             m = (angles >= a_min) & (angles < a_max)
         else:
@@ -610,15 +608,15 @@ def compute_peripapillary_rnfl(
         return None
 
     return RNFLSectors(
-        global_avg = g,
-        superior   = _sector(45.0, 135.0),
-        inferior   = _sector(-135.0, -45.0),
-        nasal      = _sector(135.0, -135.0),   # wraps through ±180°
-        temporal   = _sector(-45.0, 45.0),
+        global_avg=g,
+        superior=_sector(45.0, 135.0),
+        inferior=_sector(-135.0, -45.0),
+        nasal=_sector(135.0, -135.0),  # wraps through ±180°
+        temporal=_sector(-45.0, 45.0),
     )
 
 
-def _apply_sqi_mask(arr: np.ndarray, sqi: Optional[np.ndarray]) -> np.ndarray:
+def _apply_sqi_mask(arr: np.ndarray, sqi: np.ndarray | None) -> np.ndarray:
     """Zeroes B-scan rows cuyo SQI < _SQI_MIN_QUALITY.
 
     Args:
@@ -642,8 +640,8 @@ def compute_cmt(
     top: np.ndarray,
     bm: np.ndarray,
     params: dict,
-    sqi: Optional[np.ndarray] = None,
-) -> Optional[float]:
+    sqi: np.ndarray | None = None,
+) -> float | None:
     """Calcula CMT (Central Macular Thickness) en µm.
 
     CMT = mean(BM − TOP) en el círculo central de 1mm de diámetro (R < 500 µm).
@@ -664,10 +662,10 @@ def compute_cmt(
     if top.shape != bm.shape:
         return None
 
-    axial_um   = params["axial_um"]
+    axial_um = params["axial_um"]
     lateral_um = params["lateral_um"]
-    n_b, n_a   = top.shape
-    bscan_um   = params["scan_width_mm"] * 1000.0 / n_b
+    n_b, n_a = top.shape
+    bscan_um = params["scan_width_mm"] * 1000.0 / n_b
 
     thickness_um = _apply_sqi_mask((bm - top) * axial_um, sqi)
 
@@ -675,7 +673,7 @@ def compute_cmt(
     db = (np.arange(n_b) - b0) * bscan_um
     da = (np.arange(n_a) - a0) * lateral_um
     B, A = np.meshgrid(db, da, indexing="ij")
-    R = np.sqrt(B ** 2 + A ** 2)
+    R = np.sqrt(B**2 + A**2)
 
     valid = (R < _CMT_RADIUS_UM) & (thickness_um > 0) & (thickness_um < 800)
     if not valid.any():
@@ -690,12 +688,12 @@ def _sector_means(
     laterality: str,
     r_inner_um: float,
     r_outer_um: float,
-    sqi: Optional[np.ndarray] = None,
+    sqi: np.ndarray | None = None,
 ) -> dict:
     """Retorna medias por sector S/I/N/T + global en un anillo radial."""
     lateral_um = params["lateral_um"]
-    n_b, n_a   = thickness.shape
-    bscan_um   = (params["scan_width_mm"] * 1000.0) / n_b
+    n_b, n_a = thickness.shape
+    bscan_um = (params["scan_width_mm"] * 1000.0) / n_b
 
     thickness = _apply_sqi_mask(thickness, sqi)
     valid = (thickness > 0) & (thickness < 800)
@@ -703,11 +701,11 @@ def _sector_means(
     db = (np.arange(n_b) - b0) * bscan_um
     da = (np.arange(n_a) - a0) * lateral_um
     B, A = np.meshgrid(db, da, indexing="ij")
-    R    = np.sqrt(B ** 2 + A ** 2)
+    R = np.sqrt(B**2 + A**2)
 
     ring = (R >= r_inner_um) & (R < r_outer_um)
-    m_S  = B < 0
-    m_I  = B >= 0
+    m_S = B < 0
+    m_I = B >= 0
     if laterality.upper() in ("R", "OD"):
         m_T, m_N = A > 0, A <= 0
     else:
@@ -718,10 +716,10 @@ def _sector_means(
         return float(np.mean(thickness[m])) if int(m.sum()) >= 10 else None
 
     return {
-        "global":   _m(ring),
+        "global": _m(ring),
         "superior": _m(ring & m_S),
         "inferior": _m(ring & m_I),
-        "nasal":    _m(ring & m_N),
+        "nasal": _m(ring & m_N),
         "temporal": _m(ring & m_T),
     }
 
@@ -731,8 +729,8 @@ def compute_rnfl_sectors(
     gcl: np.ndarray,
     params: dict,
     laterality: str = "L",
-    sqi: Optional[np.ndarray] = None,
-) -> Optional[object]:
+    sqi: np.ndarray | None = None,
+) -> object | None:
     """Calcula RNFL macular (GCL − NFL) en sectores S/I/N/T dentro de anillo 1–6mm.
 
     Nota: este es el RNFL macular (mRNFL), no el peripapillar. Para RNFL
@@ -764,8 +762,8 @@ def compute_gcl_ipl(
     inl: np.ndarray,
     params: dict,
     laterality: str = "L",
-    sqi: Optional[np.ndarray] = None,
-) -> Optional[object]:
+    sqi: np.ndarray | None = None,
+) -> object | None:
     """Calcula mGCIPL (GCL + IPL) en sectores S/I/N/T en anillo 1–6mm.
 
     mGCIPL = grosor entre límite interno GCL (= límite externo NFL) y
@@ -798,8 +796,8 @@ def compute_etdrs(
     bm: np.ndarray,
     params: dict,
     laterality: str = "L",
-    sqi: Optional[np.ndarray] = None,
-) -> Optional[object]:
+    sqi: np.ndarray | None = None,
+) -> object | None:
     """Calcula ETDRS 9 sectores del grosor retinal (BM − TOP/ILM).
 
     Grilla estándar ETDRS (diámetros):
@@ -825,26 +823,26 @@ def compute_etdrs(
     if top is None or bm is None or top.shape != bm.shape:
         return None
 
-    axial_um   = params["axial_um"]
+    axial_um = params["axial_um"]
     lateral_um = params["lateral_um"]
-    n_b, n_a   = top.shape
-    bscan_um   = (params["scan_width_mm"] * 1000.0) / n_b
+    n_b, n_a = top.shape
+    bscan_um = (params["scan_width_mm"] * 1000.0) / n_b
 
     thickness = _apply_sqi_mask((bm - top) * axial_um, sqi)  # (n_b, n_a) en µm
-    valid     = (thickness > 0) & (thickness < 800)
+    valid = (thickness > 0) & (thickness < 800)
 
     b0, a0 = n_b // 2, n_a // 2
 
     # Distancias en µm respecto al centro del volumen
-    db = (np.arange(n_b) - b0) * bscan_um    # positivo = inferior
+    db = (np.arange(n_b) - b0) * bscan_um  # positivo = inferior
     da = (np.arange(n_a) - a0) * lateral_um  # positivo = derecha de la imagen
     B, A = np.meshgrid(db, da, indexing="ij")  # (n_b, n_a)
-    R = np.sqrt(B ** 2 + A ** 2)
+    R = np.sqrt(B**2 + A**2)
 
     # Anillos
     m_center = R < 500
-    m_inner  = (R >= 500)  & (R < 1500)
-    m_outer  = (R >= 1500) & (R < 3000)
+    m_inner = (R >= 500) & (R < 1500)
+    m_outer = (R >= 1500) & (R < 3000)
 
     # Superior/Inferior: eje B (db < 0 = superior)
     m_S = B < 0
@@ -852,31 +850,30 @@ def compute_etdrs(
 
     # Temporal/Nasal: eje A, invertido según lateralidad
     if laterality.upper() in ("R", "OD"):
-        m_T = A > 0   # temporal al lado derecho para OD
+        m_T = A > 0  # temporal al lado derecho para OD
         m_N = A <= 0
-    else:             # OS / L
-        m_T = A < 0   # temporal al lado izquierdo para OS
+    else:  # OS / L
+        m_T = A < 0  # temporal al lado izquierdo para OS
         m_N = A >= 0
 
-    def _mean(mask: np.ndarray) -> Optional[float]:
+    def _mean(mask: np.ndarray) -> float | None:
         m = mask & valid
         if int(m.sum()) < 10:
             return None
         return float(np.mean(thickness[m]))
 
     grid = ETDRSGrid(
-        C  = _mean(m_center),
-        S1 = _mean(m_inner & m_S),
-        N1 = _mean(m_inner & m_N),
-        I1 = _mean(m_inner & m_I),
-        T1 = _mean(m_inner & m_T),
-        S2 = _mean(m_outer & m_S),
-        N2 = _mean(m_outer & m_N),
-        I2 = _mean(m_outer & m_I),
-        T2 = _mean(m_outer & m_T),
+        C=_mean(m_center),
+        S1=_mean(m_inner & m_S),
+        N1=_mean(m_inner & m_N),
+        I1=_mean(m_inner & m_I),
+        T1=_mean(m_inner & m_T),
+        S2=_mean(m_outer & m_S),
+        N2=_mean(m_outer & m_N),
+        I2=_mean(m_outer & m_I),
+        T2=_mean(m_outer & m_T),
     )
-    fields = (grid.C, grid.S1, grid.N1, grid.I1, grid.T1,
-              grid.S2, grid.N2, grid.I2, grid.T2)
+    fields = (grid.C, grid.S1, grid.N1, grid.I1, grid.T1, grid.S2, grid.N2, grid.I2, grid.T2)
     return grid if any(v is not None for v in fields) else None
 
 
@@ -886,7 +883,7 @@ def compute_disc_metrics(
     chunks: dict[str, dict],
     params: dict,
     cup_depth_threshold_um: float = 150.0,
-) -> Optional[dict]:
+) -> dict | None:
     """Calcula métricas del disco óptico desde ILM (TOP) y DMARKERS.
 
     Algoritmo:
@@ -915,7 +912,7 @@ def compute_disc_metrics(
     if not c:
         return None
 
-    raw = data[c["offset"]: c["offset"] + c["real_size"]]
+    raw = data[c["offset"] : c["offset"] + c["real_size"]]
     dec = _decompress_block(raw)
     if dec is None or len(dec) < 8:
         return None
@@ -923,21 +920,21 @@ def compute_disc_metrics(
     if n_dm == 0 or len(dec) < 4 + n_dm * 16:
         return None
 
-    markers = np.frombuffer(dec[4: 4 + n_dm * 16], dtype="<f4").reshape(n_dm, 4)
-    valid   = ~np.any(np.isnan(markers), axis=1)
+    markers = np.frombuffer(dec[4 : 4 + n_dm * 16], dtype="<f4").reshape(n_dm, 4)
+    valid = ~np.any(np.isnan(markers), axis=1)
     if valid.sum() < 3:
         return None
 
-    n_b, n_a         = top.shape
-    axial_um         = params["axial_um"]
-    lateral_um       = params["lateral_um"]
+    n_b, n_a = top.shape
+    axial_um = params["axial_um"]
+    lateral_um = params["lateral_um"]
     bscan_spacing_mm = params["scan_width_mm"] / n_b
-    cup_thresh_px    = cup_depth_threshold_um / axial_um
+    cup_thresh_px = cup_depth_threshold_um / axial_um
 
     b_valid = np.where(valid)[0]
-    x1_arr  = np.clip(markers[b_valid, 0].astype(int), 0, n_a - 1)
-    x2_arr  = np.clip(markers[b_valid, 2].astype(int), 0, n_a - 1)
-    swap    = x1_arr > x2_arr
+    x1_arr = np.clip(markers[b_valid, 0].astype(int), 0, n_a - 1)
+    x2_arr = np.clip(markers[b_valid, 2].astype(int), 0, n_a - 1)
+    swap = x1_arr > x2_arr
     x1_arr[swap], x2_arr[swap] = x2_arr[swap].copy(), x1_arr[swap].copy()
 
     widths_px = x2_arr - x1_arr
@@ -951,56 +948,56 @@ def compute_disc_metrics(
     # periféricos con DMARKERS válidos pero de ancho mínimo diluyan el CDR.
     _MIN_DISC_WIDTH_PX = 30
     core_mask = widths_px >= _MIN_DISC_WIDTH_PX
-    b_valid   = b_valid[core_mask]
-    x1_arr    = x1_arr[core_mask]
-    x2_arr    = x2_arr[core_mask]
+    b_valid = b_valid[core_mask]
+    x1_arr = x1_arr[core_mask]
+    x2_arr = x2_arr[core_mask]
     widths_px = widths_px[core_mask]
     if len(b_valid) == 0:
         return None
 
-    disc_h_mm    = disc_h_px * lateral_um / 1000.0
-    disc_v_cnt   = len(b_valid)
+    disc_h_mm = disc_h_px * lateral_um / 1000.0
+    disc_v_cnt = len(b_valid)
     disc_area_mm2 = float(np.sum(widths_px) * (lateral_um / 1000.0) * bscan_spacing_mm)
 
-    cup_v_cnt    = 0
-    cup_h_px     = 0
-    cup_area_sum = 0.0   # A-scans dentro de copa × bscan_spacing
-    cup_vol_sum  = 0.0   # depth-integrated cup volume (mm³)
+    cup_v_cnt = 0
+    cup_h_px = 0
+    cup_area_sum = 0.0  # A-scans dentro de copa × bscan_spacing
+    cup_vol_sum = 0.0  # depth-integrated cup volume (mm³)
 
     for i, b in enumerate(b_valid):
         x1 = x1_arr[i]
         x2 = x2_arr[i]
-        w  = x2 - x1
+        w = x2 - x1
         if w <= 2:
             continue
-        top_row  = top[b, x1:x2]
-        margin   = min(3, max(1, w // 6))
+        top_row = top[b, x1:x2]
+        margin = min(3, max(1, w // 6))
         rim_vals = np.concatenate([top_row[:margin], top_row[-margin:]])
         rim_vals = rim_vals[rim_vals > 0]
         if len(rim_vals) == 0:
             continue
         rim_depth = rim_vals.mean()
-        cup_mask  = (top_row > (rim_depth + cup_thresh_px)) & (top_row > 0)
+        cup_mask = (top_row > (rim_depth + cup_thresh_px)) & (top_row > 0)
         if cup_mask.any():
-            cup_v_cnt    += 1
-            cup_w          = int(cup_mask.sum())
-            cup_h_px       = max(cup_h_px, cup_w)
-            cup_area_sum  += cup_w * (lateral_um / 1000.0)
-            depth_px       = top_row[cup_mask] - rim_depth
-            cup_vol_sum   += float(np.sum(depth_px)) * (axial_um / 1000.0) * (lateral_um / 1000.0) * bscan_spacing_mm
+            cup_v_cnt += 1
+            cup_w = int(cup_mask.sum())
+            cup_h_px = max(cup_h_px, cup_w)
+            cup_area_sum += cup_w * (lateral_um / 1000.0)
+            depth_px = top_row[cup_mask] - rim_depth
+            cup_vol_sum += float(np.sum(depth_px)) * (axial_um / 1000.0) * (lateral_um / 1000.0) * bscan_spacing_mm
 
-    cup_area_mm2  = cup_area_sum * bscan_spacing_mm
-    rim_area_mm2  = max(0.0, disc_area_mm2 - cup_area_mm2)
-    v_cdr         = cup_v_cnt / disc_v_cnt
-    h_cdr         = (cup_h_px * lateral_um / 1000.0) / disc_h_mm if disc_h_mm > 0 else 0.0
-    cdr           = float(np.clip((v_cdr + h_cdr) / 2.0, 0.0, 1.0))
+    cup_area_mm2 = cup_area_sum * bscan_spacing_mm
+    rim_area_mm2 = max(0.0, disc_area_mm2 - cup_area_mm2)
+    v_cdr = cup_v_cnt / disc_v_cnt
+    h_cdr = (cup_h_px * lateral_um / 1000.0) / disc_h_mm if disc_h_mm > 0 else 0.0
+    cdr = float(np.clip((v_cdr + h_cdr) / 2.0, 0.0, 1.0))
 
     return {
-        "cdr":           round(cdr, 3),
-        "vcdr":          round(float(np.clip(v_cdr, 0.0, 1.0)), 3),
+        "cdr": round(cdr, 3),
+        "vcdr": round(float(np.clip(v_cdr, 0.0, 1.0)), 3),
         "disc_area_mm2": round(disc_area_mm2, 4),
-        "rim_area_mm2":  round(rim_area_mm2, 4),
-        "cup_vol_mm3":   round(cup_vol_sum, 4),
+        "rim_area_mm2": round(rim_area_mm2, 4),
+        "cup_vol_mm3": round(cup_vol_sum, 4),
     }
 
 
@@ -1010,7 +1007,7 @@ def compute_cup_disc_ratio(
     chunks: dict[str, dict],
     params: dict,
     cup_depth_threshold_um: float = 150.0,
-) -> Optional[float]:
+) -> float | None:
     """Wrapper de compatibilidad → retorna solo el CDR float.
 
     Usar compute_disc_metrics() para obtener VCDR, disc_area y rim_area.
@@ -1021,14 +1018,15 @@ def compute_cup_disc_ratio(
 
 # ── Extracción de B-scans ────────────────────────────────────────────────────
 
-def _decode_bscan(raw_chunk: bytes) -> Optional[np.ndarray]:
+
+def _decode_bscan(raw_chunk: bytes) -> np.ndarray | None:
     """Descomprime y decodifica un chunk T-N en un array numpy (alto, ancho) uint8."""
     decompressed = _decompress_block(raw_chunk)
     if decompressed is None or len(decompressed) < 10:
         return None
 
     # Cabecera: 2 bytes id + uint32 width + uint32 height
-    width  = struct.unpack_from("<I", decompressed, 2)[0]
+    width = struct.unpack_from("<I", decompressed, 2)[0]
     height = struct.unpack_from("<I", decompressed, 6)[0]
 
     expected = width * height
@@ -1044,7 +1042,7 @@ def compute_octa_enface(
     chunks: dict[str, dict],
     percentile_low: float = 5.0,
     percentile_high: float = 99.5,
-) -> Optional[np.ndarray]:
+) -> np.ndarray | None:
     """Genera imagen en-face OCTA (MIP log) desde los chunks A0…AN.
 
     Formato F1 del Revo FC130 (ingeniería inversa RetinaOS 2026):
@@ -1076,22 +1074,22 @@ def compute_octa_enface(
     projections: list[np.ndarray] = []
     for name in a_names:
         c = chunks[name]
-        raw = data[c["offset"]: c["offset"] + c["real_size"]]
+        raw = data[c["offset"] : c["offset"] + c["real_size"]]
         dec = _decompress_block(raw)
         if dec is None or len(dec) < 11:
             continue
         depth = struct.unpack_from("<I", dec, 3)[0]
-        n_a   = struct.unpack_from("<H", dec, 7)[0]
-        n_px  = depth * n_a
+        n_a = struct.unpack_from("<H", dec, 7)[0]
+        n_px = depth * n_a
         if depth == 0 or n_a == 0 or len(dec) < 11 + n_px * 2:
             continue
-        frame = np.frombuffer(dec[11: 11 + n_px * 2], dtype="<f2").reshape(depth, n_a).astype(np.float32)
-        projections.append(np.log1p(frame).max(axis=0))   # log-MIP → (n_a,)
+        frame = np.frombuffer(dec[11 : 11 + n_px * 2], dtype="<f2").reshape(depth, n_a).astype(np.float32)
+        projections.append(np.log1p(frame).max(axis=0))  # log-MIP → (n_a,)
 
     if not projections:
         return None
 
-    enface = np.stack(projections, axis=0)                # (n_bscans, n_a)
+    enface = np.stack(projections, axis=0)  # (n_bscans, n_a)
     p_lo = float(np.percentile(enface, percentile_low))
     p_hi = float(np.percentile(enface, percentile_high))
     if p_hi <= p_lo:
@@ -1102,14 +1100,10 @@ def compute_octa_enface(
 
 def extract_bscans(data: bytes, chunks: dict[str, dict]) -> list[np.ndarray]:
     """Extrae todos los B-scans T0…TN en orden numérico."""
-    t_chunks = {
-        int(name[1:]): chunks[name]
-        for name in chunks
-        if name.startswith("T") and name[1:].isdigit()
-    }
+    t_chunks = {int(name[1:]): chunks[name] for name in chunks if name.startswith("T") and name[1:].isdigit()}
     bscans = []
     for idx in sorted(t_chunks):
-        c   = t_chunks[idx]
+        c = t_chunks[idx]
         raw = data[c["offset"] : c["offset"] + c["real_size"]]
         arr = _decode_bscan(raw)
         if arr is not None:
@@ -1121,9 +1115,8 @@ def extract_bscans(data: bytes, chunks: dict[str, dict]) -> list[np.ndarray]:
 
 # ── Imágenes en-face (formato I8) ────────────────────────────────────────────
 
-def decode_i8_image(
-    data: bytes, chunks: dict[str, dict], name: str
-) -> Optional[np.ndarray]:
+
+def decode_i8_image(data: bytes, chunks: dict[str, dict], name: str) -> np.ndarray | None:
     """Decodifica un chunk de imagen en-face en formato "I8" del Revo FC130.
 
     Formato I8 (descomprimido):
@@ -1152,7 +1145,7 @@ def decode_i8_image(
         return None
     if len(dec) < 10 or dec[0:2] != b"I8":
         return None
-    width  = struct.unpack_from("<I", dec, 2)[0]
+    width = struct.unpack_from("<I", dec, 2)[0]
     height = struct.unpack_from("<I", dec, 6)[0]
     n_px = width * height
     if n_px == 0 or len(dec) < 10 + n_px:
@@ -1162,9 +1155,8 @@ def decode_i8_image(
 
 # ── Calidad de señal y trayectoria ───────────────────────────────────────────
 
-def extract_sqi(
-    data: bytes, chunks: dict[str, dict]
-) -> Optional[np.ndarray]:
+
+def extract_sqi(data: bytes, chunks: dict[str, dict]) -> np.ndarray | None:
     """Extrae el Signal Quality Index por B-scan del chunk TOMOSQI.
 
     Formato (descomprimido):
@@ -1190,9 +1182,7 @@ def extract_sqi(
     return np.frombuffer(dec[4 : 4 + n * 4], dtype="<f4").copy()
 
 
-def extract_traj(
-    data: bytes, chunks: dict[str, dict]
-) -> Optional[np.ndarray]:
+def extract_traj(data: bytes, chunks: dict[str, dict]) -> np.ndarray | None:
     """Extrae las posiciones espaciales de cada B-scan desde el chunk TRAJ.
 
     Formato (descomprimido):
@@ -1223,7 +1213,8 @@ def extract_traj(
 
 # ── Metadatos clínicos ────────────────────────────────────────────────────────
 
-def extract_myopi_json(data: bytes, chunks: dict[str, dict]) -> Optional[dict]:
+
+def extract_myopi_json(data: bytes, chunks: dict[str, dict]) -> dict | None:
     """Extrae y parsea el chunk MYOPI (biometría JSON) si existe."""
     c = chunks.get("MYOPI")
     if not c:
@@ -1234,7 +1225,7 @@ def extract_myopi_json(data: bytes, chunks: dict[str, dict]) -> Optional[dict]:
     try:
         # Buscar JSON dentro (puede tener bytes de relleno al inicio)
         start = text.find(b"{")
-        end   = text.rfind(b"}") + 1
+        end = text.rfind(b"}") + 1
         if start == -1 or end == 0:
             return None
         return json.loads(text[start:end].decode("utf-8", errors="replace"))
@@ -1243,7 +1234,7 @@ def extract_myopi_json(data: bytes, chunks: dict[str, dict]) -> Optional[dict]:
         return None
 
 
-def extract_study_uid(data: bytes, chunks: dict[str, dict]) -> Optional[str]:
+def extract_study_uid(data: bytes, chunks: dict[str, dict]) -> str | None:
     """Extrae el StudyInstanceUID del chunk PARAMS si está disponible."""
     c = chunks.get("PARAMS")
     if not c:
@@ -1274,6 +1265,7 @@ def extract_study_datetime(data: bytes, chunks: dict[str, dict]) -> tuple[str, s
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _to_dicom_pn(name: str) -> str:
     """Convierte nombre Revo filename → DICOM PN (Apellidos^Nombres)."""
     if not name or "^" in name:
@@ -1286,6 +1278,7 @@ def _to_dicom_pn(name: str) -> str:
 
 # ── Construcción DICOM ────────────────────────────────────────────────────────
 
+
 def build_dicom_oct(
     bscans: list[np.ndarray],
     noel_id: str,
@@ -1296,12 +1289,12 @@ def build_dicom_oct(
     study_type: str = "",
     patient_sex: str = "",
     study_time: str = "",
-    study_instance_uid: Optional[str] = None,
+    study_instance_uid: str | None = None,
     study_description: str = "",
     source_file: str = "",
-    sqi: Optional[np.ndarray] = None,
-    traj: Optional[np.ndarray] = None,
-    params_oct: Optional[dict] = None,
+    sqi: np.ndarray | None = None,
+    traj: np.ndarray | None = None,
+    params_oct: dict | None = None,
 ) -> Dataset:
     """Construye un Dataset DICOM OphthalmicTomographyImageStorage multi-frame.
 
@@ -1331,97 +1324,96 @@ def build_dicom_oct(
 
     # Normalizar todas las frames al mismo tamaño
     pixel_array = np.stack(
-        [b if b.shape == (height, width) else
-         np.zeros((height, width), dtype=np.uint8)
-         for b in bscans],
+        [b if b.shape == (height, width) else np.zeros((height, width), dtype=np.uint8) for b in bscans],
         axis=0,
     )  # shape: (n_frames, height, width)
 
     # ── File Meta ──────────────────────────────────────────────────────────────
     file_meta = FileMetaDataset()
-    file_meta.MediaStorageSOPClassUID    = _SOP_OPT
+    file_meta.MediaStorageSOPClassUID = _SOP_OPT
     file_meta.MediaStorageSOPInstanceUID = generate_uid()
-    file_meta.TransferSyntaxUID          = RETINAOS_TRANSFER_SYNTAX
-    file_meta.ImplementationClassUID     = "1.2.3.4.5"
+    file_meta.TransferSyntaxUID = RETINAOS_TRANSFER_SYNTAX
+    file_meta.ImplementationClassUID = "1.2.3.4.5"
 
     # ── Dataset principal ──────────────────────────────────────────────────────
     ds = Dataset()
-    ds.file_meta      = file_meta
+    ds.file_meta = file_meta
 
     # Identifiers
-    ds.SOPClassUID    = _SOP_OPT
+    ds.SOPClassUID = _SOP_OPT
     ds.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
 
     # Patient
-    ds.PatientID        = noel_id
-    ds.PatientName      = _to_dicom_pn(patient_name) if patient_name else noel_id
+    ds.PatientID = noel_id
+    ds.PatientName = _to_dicom_pn(patient_name) if patient_name else noel_id
     ds.PatientBirthDate = patient_dob or dob_from_noel(noel_id)
-    ds.PatientSex       = patient_sex or ""
+    ds.PatientSex = patient_sex or ""
 
     # Study
-    ds.StudyInstanceUID  = study_instance_uid or generate_uid()
-    ds.StudyDate         = study_date
-    ds.StudyTime         = study_time
-    ds.StudyID           = ""
-    ds.AccessionNumber   = ""
-    ds.StudyDescription  = study_description or study_description_label(study_type, laterality)
+    ds.StudyInstanceUID = study_instance_uid or generate_uid()
+    ds.StudyDate = study_date
+    ds.StudyTime = study_time
+    ds.StudyID = ""
+    ds.AccessionNumber = ""
+    ds.StudyDescription = study_description or study_description_label(study_type, laterality)
     ds.ReferringPhysicianName = ""
 
     # Series
     ds.SeriesInstanceUID = generate_uid()
-    ds.SeriesNumber      = 1
-    _lat_str  = "OD" if laterality == "R" else "OS"
+    ds.SeriesNumber = 1
+    _lat_str = "OD" if laterality == "R" else "OS"
     _type_lbl = study_type.replace("_", " ").title() if study_type else "OCT"
     ds.SeriesDescription = f"Revo FC130 {_type_lbl} {_lat_str}"
-    ds.SeriesDate        = study_date
-    ds.SeriesTime        = study_time
-    ds.Modality          = "OPT"
-    ds.ProtocolName      = study_type
-    ds.BodyPartExamined  = "EYE ANTERIOR SEGMENT" if study_type in ("anterior", "anterior_segment") else "EYE"
+    ds.SeriesDate = study_date
+    ds.SeriesTime = study_time
+    ds.Modality = "OPT"
+    ds.ProtocolName = study_type
+    ds.BodyPartExamined = "EYE ANTERIOR SEGMENT" if study_type in ("anterior", "anterior_segment") else "EYE"
 
-    from pydicom.sequence import Sequence as DicomSequence
     from pydicom.dataset import Dataset as DicomDataset
+    from pydicom.sequence import Sequence as DicomSequence
+
     _anat = DicomDataset()
     if study_type in ("anterior", "anterior_segment"):
-        _anat.CodeValue              = "T-AA700"
+        _anat.CodeValue = "T-AA700"
         _anat.CodingSchemeDesignator = "SRT"
-        _anat.CodeMeaning            = "Anterior segment of eye"
+        _anat.CodeMeaning = "Anterior segment of eye"
     else:
-        _anat.CodeValue              = "T-AA610"
+        _anat.CodeValue = "T-AA610"
         _anat.CodingSchemeDesignator = "SRT"
-        _anat.CodeMeaning            = "Retina"
+        _anat.CodeMeaning = "Retina"
     ds.AnatomicRegionSequence = DicomSequence([_anat])
 
     # Instance
-    ds.InstanceNumber       = 1
-    ds.AcquisitionDate      = study_date
-    ds.AcquisitionTime      = study_time
-    ds.ContentDate          = study_date
-    ds.ContentTime          = study_time
+    ds.InstanceNumber = 1
+    ds.AcquisitionDate = study_date
+    ds.AcquisitionTime = study_time
+    ds.ContentDate = study_date
+    ds.ContentTime = study_time
 
     # Equipment
-    ds.Manufacturer             = MANUFACTURER_OPTOPOL
-    ds.ManufacturerModelName    = MODEL_REVO
-    ds.SoftwareVersions         = "Transducin"
+    ds.Manufacturer = MANUFACTURER_OPTOPOL
+    ds.ManufacturerModelName = MODEL_REVO
+    ds.SoftwareVersions = "Transducin"
 
     # Image — OphthalmicTomographyImageStorage requiere estos tags
-    ds.Laterality               = laterality
-    ds.ImageLaterality          = laterality
-    ds.SamplesPerPixel          = 1
+    ds.Laterality = laterality
+    ds.ImageLaterality = laterality
+    ds.SamplesPerPixel = 1
     ds.PhotometricInterpretation = "MONOCHROME2"
-    ds.Rows                     = height
-    ds.Columns                  = width
-    ds.BitsAllocated            = 8
-    ds.BitsStored               = 8
-    ds.HighBit                  = 7
-    ds.PixelRepresentation      = 0  # unsigned
-    ds.NumberOfFrames           = n_frames
+    ds.Rows = height
+    ds.Columns = width
+    ds.BitsAllocated = 8
+    ds.BitsStored = 8
+    ds.HighBit = 7
+    ds.PixelRepresentation = 0  # unsigned
+    ds.NumberOfFrames = n_frames
 
     # Window óptimo desde percentiles del pixel data real
     flat = pixel_array.ravel().astype(float)
     p2, p98 = float(np.percentile(flat, 2)), float(np.percentile(flat, 98))
-    ds.WindowCenter = int(round((p2 + p98) / 2))
-    ds.WindowWidth  = max(1, int(round(p98 - p2)))
+    ds.WindowCenter = round((p2 + p98) / 2)
+    ds.WindowWidth = max(1, round(p98 - p2))
 
     # Pixel data
     ds.PixelData = pixel_array.tobytes()
@@ -1433,10 +1425,10 @@ def build_dicom_oct(
 
     # ── Tags de resolución espacial (estándar OphthalmicTomography) ───────────
     if params_oct:
-        ds.add_new((0x0022, 0x0035), "FL", float(params_oct.get("axial_um",  _DEFAULT_AXIAL_UM_PX)))
+        ds.add_new((0x0022, 0x0035), "FL", float(params_oct.get("axial_um", _DEFAULT_AXIAL_UM_PX)))
         ds.add_new((0x0022, 0x0037), "FL", float(params_oct.get("lateral_um", 15.0)))
         ds.add_new((0x0022, 0x0039), "CS", "HORIZONTAL")
-        axial_mm   = params_oct.get("axial_um",  _DEFAULT_AXIAL_UM_PX) / 1000.0
+        axial_mm = params_oct.get("axial_um", _DEFAULT_AXIAL_UM_PX) / 1000.0
         lateral_mm = params_oct.get("lateral_um", 15.0) / 1000.0
         ds.PixelSpacing = [axial_mm, lateral_mm]
 
@@ -1460,6 +1452,7 @@ def build_dicom_oct(
 
 
 # ── API pública ───────────────────────────────────────────────────────────────
+
 
 def _resize_enface_aspect(image: np.ndarray, n_bscans: int, n_ascans: int) -> np.ndarray:
     """Resize en-face image to correct aspect ratio (square for equal-extent scans).
@@ -1498,10 +1491,10 @@ def build_dicom_enface(
     patient_sex: str = "",
     study_type: str = "",
     study_time: str = "",
-    study_instance_uid: Optional[str] = None,
+    study_instance_uid: str | None = None,
     study_description: str = "",
     source_file: str = "",
-    pixel_spacing: Optional[list[float]] = None,
+    pixel_spacing: list[float] | None = None,
 ) -> Dataset:
     """Construye un Dataset DICOM OphthalmicPhotography8BitImageStorage de un frame.
 
@@ -1523,6 +1516,7 @@ def build_dicom_enface(
         Dataset pydicom listo para guardar con save_as().
     """
     from transducin.dicom_config import SOP_FUNDUS_PHOTO
+
     if image.ndim != 2:
         raise ValueError(f"build_dicom_enface espera array 2D, recibió shape={image.shape}")
 
@@ -1530,77 +1524,78 @@ def build_dicom_enface(
 
     sop_uid = generate_uid()
     file_meta = FileMetaDataset()
-    file_meta.MediaStorageSOPClassUID    = SOP_FUNDUS_PHOTO
+    file_meta.MediaStorageSOPClassUID = SOP_FUNDUS_PHOTO
     file_meta.MediaStorageSOPInstanceUID = sop_uid
-    file_meta.TransferSyntaxUID          = RETINAOS_TRANSFER_SYNTAX
-    file_meta.ImplementationClassUID     = "1.2.3.4.5"
+    file_meta.TransferSyntaxUID = RETINAOS_TRANSFER_SYNTAX
+    file_meta.ImplementationClassUID = "1.2.3.4.5"
 
     ds = Dataset()
-    ds.file_meta      = file_meta
-    ds.SOPClassUID    = SOP_FUNDUS_PHOTO
+    ds.file_meta = file_meta
+    ds.SOPClassUID = SOP_FUNDUS_PHOTO
     ds.SOPInstanceUID = sop_uid
 
-    ds.PatientID        = noel_id
-    ds.PatientName      = _to_dicom_pn(patient_name) if patient_name else noel_id
+    ds.PatientID = noel_id
+    ds.PatientName = _to_dicom_pn(patient_name) if patient_name else noel_id
     ds.PatientBirthDate = patient_dob or dob_from_noel(noel_id)
-    ds.PatientSex       = patient_sex or ""
+    ds.PatientSex = patient_sex or ""
 
-    ds.StudyInstanceUID  = study_instance_uid or generate_uid()
-    ds.StudyDate         = study_date
-    ds.StudyTime         = study_time
-    ds.StudyID           = ""
-    ds.AccessionNumber   = ""
-    ds.StudyDescription  = study_description or study_description_label(study_type, laterality)
+    ds.StudyInstanceUID = study_instance_uid or generate_uid()
+    ds.StudyDate = study_date
+    ds.StudyTime = study_time
+    ds.StudyID = ""
+    ds.AccessionNumber = ""
+    ds.StudyDescription = study_description or study_description_label(study_type, laterality)
     ds.ReferringPhysicianName = ""
 
     lat_str = "OD" if laterality == "R" else "OS"
     desc_map = {
-        "SLO":      f"Revo FC130 SLO {lat_str}",
+        "SLO": f"Revo FC130 SLO {lat_str}",
         "FNDSRECO": f"Revo FC130 OCT En-Face Projection {lat_str}",
-        "ANGPRV":   f"Revo FC130 OCTA En-Face Preview {lat_str}",
+        "ANGPRV": f"Revo FC130 OCTA En-Face Preview {lat_str}",
     }
-    ds.SeriesInstanceUID  = generate_uid()
-    ds.SeriesNumber       = 2
-    ds.SeriesDescription  = desc_map.get(image_type, f"Revo FC130 {image_type} {lat_str}")
-    ds.SeriesDate         = study_date
-    ds.SeriesTime         = study_time
-    ds.Modality           = "OP"  # Ophthalmic Photography
-    ds.ProtocolName       = study_type
-    ds.BodyPartExamined   = "EYE ANTERIOR SEGMENT" if study_type in ("anterior", "anterior_segment") else "EYE"
+    ds.SeriesInstanceUID = generate_uid()
+    ds.SeriesNumber = 2
+    ds.SeriesDescription = desc_map.get(image_type, f"Revo FC130 {image_type} {lat_str}")
+    ds.SeriesDate = study_date
+    ds.SeriesTime = study_time
+    ds.Modality = "OP"  # Ophthalmic Photography
+    ds.ProtocolName = study_type
+    ds.BodyPartExamined = "EYE ANTERIOR SEGMENT" if study_type in ("anterior", "anterior_segment") else "EYE"
 
-    from pydicom.sequence import Sequence as DicomSequence
     from pydicom.dataset import Dataset as DicomDataset
+    from pydicom.sequence import Sequence as DicomSequence
+
     _anat = DicomDataset()
     if study_type in ("anterior", "anterior_segment"):
-        _anat.CodeValue              = "T-AA700"
+        _anat.CodeValue = "T-AA700"
         _anat.CodingSchemeDesignator = "SRT"
-        _anat.CodeMeaning            = "Anterior segment of eye"
+        _anat.CodeMeaning = "Anterior segment of eye"
     else:
-        _anat.CodeValue              = "T-AA610"
+        _anat.CodeValue = "T-AA610"
         _anat.CodingSchemeDesignator = "SRT"
-        _anat.CodeMeaning            = "Retina"
+        _anat.CodeMeaning = "Retina"
     ds.AnatomicRegionSequence = DicomSequence([_anat])
 
-    ds.InstanceNumber       = 1
-    ds.AcquisitionDate      = study_date
-    ds.AcquisitionTime      = study_time
-    ds.ContentDate          = study_date
-    ds.ContentTime          = study_time
+    ds.InstanceNumber = 1
+    ds.AcquisitionDate = study_date
+    ds.AcquisitionTime = study_time
+    ds.ContentDate = study_date
+    ds.ContentTime = study_time
 
-    ds.Manufacturer            = MANUFACTURER_OPTOPOL
-    ds.ManufacturerModelName   = MODEL_REVO
-    ds.SoftwareVersions        = "Transducin"
+    ds.Manufacturer = MANUFACTURER_OPTOPOL
+    ds.ManufacturerModelName = MODEL_REVO
+    ds.SoftwareVersions = "Transducin"
 
-    ds.Laterality               = laterality
-    ds.ImageLaterality          = laterality
-    ds.SamplesPerPixel          = 1
+    ds.Laterality = laterality
+    ds.ImageLaterality = laterality
+    ds.SamplesPerPixel = 1
     ds.PhotometricInterpretation = "MONOCHROME2"
-    ds.Rows                     = height
-    ds.Columns                  = width
-    ds.BitsAllocated            = 8
-    ds.BitsStored               = 8
-    ds.HighBit                  = 7
-    ds.PixelRepresentation      = 0
+    ds.Rows = height
+    ds.Columns = width
+    ds.BitsAllocated = 8
+    ds.BitsStored = 8
+    ds.HighBit = 7
+    ds.PixelRepresentation = 0
 
     if pixel_spacing is not None:
         ds.PixelSpacing = pixel_spacing
@@ -1659,36 +1654,37 @@ def read_opt(filepath: str | Path) -> dict:
     if not filepath.exists():
         raise FileNotFoundError(filepath)
 
-    data   = filepath.read_bytes()
+    data = filepath.read_bytes()
     if not data.startswith(_OPT_MAGIC):
         raise ValueError(f"No es un archivo .opt Revo válido (magic incorrecto): {filepath.name}")
 
     chunks = parse_opt_chunks(data)
     bscans = extract_bscans(data, chunks)
-    myopi  = extract_myopi_json(data, chunks)
-    uid    = extract_study_uid(data, chunks)
+    myopi = extract_myopi_json(data, chunks)
+    uid = extract_study_uid(data, chunks)
     params = parse_octparams(data, chunks)
 
     # Calidad de señal y posiciones espaciales
-    sqi  = extract_sqi(data, chunks)
+    sqi = extract_sqi(data, chunks)
     traj = extract_traj(data, chunks)
 
     # Capas de segmentación
     nfl = extract_layer(data, chunks, "NFL")
     gcl = extract_layer(data, chunks, "GCL")
     inl = extract_layer(data, chunks, "INL")
-    bm  = _extract_layer_with_fallback(data, chunks, "BM", "BOTTOM")
-    top = extract_layer(data, chunks, "TOP")   # ILM — necesaria para C/D
+    bm = _extract_layer_with_fallback(data, chunks, "BM", "BOTTOM")
+    top = extract_layer(data, chunks, "TOP")  # ILM — necesaria para C/D
 
     # Métricas con filtrado SQI (laterality se aplica en opt_extractor con el valor correcto)
     # CMT y ETDRS = grosor retinal total (BM − TOP/ILM). mRNFL macular = (NFL − TOP).
-    cmt_um  = compute_cmt(top, bm, params, sqi=sqi)
+    cmt_um = compute_cmt(top, bm, params, sqi=sqi)
 
     # Diagnóstico cuando CMT es None — ayuda a distinguir patología vs bug de pipeline.
     # Valores: "layer_missing" | "bottom_zero" | "sqi_low" | "dims_unknown"
-    cmt_failure_reason: Optional[str] = None
+    cmt_failure_reason: str | None = None
     if cmt_um is None:
         import numpy as _np
+
         if top is None or bm is None:
             cmt_failure_reason = "layer_missing"
         elif bm is not None and _np.all(bm == 0):
@@ -1699,54 +1695,58 @@ def read_opt(filepath: str | Path) -> dict:
             cmt_failure_reason = "dims_unknown"
         else:
             cmt_failure_reason = "bottom_zero"  # caso más frecuente si llegamos aquí
-    etdrs   = compute_etdrs(top, bm, params, sqi=sqi)
-    rnfl    = compute_rnfl_sectors(nfl, gcl, params, sqi=sqi)
+    etdrs = compute_etdrs(top, bm, params, sqi=sqi)
+    rnfl = compute_rnfl_sectors(nfl, gcl, params, sqi=sqi)
     gcl_ipl = compute_gcl_ipl(gcl, inl, params, sqi=sqi)
 
     # C/D ratio desde ILM morfología + bordes de disco DMARKERS
     cdr = compute_cup_disc_ratio(top, data, chunks, params)
 
     # Imágenes en-face I8
-    eye      = decode_i8_image(data, chunks, "EYE")      # SLO alta resolución
-    fndsrec  = decode_i8_image(data, chunks, "FNDSRECO") # Proyección en-face OCT
-    angprv   = decode_i8_image(data, chunks, "ANGPRV")   # Preview OCTA compuesto (solo ANGIO)
+    eye = decode_i8_image(data, chunks, "EYE")  # SLO alta resolución
+    fndsrec = decode_i8_image(data, chunks, "FNDSRECO")  # Proyección en-face OCT
+    angprv = decode_i8_image(data, chunks, "ANGPRV")  # Preview OCTA compuesto (solo ANGIO)
 
     # OCTA en-face MIP desde chunks A0…AN (float16 decorrelación, solo ANGIO)
-    octa_ef  = compute_octa_enface(data, chunks)
+    octa_ef = compute_octa_enface(data, chunks)
 
     sqi_str = f"mean={sqi.mean():.3f} n={len(sqi)}" if sqi is not None else "absent"
     shape = bscans[0].shape if bscans else (0, 0)
     logger.info(
         "read_opt: %s — %d B-scans %dx%d, CMT=%s µm, SQI=%s, C/D=%s, "
         "myopi=%s uid=%s EYE=%s FNDSRECO=%s ANGPRV=%s OCTA_MIP=%s",
-        filepath.name, len(bscans), shape[1], shape[0],
+        filepath.name,
+        len(bscans),
+        shape[1],
+        shape[0],
         f"{cmt_um:.1f}" if cmt_um else "N/A",
         sqi_str,
         f"{cdr:.2f}" if cdr is not None else "N/A",
-        "presente" if myopi else "ausente", uid,
+        "presente" if myopi else "ausente",
+        uid,
         f"{eye.shape}" if eye is not None else "absent",
         f"{fndsrec.shape}" if fndsrec is not None else "absent",
         f"{angprv.shape}" if angprv is not None else "absent",
         f"{octa_ef.shape}" if octa_ef is not None else "absent",
     )
     return {
-        "bscans":    bscans,
-        "myopi":     myopi,
+        "bscans": bscans,
+        "myopi": myopi,
         "study_uid": uid,
-        "n_frames":  len(bscans),
-        "shape":     shape,
-        "cmt_um":    cmt_um,
+        "n_frames": len(bscans),
+        "shape": shape,
+        "cmt_um": cmt_um,
         "cmt_failure_reason": cmt_failure_reason,
-        "etdrs":     etdrs,
-        "rnfl":      rnfl,
-        "gcl_ipl":   gcl_ipl,
-        "cdr":       cdr,
-        "sqi":       sqi,
-        "traj":      traj,
-        "params":    params,
-        "eye":       eye,
-        "fndsreco":  fndsrec,
-        "angprv":    angprv,
+        "etdrs": etdrs,
+        "rnfl": rnfl,
+        "gcl_ipl": gcl_ipl,
+        "cdr": cdr,
+        "sqi": sqi,
+        "traj": traj,
+        "params": params,
+        "eye": eye,
+        "fndsreco": fndsrec,
+        "angprv": angprv,
         "octa_enface": octa_ef,  # float16 log-MIP en-face OCTA (solo ANGIO)
     }
 
@@ -1786,8 +1786,8 @@ def opt_to_dicom(
     Returns:
         Lista de Paths a los .dcm generados (todos los tipos de imagen del scan).
     """
-    filepath   = Path(filepath)
-    _stem_m = re.match(r'^([A-Z]{4})(\d{8})_', filepath.stem)
+    filepath = Path(filepath)
+    _stem_m = re.match(r"^([A-Z]{4})(\d{8})_", filepath.stem)
     if _stem_m:
         if not noel_id:
             noel_id = _stem_m.group(1) + _stem_m.group(2)
@@ -1797,34 +1797,34 @@ def opt_to_dicom(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    result  = read_opt(filepath)
-    stem    = filepath.stem.replace(" ", "_")
-    uid     = result["study_uid"]
+    result = read_opt(filepath)
+    stem = filepath.stem.replace(" ", "_")
+    uid = result["study_uid"]
 
     # When study_date/time are not provided by the caller, extract them from the
     # StudyInstanceUID embedded in PARAMS (format: ...1.YYYYMMDDHHMMSS).
     if not study_date or not study_time:
         raw_bytes = filepath.read_bytes()
-        _chunks   = parse_opt_chunks(raw_bytes)
-        _d, _t    = extract_study_datetime(raw_bytes, _chunks)
+        _chunks = parse_opt_chunks(raw_bytes)
+        _d, _t = extract_study_datetime(raw_bytes, _chunks)
         if not study_date:
             study_date = _d
         if not study_time:
             study_time = _t
 
-    common = dict(
-        noel_id            = noel_id,
-        study_date         = study_date,
-        study_time         = study_time,
-        laterality         = laterality,
-        patient_name       = patient_name,
-        patient_dob        = patient_dob or dob_from_noel(noel_id),
-        patient_sex        = patient_sex,
-        study_type         = study_type,
-        study_instance_uid = uid,
-        study_description  = study_description,
-        source_file        = filepath.name,
-    )
+    common = {
+        "noel_id": noel_id,
+        "study_date": study_date,
+        "study_time": study_time,
+        "laterality": laterality,
+        "patient_name": patient_name,
+        "patient_dob": patient_dob or dob_from_noel(noel_id),
+        "patient_sex": patient_sex,
+        "study_type": study_type,
+        "study_instance_uid": uid,
+        "study_description": study_description,
+        "source_file": filepath.name,
+    }
 
     generated: list[Path] = []
 
@@ -1849,9 +1849,7 @@ def opt_to_dicom(
 
     # ── En-face SLO (EYE chunk) ───────────────────────────────────────────────
     if result.get("eye") is not None:
-        ds_slo = build_dicom_enface(
-            image=result["eye"], image_type="SLO", **common
-        )
+        ds_slo = build_dicom_enface(image=result["eye"], image_type="SLO", **common)
         out_slo = output_dir / f"{stem}_SLO.dcm"
         ds_slo.save_as(str(out_slo), write_like_original=False)
         logger.info("DICOM SLO: %s %s", out_slo.name, result["eye"].shape)
@@ -1869,10 +1867,7 @@ def opt_to_dicom(
         scan_mm = params.get("scan_width_mm", 10.0)
         ef_ps = [scan_mm / enface_sq.shape[0], scan_mm / enface_sq.shape[1]]
 
-        ds_ef = build_dicom_enface(
-            image=enface_sq, image_type="FNDSRECO",
-            pixel_spacing=ef_ps, **common
-        )
+        ds_ef = build_dicom_enface(image=enface_sq, image_type="FNDSRECO", pixel_spacing=ef_ps, **common)
         out_ef = output_dir / f"{stem}_ENFACE.dcm"
         ds_ef.save_as(str(out_ef), write_like_original=False)
         logger.info("DICOM ENFACE: %s %s (resized from %s)", out_ef.name, enface_sq.shape, enface_raw.shape)
@@ -1880,9 +1875,7 @@ def opt_to_dicom(
 
     # ── ANGIO preview (ANGPRV chunk) ──────────────────────────────────────────
     if result.get("angprv") is not None:
-        ds_ang = build_dicom_enface(
-            image=result["angprv"], image_type="ANGPRV", **common
-        )
+        ds_ang = build_dicom_enface(image=result["angprv"], image_type="ANGPRV", **common)
         out_ang = output_dir / f"{stem}_ANGPRV.dcm"
         ds_ang.save_as(str(out_ang), write_like_original=False)
         logger.info("DICOM ANGPRV: %s %s", out_ang.name, result["angprv"].shape)
@@ -1897,10 +1890,7 @@ def opt_to_dicom(
         _scan_mm = _p.get("scan_width_mm", 3.0)
         octa_sq = _resize_enface_aspect(octa_raw, _n_b, _n_a)
         octa_ps = [_scan_mm / octa_sq.shape[0], _scan_mm / octa_sq.shape[1]]
-        ds_octa = build_dicom_enface(
-            image=octa_sq, image_type="OCTA_MIP",
-            pixel_spacing=octa_ps, **common
-        )
+        ds_octa = build_dicom_enface(image=octa_sq, image_type="OCTA_MIP", pixel_spacing=octa_ps, **common)
         out_octa = output_dir / f"{stem}_OCTA_MIP.dcm"
         ds_octa.save_as(str(out_octa), write_like_original=False)
         logger.info("DICOM OCTA_MIP: %s %s (resized from %s)", out_octa.name, octa_sq.shape, octa_raw.shape)
@@ -1914,26 +1904,26 @@ def opt_to_dicom(
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Convierte .opt Revo FC130 → DICOM OphthalmicTomographyImageStorage"
-    )
-    parser.add_argument("opt_file",    help="Archivo .opt de entrada")
+    parser = argparse.ArgumentParser(description="Convierte .opt Revo FC130 → DICOM OphthalmicTomographyImageStorage")
+    parser.add_argument("opt_file", help="Archivo .opt de entrada")
     parser.add_argument("-o", "--output", default="Output", help="Directorio de salida")
-    parser.add_argument("--noel",     default="",  help="PatientID NOEL (ej. JAHJ19870831)")
-    parser.add_argument("--date",     default="",  help="StudyDate YYYYMMDD")
-    parser.add_argument("--lat",      default="",  help="Lateralidad: R (OD) o L (OS)")
-    parser.add_argument("--name",     default="",  help="PatientName DICOM PN")
-    parser.add_argument("--dob",      default="",  help="PatientBirthDate YYYYMMDD")
-    parser.add_argument("--info",     action="store_true", help="Solo mostrar info, no convertir")
+    parser.add_argument("--noel", default="", help="PatientID NOEL (ej. JAHJ19870831)")
+    parser.add_argument("--date", default="", help="StudyDate YYYYMMDD")
+    parser.add_argument("--lat", default="", help="Lateralidad: R (OD) o L (OS)")
+    parser.add_argument("--name", default="", help="PatientName DICOM PN")
+    parser.add_argument("--dob", default="", help="PatientBirthDate YYYYMMDD")
+    parser.add_argument("--info", action="store_true", help="Solo mostrar info, no convertir")
     args = parser.parse_args()
 
     import logging as _log
+
     _log.basicConfig(level=_log.INFO)
 
     result = read_opt(args.opt_file)
-    shape  = result["shape"]
-    myopi  = result["myopi"]
+    shape = result["shape"]
+    myopi = result["myopi"]
 
     print(f"\n  Archivo : {Path(args.opt_file).name}")
     print(f"  B-scans : {result['n_frames']}  ({shape[1]}×{shape[0]} px uint8 cada uno)")
@@ -1943,25 +1933,26 @@ def main() -> None:
         rp = myopi.get("rightOriginalParams", {}).get("biometry", {})
         print(f"  AL OD   : {rp.get('al', 'N/A'):.3f} mm" if rp.get("al") else "  AL OD   : N/A")
         print(f"  AL OS   : {lp.get('al', 'N/A'):.3f} mm" if lp.get("al") else "  AL OS   : N/A")
-        print(f"  CCT OD  : {rp.get('cct', 0)*1000:.0f} μm" if rp.get("cct") else "  CCT OD  : N/A")
-        print(f"  CCT OS  : {lp.get('cct', 0)*1000:.0f} μm" if lp.get("cct") else "  CCT OS  : N/A")
+        print(f"  CCT OD  : {rp.get('cct', 0) * 1000:.0f} μm" if rp.get("cct") else "  CCT OD  : N/A")
+        print(f"  CCT OS  : {lp.get('cct', 0) * 1000:.0f} μm" if lp.get("cct") else "  CCT OS  : N/A")
 
     if args.info:
         return
 
     # Inferir parámetros desde el filename si no se pasaron
     filepath = Path(args.opt_file)
-    noel_id   = args.noel
-    date      = args.date
-    lat       = args.lat
+    noel_id = args.noel
+    date = args.date
+    lat = args.lat
 
     if not noel_id or not date or not lat:
         try:
             from transducin.opt_extractor import extract_from_opt
+
             cd = extract_from_opt(filepath)
             noel_id = noel_id or cd.noel_id or ""
-            date    = date    or cd.study_date or ""
-            lat     = lat     or cd.laterality or ""
+            date = date or cd.study_date or ""
+            lat = lat or cd.laterality or ""
         except Exception:
             pass
 
@@ -1969,8 +1960,7 @@ def main() -> None:
         print("\n  ERROR: se requiere --noel (PatientID NOEL). Usa --info para solo ver datos.")
         return
 
-    outs = opt_to_dicom(filepath, args.output, noel_id, date, lat,
-                        patient_name=args.name, patient_dob=args.dob)
+    outs = opt_to_dicom(filepath, args.output, noel_id, date, lat, patient_name=args.name, patient_dob=args.dob)
     for p in outs:
         print(f"\n  DICOM guardado: {p}")
 
@@ -1984,6 +1974,7 @@ if __name__ == "__main__":
         sys.exit()
 
     import logging as _log
+
     _log.basicConfig(level=_log.WARNING)
 
     G, R, E = "\033[92m", "\033[91m", "\033[0m"
@@ -1992,7 +1983,7 @@ if __name__ == "__main__":
     def check(label, got, expected):
         global errors
         ok = got == expected
-        print(f"  {'✓' if ok else '✗'} [{G+'PASS'+E if ok else R+'FAIL'+E}] {label}")
+        print(f"  {'✓' if ok else '✗'} [{G + 'PASS' + E if ok else R + 'FAIL' + E}] {label}")
         if not ok:
             print(f"       got:      {got!r}")
             print(f"       expected: {expected!r}")
@@ -2001,8 +1992,10 @@ if __name__ == "__main__":
     def check_true(label, condition, detail=""):
         global errors
         ok = bool(condition)
-        print(f"  {'✓' if ok else '✗'} [{G+'PASS'+E if ok else R+'FAIL'+E}] {label}" +
-              (f": {detail}" if detail else ""))
+        print(
+            f"  {'✓' if ok else '✗'} [{G + 'PASS' + E if ok else R + 'FAIL' + E}] {label}"
+            + (f": {detail}" if detail else "")
+        )
         if not ok:
             errors += 1
 
@@ -2011,9 +2004,10 @@ if __name__ == "__main__":
     import glob as _glob
     import tempfile
 
-    opt_files = _glob.glob("input/REVO/**/processed/*.opt", recursive=True) + \
-                _glob.glob("input/REVO/**/*.opt", recursive=True)
-    oct_files   = [f for f in opt_files if "_OCT." in f]
+    opt_files = _glob.glob("input/REVO/**/processed/*.opt", recursive=True) + _glob.glob(
+        "input/REVO/**/*.opt", recursive=True
+    )
+    oct_files = [f for f in opt_files if "_OCT." in f]
     bmetr_files = [f for f in opt_files if "_BMETR." in f]
 
     if not oct_files:
@@ -2022,40 +2016,38 @@ if __name__ == "__main__":
 
     # ── Test 1: parse_opt_chunks ──────────────────────────────────────────────
     print("\n  [OCT]", oct_files[0].split("/")[-1])
-    data   = open(oct_files[0], "rb").read()
+    data = Path(oct_files[0]).read_bytes()
     chunks = parse_opt_chunks(data)
     t_names = [k for k in chunks if k.startswith("T") and k[1:].isdigit()]
-    check_true("chunks T encontrados (≥1)",   len(t_names) >= 1,  f"{len(t_names)} chunks T")
-    check_true("chunk PARAMS presente",        "PARAMS" in chunks)
+    check_true("chunks T encontrados (≥1)", len(t_names) >= 1, f"{len(t_names)} chunks T")
+    check_true("chunk PARAMS presente", "PARAMS" in chunks)
 
     # ── Test 2: extract_bscans ────────────────────────────────────────────────
     bscans = extract_bscans(data, chunks)
-    check_true("bscans extraídos (≥1)",        len(bscans) >= 1,  f"{len(bscans)} B-scans")
+    check_true("bscans extraídos (≥1)", len(bscans) >= 1, f"{len(bscans)} B-scans")
     if bscans:
         h, w = bscans[0].shape
         check_true("B-scan tiene dimensiones válidas", w > 0 and h > 0, f"{w}×{h} px")
-        check_true("B-scan dtype uint8",         bscans[0].dtype == np.uint8)
+        check_true("B-scan dtype uint8", bscans[0].dtype == np.uint8)
         check_true("B-scan tiene píxeles no nulos", bscans[0].max() > 0)
 
     # ── Test 3: opt_to_dicom (archivo OCT) ───────────────────────────────────
     with tempfile.TemporaryDirectory() as tmp:
         from transducin.opt_extractor import extract_from_opt
+
         cd = extract_from_opt(oct_files[0])
         noel = cd.noel_id or "GHSI20000101"
         try:
-            outs = opt_to_dicom(oct_files[0], tmp, noel,
-                                cd.study_date or "20000101",
-                                cd.laterality or "L")
+            outs = opt_to_dicom(oct_files[0], tmp, noel, cd.study_date or "20000101", cd.laterality or "L")
             out = outs[0]  # primer DICOM (OCT cube o SLO)
             check_true("DICOM generado existe", out.exists(), out.name)
 
             ds = pydicom.dcmread(str(out))
-            check("PatientID en DICOM",    ds.PatientID, noel)
-            check("Modality es OPT",       str(ds.Modality), "OPT")
-            check("SOPClassUID OPT",       str(ds.SOPClassUID), str(_SOP_OPT))
-            check_true("NumberOfFrames > 0", int(ds.NumberOfFrames) > 0,
-                       str(ds.NumberOfFrames))
-            check_true("PixelData presente",   hasattr(ds, "PixelData"))
+            check("PatientID en DICOM", ds.PatientID, noel)
+            check("Modality es OPT", str(ds.Modality), "OPT")
+            check("SOPClassUID OPT", str(ds.SOPClassUID), str(_SOP_OPT))
+            check_true("NumberOfFrames > 0", int(ds.NumberOfFrames) > 0, str(ds.NumberOfFrames))
+            check_true("PixelData presente", hasattr(ds, "PixelData"))
             print(f"       → {ds.NumberOfFrames} frames {ds.Columns}×{ds.Rows}px")
         except Exception as ex:
             print(f"  ✗ [{R}FAIL{E}] opt_to_dicom: {ex}")
@@ -2065,17 +2057,15 @@ if __name__ == "__main__":
     if bmetr_files:
         print(f"\n  [BMETR] {bmetr_files[0].split('/')[-1]}")
         result = read_opt(bmetr_files[0])
-        myopi  = result["myopi"]
+        myopi = result["myopi"]
         check_true("MYOPI JSON extraído", myopi is not None)
         if myopi:
             lp = myopi.get("leftOriginalParams", {}).get("biometry", {})
             rp = myopi.get("rightOriginalParams", {}).get("biometry", {})
             al_l = lp.get("al")
             al_r = rp.get("al")
-            check_true("AL OS presente (float)", isinstance(al_l, float),
-                       f"{al_l:.3f} mm" if al_l else "None")
-            check_true("AL OD presente (float)", isinstance(al_r, float),
-                       f"{al_r:.3f} mm" if al_r else "None")
+            check_true("AL OS presente (float)", isinstance(al_l, float), f"{al_l:.3f} mm" if al_l else "None")
+            check_true("AL OD presente (float)", isinstance(al_r, float), f"{al_r:.3f} mm" if al_r else "None")
 
     print(f"\n{'══ TODOS LOS TESTS PASARON ══' if errors == 0 else f'══ {errors} FALLARON ══'}\n")
     sys.exit(0 if errors == 0 else 1)

@@ -13,11 +13,9 @@ from __future__ import annotations
 
 import logging
 import struct
-import typing as t
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -32,9 +30,15 @@ from transducin.readers._layers import (
 logger = logging.getLogger("transducin.readers.fda")
 
 _LAYER_NAMES = {
-    "MULTILAYERS_1": "ILM", "MULTILAYERS_2": "RNFL_GCL", "MULTILAYERS_3": "GCL_IPL",
-    "MULTILAYERS_4": "IPL_INL", "MULTILAYERS_5": "MZ_EZ", "MULTILAYERS_6": "IZ_RPE",
-    "MULTILAYERS_7": "BM", "MULTILAYERS_8": "INL_OPL", "MULTILAYERS_9": "ELM",
+    "MULTILAYERS_1": "ILM",
+    "MULTILAYERS_2": "RNFL_GCL",
+    "MULTILAYERS_3": "GCL_IPL",
+    "MULTILAYERS_4": "IPL_INL",
+    "MULTILAYERS_5": "MZ_EZ",
+    "MULTILAYERS_6": "IZ_RPE",
+    "MULTILAYERS_7": "BM",
+    "MULTILAYERS_8": "INL_OPL",
+    "MULTILAYERS_9": "ELM",
     "MULTILAYERS_10": "CSI",
 }
 
@@ -42,7 +46,8 @@ _LAYER_NAMES = {
 @dataclass
 class _OCTVolume:
     """Minimal OCT volume container."""
-    laterality: Optional[str] = None
+
+    laterality: str | None = None
 
 
 class FDAReader:
@@ -58,7 +63,7 @@ class FDAReader:
             raise FileNotFoundError(self.filepath)
         self.chunk_dict, self.header = self._get_list_of_file_chunks(printing=printing)
 
-    def _get_list_of_file_chunks(self, printing: bool = False) -> t.Tuple[dict, dict]:
+    def _get_list_of_file_chunks(self, printing: bool = False) -> tuple[dict, dict]:
         chunk_dict: dict = {}
         with open(self.filepath, "rb") as f:
             raw = f.read(15)
@@ -93,7 +98,7 @@ class FDAReader:
             return [_OCTVolume(laterality=laterality)]
         return []
 
-    def _read_laterality(self) -> Optional[str]:
+    def _read_laterality(self) -> str | None:
         """Extract laterality from capture_info chunk (eye: 0=R, 1=L)."""
         lat_map = {0: "R", 1: "L"}
         for key in (b"@CAPTURE_INFO_02", b"@CAPTURE_INFO"):
@@ -127,10 +132,12 @@ class FDAReader:
             return list(zip(loc, size))
         return [(loc, size)]
 
-    def _read_oct_dims(self) -> Optional[dict]:
+    def _read_oct_dims(self) -> dict | None:
         """width, height, number_slices desde el header de @IMG_JPEG / @IMG_MOT_COMP_03."""
-        for key, struct_, n in ((b"@IMG_JPEG", fda_binary.oct_header, 25),
-                                (b"@IMG_MOT_COMP_03", fda_binary.oct_header_2, 22)):
+        for key, struct_, n in (
+            (b"@IMG_JPEG", fda_binary.oct_header, 25),
+            (b"@IMG_MOT_COMP_03", fda_binary.oct_header_2, 22),
+        ):
             for loc, _size in self._chunk_positions(key)[:1]:
                 with open(self.filepath, "rb") as f:
                     f.seek(loc)
@@ -138,10 +145,12 @@ class FDAReader:
                 return {"width": h.width, "height": h.height, "number_slices": h.number_slices}
         return None
 
-    def _read_pixel_spacing(self, dims: dict) -> Optional[list]:
+    def _read_pixel_spacing(self, dims: dict) -> list | None:
         """[x_mm/A-scan, y_mm/B-scan, z_mm/px] desde @PARAM_SCAN_04 / _02."""
-        for key, struct_ in ((b"@PARAM_SCAN_04", fda_binary.param_scan_04_header),
-                             (b"@PARAM_SCAN_02", fda_binary.param_scan_02_header)):
+        for key, struct_ in (
+            (b"@PARAM_SCAN_04", fda_binary.param_scan_04_header),
+            (b"@PARAM_SCAN_02", fda_binary.param_scan_02_header),
+        ):
             for loc, size in self._chunk_positions(key)[:1]:
                 with open(self.filepath, "rb") as f:
                     f.seek(loc)
@@ -155,7 +164,7 @@ class FDAReader:
                 ]
         return None
 
-    def _read_capture_date(self) -> Optional[datetime]:
+    def _read_capture_date(self) -> datetime | None:
         for key in (b"@CAPTURE_INFO_02", b"@CAPTURE_INFO"):
             for loc, size in self._chunk_positions(key)[:1]:
                 try:
@@ -168,7 +177,7 @@ class FDAReader:
                     pass
         return None
 
-    def _read_image_quality(self) -> Optional[float]:
+    def _read_image_quality(self) -> float | None:
         """PARAM_OBS_02.image_quality → 0–1 (misma regla que topcon_fda_extractor)."""
         for loc, size in self._chunk_positions(b"@PARAM_OBS_02")[:1]:
             if size != 90:
@@ -217,16 +226,18 @@ class FDAReader:
 
         if not contours:
             return []
-        return [LayerVolume(
-            volume_id="fda",
-            contours=contours,
-            pixel_spacing=self._read_pixel_spacing(dims),
-            laterality=self._read_laterality(),
-            acquisition_date=self._read_capture_date(),
-            n_bscans=dims["number_slices"],
-            n_ascans=dims["width"],
-            sqi_mean=self._read_image_quality(),
-        )]
+        return [
+            LayerVolume(
+                volume_id="fda",
+                contours=contours,
+                pixel_spacing=self._read_pixel_spacing(dims),
+                laterality=self._read_laterality(),
+                acquisition_date=self._read_capture_date(),
+                n_bscans=dims["number_slices"],
+                n_ascans=dims["width"],
+                sqi_mean=self._read_image_quality(),
+            )
+        ]
 
     def read_thickness_map(self) -> list[ThicknessMapData]:
         """CMT / ETDRS / mRNFL / mGCIPL (o pRNFL en circle scans) desde @CONTOUR_INFO.
@@ -239,21 +250,27 @@ class FDAReader:
         try:
             volumes = self.read_layer_volumes()
         except Exception as exc:
-            logger.warning("FDA: no se pudo leer la segmentación de %s: %s",
-                           self.filepath.name, exc)
+            logger.warning("FDA: no se pudo leer la segmentación de %s: %s", self.filepath.name, exc)
             return maps
 
         for vol in volumes:
-            cd_base = dict(
-                noel_id="", vendor="topcon_dri_oct",
-                source_file=str(self.filepath),
-                study_date=vol.acquisition_date.strftime("%Y%m%d") if vol.acquisition_date else "",
-                study_time="",
-            )
+            cd_base = {
+                "noel_id": "",
+                "vendor": "topcon_dri_oct",
+                "source_file": str(self.filepath),
+                "study_date": vol.acquisition_date.strftime("%Y%m%d") if vol.acquisition_date else "",
+                "study_time": "",
+            }
             cd = measure_fda_volume(
-                vol.contours, vol.n_bscans, vol.n_ascans, vol.pixel_spacing,
-                vol.laterality or "", cd_base, vol.sqi_mean,
-                label=self.filepath.stem, require_laterality=True,
+                vol.contours,
+                vol.n_bscans,
+                vol.n_ascans,
+                vol.pixel_spacing,
+                vol.laterality or "",
+                cd_base,
+                vol.sqi_mean,
+                label=self.filepath.stem,
+                require_laterality=True,
             )
             if cd is not None:
                 maps.append(thickness_map_from_clinical(cd, vol.acquisition_date))

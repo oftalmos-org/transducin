@@ -10,13 +10,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
-
-from transducin.base_adapter import DeviceAdapter
-from transducin.clinical_data import OCTClinicalData
 
 # Reutiliza los helpers de mapeo del adaptador Spectralis
 from transducin.adapters.spectralis import _measurements_from_reader
+from transducin.base_adapter import DeviceAdapter
+from transducin.clinical_data import OCTClinicalData
 from transducin.readers.fda_reader import topcon_reader as _topcon_reader_factory
 
 
@@ -48,7 +46,7 @@ class TopconFdaAdapter(DeviceAdapter):
     def extract(self, path: Path) -> OCTClinicalData:
         reader = _topcon_reader(path)
 
-        laterality: Optional[str] = None
+        laterality: str | None = None
         try:
             volumes = reader.read_oct_volume()
             if volumes:

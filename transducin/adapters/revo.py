@@ -28,6 +28,7 @@ class RevoOptAdapter(DeviceAdapter):
 
     def extract(self, path: Path) -> OCTClinicalData:
         from transducin.opt_extractor import extract_from_opt
+
         return extract_from_opt(path)
 
     def to_dicom(
@@ -38,6 +39,7 @@ class RevoOptAdapter(DeviceAdapter):
     ) -> list[Path]:
         from transducin.clinical_data import study_description_label
         from transducin.revo_opt_reader import opt_to_dicom
+
         return opt_to_dicom(
             filepath=path,
             output_dir=output_dir,
@@ -48,8 +50,6 @@ class RevoOptAdapter(DeviceAdapter):
             patient_dob="",
             patient_sex="",
             study_type=clinical_data.study_type or "",
-            study_description=study_description_label(
-                clinical_data.study_type or "", clinical_data.laterality or ""
-            ),
+            study_description=study_description_label(clinical_data.study_type or "", clinical_data.laterality or ""),
             study_time=clinical_data.study_time or "",
         )

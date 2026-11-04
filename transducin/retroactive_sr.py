@@ -33,19 +33,18 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional
 from urllib.request import Request, urlopen
 
 from transducin.noel_id import is_valid_noel
 from transducin.noel_resolver import resolve_noel_id
 from transducin.orthanc_client import (
     ORTHANC_HTTP_HOST,
+    ORTHANC_HTTP_PASS,
     ORTHANC_HTTP_PORT,
     ORTHANC_HTTP_USER,
-    ORTHANC_HTTP_PASS,
+    _auth_header,
     _get_json,
     _post_json,
-    _auth_header,
 )
 from transducin.sr_builder import build_sr
 
@@ -56,18 +55,21 @@ _SQI_WARN = float(os.environ.get("TRANSDUCIN_SQI_MIN_WARN", "6")) / 10.0
 
 # Fabricantes reconocidos
 _CIRRUS_MANUFACTURERS = {"carl zeiss meditec", "zeiss"}
-_CIRRUS_MODELS        = {"cirrus hd-oct", "cirrus", "cirrus oct"}
-_REVO_MANUFACTURERS   = {"optopol technology", "optopol"}
-_REVO_MODELS          = {"revo fc130", "revo"}
+_CIRRUS_MODELS = {"cirrus hd-oct", "cirrus", "cirrus oct"}
+_REVO_MANUFACTURERS = {"optopol technology", "optopol"}
+_REVO_MODELS = {"revo fc130", "revo"}
 
 # Directorio donde revo_watcher mueve los .opt procesados
-OPT_PROCESSED_DIR = Path(os.environ.get(
-    "REVO_OPT_PROCESSED_DIR",
-    r"C:\SOCT_DATA\BACKUP\processed",
-))
+OPT_PROCESSED_DIR = Path(
+    os.environ.get(
+        "REVO_OPT_PROCESSED_DIR",
+        r"C:\SOCT_DATA\BACKUP\processed",
+    )
+)
 
 
 # ── Helpers Orthanc ────────────────────────────────────────────────────────────
+
 
 def _auth() -> tuple[str, str]:
     return (ORTHANC_HTTP_USER, ORTHANC_HTTP_PASS)
@@ -77,7 +79,7 @@ def _base() -> str:
     return f"http://{ORTHANC_HTTP_HOST}:{ORTHANC_HTTP_PORT}"
 
 
-def _download_bytes(url: str) -> Optional[bytes]:
+def _download_bytes(url: str) -> bytes | None:
     """Descarga contenido binario desde Orthanc REST."""
     req = Request(url)
     req.add_header("Authorization", _auth_header(*_auth()))
@@ -90,8 +92,8 @@ def _download_bytes(url: str) -> Optional[bytes]:
 
 
 def _get_opt_studies(
-    patient_id: Optional[str] = None,
-    from_date: Optional[str] = None,
+    patient_id: str | None = None,
+    from_date: str | None = None,
 ) -> list[dict]:
     """Devuelve estudios con al menos una serie OPT, sin SR todavía.
 
@@ -105,11 +107,14 @@ def _get_opt_studies(
         study_query["StudyDate"] = f"{from_date}-"
 
     # Usar Expand=true para recibir los MainDicomTags directamente en la respuesta
-    study_list = _post_json(
-        f"{_base()}/tools/find",
-        {"Level": "Study", "Query": study_query, "Expand": True},
-        auth=_auth(),
-    ) or []
+    study_list = (
+        _post_json(
+            f"{_base()}/tools/find",
+            {"Level": "Study", "Query": study_query, "Expand": True},
+            auth=_auth(),
+        )
+        or []
+    )
     logger.info("  Estudios OPT encontrados: %d", len(study_list))
 
     study_map: dict[str, dict] = {}
@@ -117,11 +122,11 @@ def _get_opt_studies(
         oid = st_info.get("ID", "")
         if not oid:
             continue
-        tags    = st_info.get("MainDicomTags", {})
+        tags = st_info.get("MainDicomTags", {})
         pt_tags = st_info.get("PatientMainDicomTags", {})
-        patient_id   = pt_tags.get("PatientID", "")
+        patient_id = pt_tags.get("PatientID", "")
         patient_name = pt_tags.get("PatientName", "")
-        patient_dob  = pt_tags.get("PatientBirthDate", "")
+        patient_dob = pt_tags.get("PatientBirthDate", "")
         if not is_valid_noel(patient_id):
             logger.warning("PatientID inválido '%s' (%s) — resolviendo via nombre", patient_id, oid[:8])
             patient_id = resolve_noel_id(patient_name, patient_dob=patient_dob)
@@ -129,12 +134,12 @@ def _get_opt_studies(
                 logger.error("No se pudo resolver NOEL ID para '%s' — saltando estudio %s", patient_name, oid[:8])
                 continue
         study_map[oid] = {
-            "orthanc_id":   oid,
-            "study_uid":    tags.get("StudyInstanceUID", ""),
-            "study_date":   tags.get("StudyDate", ""),
-            "patient_id":   patient_id,
+            "orthanc_id": oid,
+            "study_uid": tags.get("StudyInstanceUID", ""),
+            "study_date": tags.get("StudyDate", ""),
+            "patient_id": patient_id,
             "patient_name": patient_name,
-            "modalities":   st_info.get("ModalitiesInStudy", []),
+            "modalities": st_info.get("ModalitiesInStudy", []),
         }
 
     return list(study_map.values())
@@ -151,23 +156,23 @@ def _study_has_sr(orthanc_study_id: str) -> bool:
 def _get_series_for_study(orthanc_study_id: str) -> list[dict]:
     """Lista series de un estudio con sus metadatos principales."""
     # /studies/{id}/series devuelve objetos completos, no solo IDs
-    series_objs = _get_json(
-        f"{_base()}/studies/{orthanc_study_id}/series", auth=_auth()
-    ) or []
+    series_objs = _get_json(f"{_base()}/studies/{orthanc_study_id}/series", auth=_auth()) or []
     result = []
     for obj in series_objs:
         if isinstance(obj, str):
             # Orthanc antiguo devuelve solo el ID — hacer GET individual
             obj = _get_json(f"{_base()}/series/{obj}", auth=_auth()) or {}
         tags = obj.get("MainDicomTags", {})
-        result.append({
-            "orthanc_id":  obj.get("ID", ""),
-            "modality":    tags.get("Modality", ""),
-            "description": tags.get("SeriesDescription", ""),
-            "manufacturer": tags.get("Manufacturer", "").lower(),
-            "model":        tags.get("ManufacturerModelName", "").lower(),
-            "instances":   obj.get("Instances", []),
-        })
+        result.append(
+            {
+                "orthanc_id": obj.get("ID", ""),
+                "modality": tags.get("Modality", ""),
+                "description": tags.get("SeriesDescription", ""),
+                "manufacturer": tags.get("Manufacturer", "").lower(),
+                "model": tags.get("ManufacturerModelName", "").lower(),
+                "instances": obj.get("Instances", []),
+            }
+        )
     return result
 
 
@@ -177,7 +182,7 @@ def _instance_tags(instance_id: str) -> dict:
     return info or {}
 
 
-def _detect_vendor(series_list: list[dict]) -> Optional[str]:
+def _detect_vendor(series_list: list[dict]) -> str | None:
     """Detecta el fabricante dominante en las series OPT de un estudio.
 
     Intenta primero con los MainDicomTags de la serie (rápido).
@@ -186,7 +191,7 @@ def _detect_vendor(series_list: list[dict]) -> Optional[str]:
     for s in series_list:
         if s.get("modality") != "OPT":
             continue
-        mfr   = s.get("manufacturer", "")
+        mfr = s.get("manufacturer", "")
         model = s.get("model", "")
 
         # Si la serie no tiene fabricante, buscar en la primera instancia
@@ -194,14 +199,12 @@ def _detect_vendor(series_list: list[dict]) -> Optional[str]:
             instances = s.get("instances", [])
             if instances:
                 itags = _instance_tags(instances[0])
-                mfr   = itags.get("Manufacturer", "").lower()
+                mfr = itags.get("Manufacturer", "").lower()
                 model = itags.get("ManufacturerModelName", "").lower()
 
-        if any(m in mfr for m in _CIRRUS_MANUFACTURERS) or \
-           any(m in model for m in _CIRRUS_MODELS):
+        if any(m in mfr for m in _CIRRUS_MANUFACTURERS) or any(m in model for m in _CIRRUS_MODELS):
             return "cirrus"
-        if any(m in mfr for m in _REVO_MANUFACTURERS) or \
-           any(m in model for m in _REVO_MODELS):
+        if any(m in mfr for m in _REVO_MANUFACTURERS) or any(m in model for m in _REVO_MODELS):
             return "revo"
         if "heidelberg" in mfr or "spectralis" in model:
             return "spectralis"
@@ -220,8 +223,8 @@ def _download_series_to_dir(
     """Descarga todas las instancias de una serie a dest_dir como .dcm."""
     downloaded = []
     for inst_id in series.get("instances", []):
-        url   = f"{_base()}/instances/{inst_id}/file"
-        data  = _download_bytes(url)
+        url = f"{_base()}/instances/{inst_id}/file"
+        data = _download_bytes(url)
         if data:
             out = dest_dir / f"{inst_id}.dcm"
             out.write_bytes(data)
@@ -232,7 +235,7 @@ def _download_series_to_dir(
 def _cstore_file(dcm_path: Path) -> bool:
     """C-STORE un archivo DICOM a Orthanc vía REST store."""
     data = dcm_path.read_bytes()
-    req  = Request(f"{_base()}/instances", data=data, method="POST")
+    req = Request(f"{_base()}/instances", data=data, method="POST")
     req.add_header("Authorization", _auth_header(*_auth()))
     req.add_header("Content-Type", "application/dicom")
     try:
@@ -245,6 +248,7 @@ def _cstore_file(dcm_path: Path) -> bool:
 
 # ── Procesamiento por fabricante ──────────────────────────────────────────────
 
+
 def _process_cirrus_study(
     study: dict,
     series_list: list[dict],
@@ -254,10 +258,10 @@ def _process_cirrus_study(
     """Descarga series OPT Cirrus, extrae mediciones y genera SR."""
     from transducin.cirrus_extractor import extract_from_exam as cirrus_extract
 
-    study_id    = study["orthanc_id"]
-    noel_id     = study["patient_id"]
-    study_date  = study["study_date"]
-    study_uid   = study["study_uid"]
+    study_id = study["orthanc_id"]
+    noel_id = study["patient_id"]
+    study_date = study["study_date"]
+    study_uid = study["study_uid"]
 
     opt_series = [s for s in series_list if s["modality"] == "OPT"]
     if not opt_series:
@@ -299,19 +303,16 @@ def _process_cirrus_study(
             # Usar el StudyInstanceUID del estudio Orthanc existente
             cd_study_uid = study_uid
 
-            sr_name = (
-                f"{noel_id}_{cd.study_type}_{cd.laterality}"
-                f"_{study_date}_cirrus_retro_SR.dcm"
-            )
+            sr_name = f"{noel_id}_{cd.study_type}_{cd.laterality}_{study_date}_cirrus_retro_SR.dcm"
             sr_path = sr_dir / sr_name
 
             sqi_low = cd.sqi_mean is not None and cd.sqi_mean < _SQI_WARN
             logger.info(
                 "  SR: %s lat=%s CMT=%s SQI=%s",
-                cd.study_type, cd.laterality,
+                cd.study_type,
+                cd.laterality,
                 f"{cd.cmt_um:.0f}µm" if cd.cmt_um is not None else "N/A",
-                f"{cd.sqi_mean * 10:.1f}/10{'  BAJA' if sqi_low else ''}"
-                if cd.sqi_mean is not None else "N/A",
+                f"{cd.sqi_mean * 10:.1f}/10{'  BAJA' if sqi_low else ''}" if cd.sqi_mean is not None else "N/A",
             )
 
             if dry_run:
@@ -320,8 +321,7 @@ def _process_cirrus_study(
                 continue
 
             try:
-                build_sr(cd, reference_dataset=None, output_path=sr_path,
-                         study_instance_uid=cd_study_uid)
+                build_sr(cd, reference_dataset=None, output_path=sr_path, study_instance_uid=cd_study_uid)
                 ok = _cstore_file(sr_path)
                 logger.info("  C-STORE SR: %s", "OK" if ok else "FALLIDO")
                 if ok:
@@ -332,7 +332,7 @@ def _process_cirrus_study(
     return success
 
 
-def _find_opt_file(patient_id: str, study_date: str, patient_name: str) -> Optional[Path]:
+def _find_opt_file(patient_id: str, study_date: str, patient_name: str) -> Path | None:
     """Busca el archivo .opt original en OPT_PROCESSED_DIR.
 
     Matching strategy: scan all .opt files and match by NOEL ID + study date,
@@ -351,9 +351,7 @@ def _find_opt_file(patient_id: str, study_date: str, patient_name: str) -> Optio
         stem = opt.stem.upper()
         if study_date and study_date not in stem:
             continue
-        if pid_upper and pid_upper in stem:
-            candidates.append(opt)
-        elif name_norm and name_norm in stem:
+        if pid_upper and pid_upper in stem or name_norm and name_norm in stem:
             candidates.append(opt)
 
     if not candidates:
@@ -370,12 +368,12 @@ def _process_revo_study(
     dry_run: bool = False,
 ) -> bool:
     """Localiza el archivo .opt original, extrae mediciones y genera SR."""
-    from transducin.opt_extractor import extract_from_opt, build_noel_index
+    from transducin.opt_extractor import build_noel_index, extract_from_opt
     from transducin.sr_builder import build_sr
 
-    noel_id      = study["patient_id"]
-    study_date   = study["study_date"]
-    study_uid    = study["study_uid"]
+    noel_id = study["patient_id"]
+    study_date = study["study_date"]
+    study_uid = study["study_uid"]
     patient_name = study.get("patient_name", "")
 
     opt_path = _find_opt_file(noel_id, study_date, patient_name)
@@ -400,19 +398,16 @@ def _process_revo_study(
     sr_dir = output_dir / "sr_retro"
     sr_dir.mkdir(parents=True, exist_ok=True)
 
-    sr_name = (
-        f"{noel_id}_{cd.study_type}_{cd.laterality}"
-        f"_{study_date}_revo_retro_SR.dcm"
-    )
+    sr_name = f"{noel_id}_{cd.study_type}_{cd.laterality}_{study_date}_revo_retro_SR.dcm"
     sr_path = sr_dir / sr_name
 
     sqi_low = cd.sqi_mean is not None and cd.sqi_mean < _SQI_WARN
     logger.info(
         "  SR: %s lat=%s CMT=%s SQI=%s",
-        cd.study_type, cd.laterality,
+        cd.study_type,
+        cd.laterality,
         f"{cd.cmt_um:.0f}µm" if cd.cmt_um is not None else "N/A",
-        f"{cd.sqi_mean * 10:.1f}/10{'  BAJA' if sqi_low else ''}"
-        if cd.sqi_mean is not None else "N/A",
+        f"{cd.sqi_mean * 10:.1f}/10{'  BAJA' if sqi_low else ''}" if cd.sqi_mean is not None else "N/A",
     )
 
     if dry_run:
@@ -420,8 +415,7 @@ def _process_revo_study(
         return True
 
     try:
-        build_sr(cd, reference_dataset=None, output_path=sr_path,
-                 study_instance_uid=study_uid)
+        build_sr(cd, reference_dataset=None, output_path=sr_path, study_instance_uid=study_uid)
         ok = _cstore_file(sr_path)
         logger.info("  C-STORE SR: %s", "OK" if ok else "FALLIDO")
         return ok
@@ -432,11 +426,12 @@ def _process_revo_study(
 
 # ── Entry point ───────���────────────────────────────────────────────────────────
 
+
 def run_retroactive(
-    patient_id: Optional[str] = None,
-    from_date:  Optional[str] = None,
-    vendor_filter: Optional[str] = None,
-    assume_vendor: Optional[str] = None,
+    patient_id: str | None = None,
+    from_date: str | None = None,
+    vendor_filter: str | None = None,
+    assume_vendor: str | None = None,
     output_dir: Path = Path("Output_retro"),
     dry_run: bool = False,
 ) -> None:
@@ -469,8 +464,8 @@ def run_retroactive(
     total = len(studies)
 
     for idx, study in enumerate(studies, 1):
-        oid        = study["orthanc_id"]
-        noel_id    = study["patient_id"] or "UNKNOWN"
+        oid = study["orthanc_id"]
+        noel_id = study["patient_id"] or "UNKNOWN"
         study_date = study["study_date"] or "?"
 
         # Usar ModalitiesInStudy ya obtenido para evitar GET adicional
@@ -522,11 +517,15 @@ def run_retroactive(
 
     logger.info(
         "═══ Retroactive SR completado — generados: %d | saltados: %d | errores: %d | total: %d",
-        done, skipped, errors, total,
+        done,
+        skipped,
+        errors,
+        total,
     )
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     logging.basicConfig(
@@ -538,42 +537,36 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Genera SRs TID 1500 retroactivos para estudios Cirrus/Revo ya en Orthanc."
     )
+    parser.add_argument("--patient", metavar="NOELID", help="Procesar solo este PatientID (p.ej. JAHJ19870831)")
+    parser.add_argument("--from-date", metavar="YYYYMMDD", help="Procesar solo estudios desde esta fecha")
     parser.add_argument(
-        "--patient", metavar="NOELID",
-        help="Procesar solo este PatientID (p.ej. JAHJ19870831)"
+        "--vendor",
+        choices=["cirrus", "revo"],
+        default=None,
+        help="Filtrar por fabricante (default: todos los soportados)",
     )
     parser.add_argument(
-        "--from-date", metavar="YYYYMMDD",
-        help="Procesar solo estudios desde esta fecha"
-    )
-    parser.add_argument(
-        "--vendor", choices=["cirrus", "revo"], default=None,
-        help="Filtrar por fabricante (default: todos los soportados)"
-    )
-    parser.add_argument(
-        "--assume-vendor", choices=["cirrus", "revo"], default=None,
+        "--assume-vendor",
+        choices=["cirrus", "revo"],
+        default=None,
         metavar="VENDOR",
         help="Asumir este fabricante para todos los estudios, sin detección automática. "
-             "Más rápido cuando se sabe que todos los OPT son del mismo equipo."
+        "Más rápido cuando se sabe que todos los OPT son del mismo equipo.",
     )
     parser.add_argument(
-        "--output", metavar="DIR", default="Output_retro",
-        help="Directorio para SRs generados (default: Output_retro)"
+        "--output", metavar="DIR", default="Output_retro", help="Directorio para SRs generados (default: Output_retro)"
     )
-    parser.add_argument(
-        "--dry-run", action="store_true",
-        help="Detectar y logar sin escribir ni C-STORE"
-    )
+    parser.add_argument("--dry-run", action="store_true", help="Detectar y logar sin escribir ni C-STORE")
 
     args = parser.parse_args()
 
     run_retroactive(
-        patient_id    = args.patient,
-        from_date     = args.from_date,
-        vendor_filter = args.vendor,
-        assume_vendor = args.assume_vendor,
-        output_dir    = Path(args.output),
-        dry_run       = args.dry_run,
+        patient_id=args.patient,
+        from_date=args.from_date,
+        vendor_filter=args.vendor,
+        assume_vendor=args.assume_vendor,
+        output_dir=Path(args.output),
+        dry_run=args.dry_run,
     )
 
 

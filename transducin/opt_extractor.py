@@ -53,7 +53,6 @@ import re
 import struct
 import zlib
 from pathlib import Path
-from typing import Optional
 
 from transducin.clinical_data import OCTClinicalData
 from transducin.noel_id import is_valid_noel
@@ -65,7 +64,7 @@ logger = logging.getLogger(__name__)
 _MAGIC_MAIN = b"\xa5\xa5\xa5\xff"
 _MAGIC_ALT1 = b"\x55\xa5\xaa\xff"
 _MAGIC_ALT2 = b"ZZZ\xff"
-_ALL_MAGIC  = {_MAGIC_MAIN, _MAGIC_ALT1, _MAGIC_ALT2}
+_ALL_MAGIC = {_MAGIC_MAIN, _MAGIC_ALT1, _MAGIC_ALT2}
 
 # ── Parsing del filename Revo FC130 ─────────────────────────────────────────
 # Formatos observados (el TYPE puede contener underscores, e.g. "Color_fundus"):
@@ -73,40 +72,40 @@ _ALL_MAGIC  = {_MAGIC_MAIN, _MAGIC_ALT1, _MAGIC_ALT2}
 #   Con NOEL: NOELID_APELLIDOS_NOMBRES_YYYYMMDD_HHMMSS_TYPE_LAT.opt  ← orden distinto
 
 _NOEL_PREFIX = re.compile(r"^([A-Z]{3,4}\d{8})_(.+)$", re.IGNORECASE)
-_DATE_RE     = re.compile(r"\d{8}")
-_TIME_RE     = re.compile(r"\d{6}")
-_LAT_RE      = re.compile(r"^(OD|OS|R|L)$", re.IGNORECASE)
+_DATE_RE = re.compile(r"\d{8}")
+_TIME_RE = re.compile(r"\d{6}")
+_LAT_RE = re.compile(r"^(OD|OS|R|L)$", re.IGNORECASE)
 
-_LAT_MAP  = {"OD": "R", "OS": "L", "R": "R", "L": "L"}
+_LAT_MAP = {"OD": "R", "OS": "L", "R": "R", "L": "L"}
 
 _TYPE_MAP = {
-    "OCT":          "macular",
+    "OCT": "macular",
     "COLOR_FUNDUS": "fundus",
-    "COLORFUNDUS":  "fundus",
-    "BMETR":        "biometry",
-    "ANGIO":        "angio",
-    "TOPO":         "anterior_segment",
-    "ANTERIOR":     "anterior_segment",
-    "RNFL":         "rnfl",
-    "OPTIC":        "optic_nerve",
+    "COLORFUNDUS": "fundus",
+    "BMETR": "biometry",
+    "ANGIO": "angio",
+    "TOPO": "anterior_segment",
+    "ANTERIOR": "anterior_segment",
+    "RNFL": "rnfl",
+    "OPTIC": "optic_nerve",
 }
 
 _FILENAME_KEYWORDS: dict[str, str] = {
     "biometr": "biometry",
-    "bmetr":   "biometry",
+    "bmetr": "biometry",
     "calculo": "biometry",
-    "lio":     "biometry",
-    "topo":    "anterior_segment",
-    "topogr":  "anterior_segment",
-    "macula":  "macular",
-    "nervio":  "optic_nerve",
-    "nerve":   "optic_nerve",
-    "optic":   "optic_nerve",
-    "disco":   "optic_nerve",
-    "disc":    "optic_nerve",
-    "angio":   "angio",
-    "wide":    "wide_field",
-    "ultra":   "ultra_wide",
+    "lio": "biometry",
+    "topo": "anterior_segment",
+    "topogr": "anterior_segment",
+    "macula": "macular",
+    "nervio": "optic_nerve",
+    "nerve": "optic_nerve",
+    "optic": "optic_nerve",
+    "disco": "optic_nerve",
+    "disc": "optic_nerve",
+    "angio": "angio",
+    "wide": "wide_field",
+    "ultra": "ultra_wide",
 }
 
 
@@ -119,6 +118,7 @@ def _map_study_type(raw_type: str) -> str:
 # Scans sibling .OPT filenames to build {patient_name → noel_id} lookup.
 # This resolves NOEL IDs for files without the prefix, as long as at least
 # one file for the same patient has it (e.g. fundus exports often do).
+
 
 def build_noel_index(folder: str | Path, include_processed: bool = False) -> dict[str, str]:
     """Builds a {patient_name → noel_id} lookup from all .OPT filenames in folder.
@@ -157,7 +157,7 @@ def build_noel_index(folder: str | Path, include_processed: bool = False) -> dic
     return index
 
 
-def _parse_revo_filename(fname: str) -> Optional[dict]:
+def _parse_revo_filename(fname: str) -> dict | None:
     """Parsea el filename del Revo FC130 de forma robusta.
 
     Maneja dos órdenes de los campos finales:
@@ -195,17 +195,17 @@ def _parse_revo_filename(fname: str) -> Optional[dict]:
         date = parts[date_idx]
         # Extract patient name from parts before date (if any)
         if date_idx >= 2:
-            apellidos = "_".join(parts[:date_idx-1])
-            nombres   = parts[date_idx-1]
+            apellidos = "_".join(parts[: date_idx - 1])
+            nombres = parts[date_idx - 1]
         elif date_idx == 1:
             apellidos = ""
-            nombres   = parts[0]
+            nombres = parts[0]
         else:
             apellidos = ""
-            nombres   = ""
+            nombres = ""
         if not apellidos and not nombres:
             logger.warning("Filename sin hora ni nombre de paciente (solo NOEL+fecha): %s", fname)
-        suffix_parts = parts[date_idx+1:]
+        suffix_parts = parts[date_idx + 1 :]
         lat = ""
         raw_type = ""
         if suffix_parts:
@@ -218,24 +218,24 @@ def _parse_revo_filename(fname: str) -> Optional[dict]:
                     type_parts.pop()
                 raw_type = "_".join(type_parts)
         return {
-            "noel":      noel_id,
+            "noel": noel_id,
             "apellidos": apellidos,
-            "nombres":   nombres,
-            "date":      date,
-            "time":      "",
-            "lat":       lat,
-            "type":      raw_type,
+            "nombres": nombres,
+            "date": date,
+            "time": "",
+            "lat": lat,
+            "type": raw_type,
         }
 
     date = parts[date_idx]
     time = parts[time_idx]
 
     # Reconstruir apellidos/nombres: todo lo que hay entre (noel stripped) y fecha
-    apellidos = "_".join(parts[:date_idx-1])
-    nombres   = parts[date_idx-1] if date_idx > 0 else ""
+    apellidos = "_".join(parts[: date_idx - 1])
+    nombres = parts[date_idx - 1] if date_idx > 0 else ""
 
     # Los campos después de time son: LAT + TYPE o TYPE + LAT
-    suffix_parts = parts[time_idx+1:]
+    suffix_parts = parts[time_idx + 1 :]
 
     lat = ""
     raw_type = ""
@@ -257,17 +257,18 @@ def _parse_revo_filename(fname: str) -> Optional[dict]:
     raw_type = "_".join(type_parts)
 
     return {
-        "noel":     noel_id,
+        "noel": noel_id,
         "apellidos": apellidos,
-        "nombres":   nombres,
-        "date":      date,
-        "time":      time,
-        "lat":       lat,
-        "type":      raw_type,
+        "nombres": nombres,
+        "date": date,
+        "time": time,
+        "lat": lat,
+        "type": raw_type,
     }
 
 
 # ── Parsing binario del contenedor .opt ─────────────────────────────────────
+
 
 def _read_top_chunks(filepath: Path, max_bytes: int = 800_000) -> dict[str, bytes]:
     """Lee los chunks top-level del archivo .opt."""
@@ -277,7 +278,7 @@ def _read_top_chunks(filepath: Path, max_bytes: int = 800_000) -> dict[str, byte
 
     pos = 0
     while pos <= len(data) - 16:
-        if data[pos:pos+4] not in _ALL_MAGIC:
+        if data[pos : pos + 4] not in _ALL_MAGIC:
             pos += 1
             continue
         start = pos
@@ -287,7 +288,7 @@ def _read_top_chunks(filepath: Path, max_bytes: int = 800_000) -> dict[str, byte
         if name_len == 0 or name_len > 64:
             pos = start + 1
             continue
-        name = data[pos:pos+name_len].decode("ascii", errors="replace").rstrip("\x00")
+        name = data[pos : pos + name_len].decode("ascii", errors="replace").rstrip("\x00")
         pos += name_len
         if pos < len(data) and data[pos] == 0:
             pos += 1
@@ -298,18 +299,18 @@ def _read_top_chunks(filepath: Path, max_bytes: int = 800_000) -> dict[str, byte
         pos += 8
         if pos + sz1 > len(data):
             break
-        chunks[name] = data[pos:pos+sz1]
+        chunks[name] = data[pos : pos + sz1]
         pos += sz1
 
     return chunks
 
 
-def _decompress_params(raw: bytes) -> Optional[bytes]:
+def _decompress_params(raw: bytes) -> bytes | None:
     """Intenta descomprimir el contenido de PARAMS.DAT con zlib."""
     # Buscar el sub-chunk PARAMS y descomprimir
     pos = 0
     while pos <= len(raw) - 16:
-        if raw[pos:pos+4] not in _ALL_MAGIC:
+        if raw[pos : pos + 4] not in _ALL_MAGIC:
             pos += 1
             continue
         start = pos
@@ -319,7 +320,7 @@ def _decompress_params(raw: bytes) -> Optional[bytes]:
         if name_len == 0 or name_len > 64:
             pos = start + 1
             continue
-        name = raw[pos:pos+name_len].decode("ascii", errors="replace").rstrip("\x00")
+        name = raw[pos : pos + name_len].decode("ascii", errors="replace").rstrip("\x00")
         pos += name_len
         if pos < len(raw) and raw[pos] == 0:
             pos += 1
@@ -328,7 +329,7 @@ def _decompress_params(raw: bytes) -> Optional[bytes]:
             break
         sz1, _ = struct.unpack_from("<II", raw, pos)
         pos += 8
-        sub_data = raw[pos:pos+sz1]
+        sub_data = raw[pos : pos + sz1]
         pos += sz1
 
         if name in ("PARAMS", "OCTPARAMS"):
@@ -367,9 +368,10 @@ def _extract_floats_near_strings(decompressed: bytes) -> dict[str, float]:
 
 # ── API pública ─────────────────────────────────────────────────────────────
 
+
 def extract_from_opt(
     filepath: str | Path,
-    noel_index: Optional[dict[str, str]] = None,
+    noel_index: dict[str, str] | None = None,
 ) -> OCTClinicalData:
     """Extrae OCTClinicalData de un archivo .opt del Revo FC130.
 
@@ -392,10 +394,10 @@ def extract_from_opt(
     g = _parse_revo_filename(fname)
 
     if g:
-        cd.laterality   = g["lat"]
-        cd.study_date   = g["date"]
-        cd.study_time   = g["time"]
-        cd.study_type   = _map_study_type(g["type"])
+        cd.laterality = g["lat"]
+        cd.study_date = g["date"]
+        cd.study_time = g["time"]
+        cd.study_type = _map_study_type(g["type"])
         cd.patient_name = f"{g['apellidos']}_{g['nombres']}" if g["apellidos"] else g["nombres"]
         cd.add_note("CONFIRMED: laterality, study_date, study_time, study_type, patient_name — desde filename")
 
@@ -414,8 +416,14 @@ def extract_from_opt(
         else:
             cd.add_note("UNKNOWN: noel_id — no en filename y sin DOB para construirlo")
 
-        logger.info("Filename parseado: %s | lat=%s type=%s date=%s noel=%s",
-                    fname, cd.laterality, cd.study_type, cd.study_date, cd.noel_id or "(none)")
+        logger.info(
+            "Filename parseado: %s | lat=%s type=%s date=%s noel=%s",
+            fname,
+            cd.laterality,
+            cd.study_type,
+            cd.study_date,
+            cd.noel_id or "(none)",
+        )
     else:
         cd.add_note("UNKNOWN: filename no coincide con patrón Revo FC130 esperado")
         logger.warning("Filename no parseado: %s", fname)
@@ -438,13 +446,14 @@ def extract_from_opt(
     # _need_dmarkers: override macular→optic_nerve when DMARKERS chunk is present,
     # even when filename already gave study_type="macular". Validated: site-B corpus
     # v11.5.x exports disc scans as _OCT (→ "macular") but includes DMARKERS chunk.
-    _need_lat      = not cd.laterality
-    _need_type     = not cd.study_type
+    _need_lat = not cd.laterality
+    _need_type = not cd.study_type
     _need_dmarkers = cd.study_type == "macular"
     if _need_lat or _need_type or _need_dmarkers:
         try:
-            from transducin.revo_opt_reader import parse_opt_chunks, parse_octparams
-            _raw    = filepath.read_bytes()
+            from transducin.revo_opt_reader import parse_octparams, parse_opt_chunks
+
+            _raw = filepath.read_bytes()
             _chunks = parse_opt_chunks(_raw)
             _params = parse_octparams(_raw, _chunks)
 
@@ -461,7 +470,8 @@ def extract_from_opt(
                     )
                     logger.info(
                         "Lateralidad inferida de OCTPARAMS tag 23: %s (x=%.4f mm)",
-                        cd.laterality, _x,
+                        cd.laterality,
+                        _x,
                     )
 
             if _need_type:
@@ -488,8 +498,7 @@ def extract_from_opt(
                         f"EYE={'EYE' in _chunks}, FNDSRECO={'FNDSRECO' in _chunks}, n_bscans={_n})"
                     )
                     logger.info(
-                        "study_type inferido de chunks: %s "
-                        "(ANGPRV=%s, DMARKERS=%s, EYE=%s, FNDSRECO=%s, n=%d)",
+                        "study_type inferido de chunks: %s (ANGPRV=%s, DMARKERS=%s, EYE=%s, FNDSRECO=%s, n=%d)",
                         _inferred,
                         "ANGPRV" in _chunks,
                         "DMARKERS" in _chunks,
@@ -500,9 +509,7 @@ def extract_from_opt(
             elif _need_dmarkers and "ANGPRV" in _chunks:
                 # OCT-A files exported as _OCT (→ "macular") but with ANGPRV chunk.
                 cd.study_type = "angio"
-                cd.add_note(
-                    "CONFIRMED: study_type overridden macular→angio — ANGPRV chunk present"
-                )
+                cd.add_note("CONFIRMED: study_type overridden macular→angio — ANGPRV chunk present")
                 logger.info("study_type overridden macular→angio — ANGPRV chunk present")
             elif _need_dmarkers and "DMARKERS" in _chunks:
                 # Override macular→optic_nerve only when dimensions are NOT a known
@@ -511,7 +518,7 @@ def extract_from_opt(
                 _na = _params.get("n_ascans") or 0
                 _known_macular_dims = (
                     (_n in (168, 256) and _na in (768, 1024))  # FC130 macular
-                    or (_n == 85 and _na == 640)               # REVO60 macular
+                    or (_n == 85 and _na == 640)  # REVO60 macular
                 )
                 if not _known_macular_dims:
                     cd.study_type = "optic_nerve"
@@ -521,7 +528,8 @@ def extract_from_opt(
                     )
                     logger.info(
                         "study_type overridden macular→optic_nerve — DMARKERS present, dims %dfr×%dpx",
-                        _n, _na,
+                        _n,
+                        _na,
                     )
         except Exception as e:
             logger.debug("Inferencia de lateralidad/study_type desde chunks fallida: %s", e)
@@ -532,13 +540,19 @@ def extract_from_opt(
     if cd.study_type in ("macular", "rnfl", "oct", "optic_nerve", "angio", "hd_line", "wide_field"):
         try:
             from transducin.revo_opt_reader import (
-                parse_opt_chunks, parse_octparams, extract_layer,
-                extract_disc_center, compute_etdrs, compute_rnfl_sectors,
-                compute_gcl_ipl, compute_peripapillary_rnfl,
+                compute_etdrs,
+                compute_gcl_ipl,
+                compute_peripapillary_rnfl,
+                compute_rnfl_sectors,
+                extract_disc_center,
+                extract_layer,
+                parse_octparams,
+                parse_opt_chunks,
             )
+
             raw_bytes = filepath.read_bytes()
-            chunks    = parse_opt_chunks(raw_bytes)
-            params    = parse_octparams(raw_bytes, chunks)
+            chunks = parse_opt_chunks(raw_bytes)
+            params = parse_octparams(raw_bytes, chunks)
 
             n_frames = params.get("n_bscans")
             n_ascans = params.get("n_ascans")
@@ -558,15 +572,15 @@ def extract_from_opt(
             # hd_line:         n_bscans ≤ 25, ≥ 512   → hd_line
             if n_frames is not None and n_ascans is not None:
                 if n_frames == 192 and n_ascans == 640:
-                    new_type = "optic_nerve"   # FC130 ONH
+                    new_type = "optic_nerve"  # FC130 ONH
                 elif n_frames == 112 and n_ascans == 512:
-                    new_type = "optic_nerve"   # REVO60 ONH
+                    new_type = "optic_nerve"  # REVO60 ONH
                 elif n_frames in (168, 256) and n_ascans in (768, 1024):
-                    new_type = "macular"       # FC130 macular (v21.1.2: 168×1024; v21.5.0: 256×768)
+                    new_type = "macular"  # FC130 macular (v21.1.2: 168×1024; v21.5.0: 256×768)
                 elif n_frames == 85 and n_ascans == 640:
-                    new_type = "macular"       # REVO60 macular
+                    new_type = "macular"  # REVO60 macular
                 elif n_frames in (304, 319, 320) and n_ascans <= 320:
-                    new_type = "angio"    # REVO60 OCTA: 304×304; FC130 OCTA: 319/320×320
+                    new_type = "angio"  # REVO60 OCTA: 304×304; FC130 OCTA: 319/320×320
                 elif n_ascans >= 4096:
                     new_type = "ultra_wide"
                 elif n_frames <= 8 and n_ascans >= 1024:
@@ -585,21 +599,27 @@ def extract_from_opt(
                     )
                     logger.info(
                         "Tipo reclasificado %r → %r por dimensiones %dfr × %dpx",
-                        old_type, new_type, n_frames, n_ascans,
+                        old_type,
+                        new_type,
+                        n_frames,
+                        n_ascans,
                     )
         except Exception as e:
             logger.warning("Detección de dimensiones fallida para %s: %s", filepath.name, e)
 
     if cd.study_type in ("macular", "rnfl", "oct"):
         try:
-            from transducin.revo_opt_reader import read_opt, compute_etdrs
+            from transducin.revo_opt_reader import compute_etdrs, read_opt
+
             result = read_opt(filepath)
 
             # CMT
             cmt = result.get("cmt_um")
             if cmt is not None:
                 cd.cmt_um = cmt
-                cd.add_note(f"CONFIRMED: cmt_um={cmt:.1f} µm — mean(BM-TOP/ILM) central 1mm, axial {result['params']['axial_um']:.3f} µm/px")
+                cd.add_note(
+                    f"CONFIRMED: cmt_um={cmt:.1f} µm — mean(BM-TOP/ILM) central 1mm, axial {result['params']['axial_um']:.3f} µm/px"
+                )
                 logger.info("CMT calculado: %.1f µm", cmt)
             else:
                 reason = result.get("cmt_failure_reason") or "bottom_zero"
@@ -612,26 +632,30 @@ def extract_from_opt(
                 cd.sqi_mean = float(sqi.mean())
                 n_bad = int((sqi < 0.5).sum())
                 cd.add_note(
-                    f"CONFIRMED: sqi_mean={cd.sqi_mean:.3f} "
-                    f"(n={len(sqi)} B-scans, {n_bad} excluídos por SQI<0.5)"
+                    f"CONFIRMED: sqi_mean={cd.sqi_mean:.3f} (n={len(sqi)} B-scans, {n_bad} excluídos por SQI<0.5)"
                 )
                 logger.info("SQI: mean=%.3f, %d B-scans excluídos", cd.sqi_mean, n_bad)
 
             # Re-calcular ETDRS, RNFL y mGCIPL con lateralidad correcta
             if cd.laterality:
                 from transducin.revo_opt_reader import (
-                    extract_layer, parse_octparams, parse_opt_chunks,
-                    compute_etdrs, compute_rnfl_sectors, compute_gcl_ipl,
+                    compute_etdrs,
+                    compute_gcl_ipl,
+                    compute_rnfl_sectors,
+                    extract_layer,
+                    parse_octparams,
+                    parse_opt_chunks,
                 )
-                raw    = filepath.read_bytes()
+
+                raw = filepath.read_bytes()
                 chunks = parse_opt_chunks(raw)
                 params = parse_octparams(raw, chunks)
-                top    = extract_layer(raw, chunks, "TOP")   # ILM = superficie retinal
-                nfl    = extract_layer(raw, chunks, "NFL")
-                gcl    = extract_layer(raw, chunks, "GCL")
-                inl    = extract_layer(raw, chunks, "INL")
-                bm     = extract_layer(raw, chunks, "BM")
-                lat    = cd.laterality
+                top = extract_layer(raw, chunks, "TOP")  # ILM = superficie retinal
+                nfl = extract_layer(raw, chunks, "NFL")
+                gcl = extract_layer(raw, chunks, "GCL")
+                inl = extract_layer(raw, chunks, "INL")
+                bm = extract_layer(raw, chunks, "BM")
+                lat = cd.laterality
 
                 # ETDRS = grosor retinal completo (BM − TOP/ILM)
                 etdrs = compute_etdrs(top, bm, params, laterality=lat)
@@ -641,8 +665,14 @@ def extract_from_opt(
                         f"CONFIRMED: etdrs_grid C={etdrs.C:.1f} S1={etdrs.S1:.1f} "
                         f"N1={etdrs.N1:.1f} I1={etdrs.I1:.1f} T1={etdrs.T1:.1f} µm"
                     )
-                    logger.info("ETDRS: C=%.1f S1=%.1f N1=%.1f I1=%.1f T1=%.1f µm",
-                                etdrs.C, etdrs.S1, etdrs.N1, etdrs.I1, etdrs.T1)
+                    logger.info(
+                        "ETDRS: C=%.1f S1=%.1f N1=%.1f I1=%.1f T1=%.1f µm",
+                        etdrs.C,
+                        etdrs.S1,
+                        etdrs.N1,
+                        etdrs.I1,
+                        etdrs.T1,
+                    )
 
                 rnfl = compute_rnfl_sectors(nfl, gcl, params, laterality=lat)
                 if rnfl is not None and rnfl.has_data():
@@ -652,9 +682,14 @@ def extract_from_opt(
                         f"S={rnfl.superior:.1f} N={rnfl.nasal:.1f} "
                         f"I={rnfl.inferior:.1f} T={rnfl.temporal:.1f} µm"
                     )
-                    logger.info("mRNFL: global=%.1f S=%.1f N=%.1f I=%.1f T=%.1f µm",
-                                rnfl.global_avg, rnfl.superior, rnfl.nasal,
-                                rnfl.inferior, rnfl.temporal)
+                    logger.info(
+                        "mRNFL: global=%.1f S=%.1f N=%.1f I=%.1f T=%.1f µm",
+                        rnfl.global_avg,
+                        rnfl.superior,
+                        rnfl.nasal,
+                        rnfl.inferior,
+                        rnfl.temporal,
+                    )
 
                 gclipl = compute_gcl_ipl(gcl, inl, params, laterality=lat)
                 if gclipl is not None and gclipl.has_data():
@@ -665,9 +700,14 @@ def extract_from_opt(
                         f"S={gclipl.superior:.1f} N={gclipl.nasal:.1f} "
                         f"I={gclipl.inferior:.1f} T={gclipl.temporal:.1f} µm"
                     )
-                    logger.info("mGCIPL: global=%.1f S=%.1f N=%.1f I=%.1f T=%.1f µm",
-                                gclipl.global_avg, gclipl.superior, gclipl.nasal,
-                                gclipl.inferior, gclipl.temporal)
+                    logger.info(
+                        "mGCIPL: global=%.1f S=%.1f N=%.1f I=%.1f T=%.1f µm",
+                        gclipl.global_avg,
+                        gclipl.superior,
+                        gclipl.nasal,
+                        gclipl.inferior,
+                        gclipl.temporal,
+                    )
             else:
                 cd.add_note("ASSUMED: ETDRS/RNFL/mGCIPL no calculable — lateralidad desconocida")
         except Exception as e:
@@ -677,23 +717,31 @@ def extract_from_opt(
         # RNFL peripapillar y disco óptico
         try:
             from transducin.revo_opt_reader import (
-                parse_opt_chunks, parse_octparams, extract_layer,
-                extract_disc_center, compute_peripapillary_rnfl,
                 compute_disc_metrics,
+                compute_peripapillary_rnfl,
+                extract_disc_center,
+                extract_layer,
+                parse_octparams,
+                parse_opt_chunks,
             )
+
             raw_bytes = filepath.read_bytes()
-            chunks    = parse_opt_chunks(raw_bytes)
-            params    = parse_octparams(raw_bytes, chunks)
-            nfl       = extract_layer(raw_bytes, chunks, "NFL")
-            top       = extract_layer(raw_bytes, chunks, "TOP")
-            lat       = cd.laterality or "R"
+            chunks = parse_opt_chunks(raw_bytes)
+            params = parse_octparams(raw_bytes, chunks)
+            nfl = extract_layer(raw_bytes, chunks, "NFL")
+            top = extract_layer(raw_bytes, chunks, "TOP")
+            lat = cd.laterality or "R"
 
             b_center, a_center = extract_disc_center(raw_bytes, chunks, params)
             logger.info("Centro disco: B=%.1f A=%.1f", b_center, a_center)
 
             prnfl = compute_peripapillary_rnfl(
-                nfl, top, params, laterality=lat,
-                b_center=b_center, a_center=a_center,
+                nfl,
+                top,
+                params,
+                laterality=lat,
+                b_center=b_center,
+                a_center=a_center,
             )
             if prnfl is not None and prnfl.has_data():
                 cd.rnfl = prnfl
@@ -705,8 +753,11 @@ def extract_from_opt(
                 )
                 logger.info(
                     "RNFL peripapillar: global=%.1f S=%.1f N=%.1f I=%.1f T=%.1f µm",
-                    prnfl.global_avg, prnfl.superior, prnfl.nasal,
-                    prnfl.inferior, prnfl.temporal,
+                    prnfl.global_avg,
+                    prnfl.superior,
+                    prnfl.nasal,
+                    prnfl.inferior,
+                    prnfl.temporal,
                 )
             else:
                 cd.add_note("ASSUMED: RNFL peripapillar no calculable — capas TOP/NFL ausentes o inválidas")
@@ -715,10 +766,10 @@ def extract_from_opt(
             disc = compute_disc_metrics(top, raw_bytes, chunks, params)
             if disc:
                 cd.cup_disc_ratio = disc["cdr"]
-                cd.vcdr           = disc["vcdr"]
-                cd.disc_area_mm2  = disc["disc_area_mm2"]
-                cd.rim_area_mm2   = disc["rim_area_mm2"]
-                cd.cup_vol_mm3    = disc["cup_vol_mm3"]
+                cd.vcdr = disc["vcdr"]
+                cd.disc_area_mm2 = disc["disc_area_mm2"]
+                cd.rim_area_mm2 = disc["rim_area_mm2"]
+                cd.cup_vol_mm3 = disc["cup_vol_mm3"]
                 cd.add_note(
                     f"CONFIRMED: C/D={disc['cdr']:.3f} VCDR={disc['vcdr']:.3f} "
                     f"disc={disc['disc_area_mm2']:.4f}mm² rim={disc['rim_area_mm2']:.4f}mm²"
@@ -726,7 +777,10 @@ def extract_from_opt(
                 )
                 logger.info(
                     "Disco: CDR=%.3f VCDR=%.3f disc=%.4fmm² rim=%.4fmm² cup_vol=%.4fmm³",
-                    disc["cdr"], disc["vcdr"], disc["disc_area_mm2"], disc["rim_area_mm2"],
+                    disc["cdr"],
+                    disc["vcdr"],
+                    disc["disc_area_mm2"],
+                    disc["rim_area_mm2"],
                     disc["cup_vol_mm3"],
                 )
             else:
@@ -740,13 +794,17 @@ def extract_from_opt(
         # AngioOCT: registrar dimensiones, preview ANGPRV y SQI si disponible
         try:
             from transducin.revo_opt_reader import (
-                parse_opt_chunks, parse_octparams, decode_i8_image, extract_sqi,
+                decode_i8_image,
+                extract_sqi,
+                parse_octparams,
+                parse_opt_chunks,
             )
+
             raw_bytes = filepath.read_bytes()
-            chunks    = parse_opt_chunks(raw_bytes)
-            params    = parse_octparams(raw_bytes, chunks)
-            angprv    = decode_i8_image(raw_bytes, chunks, "ANGPRV")
-            n_fr  = params.get("n_bscans")
+            chunks = parse_opt_chunks(raw_bytes)
+            params = parse_octparams(raw_bytes, chunks)
+            angprv = decode_i8_image(raw_bytes, chunks, "ANGPRV")
+            n_fr = params.get("n_bscans")
             n_asc = params.get("n_ascans")
             if angprv is not None:
                 cd.add_note(
@@ -770,22 +828,23 @@ def extract_from_opt(
         # Biometría MYOPI: longitud axial, CCT, queratometría
         try:
             from transducin.revo_opt_reader import read_opt
+
             result = read_opt(filepath)
             myopi = result.get("myopi")
             if myopi:
                 side = "leftOriginalParams" if cd.laterality == "L" else "rightOriginalParams"
                 params_bio = myopi.get(side, {}).get("biometry", {})
-                al  = params_bio.get("al")
+                al = params_bio.get("al")
                 cct = params_bio.get("cct")
                 topo = myopi.get(side, {}).get("topo", {})
-                k1  = topo.get("k1")
-                k2  = topo.get("k2")
+                k1 = topo.get("k1")
+                k2 = topo.get("k2")
                 if al is not None:
                     cd.axial_length_mm = float(al)
                     cd.add_note(f"CONFIRMED: axial_length_mm={al:.3f} mm — MYOPI JSON")
                     logger.info("Longitud axial: %.3f mm", al)
                 if cct is not None:
-                    cd.cct_um = float(cct) * 1000.0   # mm → µm
+                    cd.cct_um = float(cct) * 1000.0  # mm → µm
                     cd.add_note(f"CONFIRMED: cct_um={cd.cct_um:.1f} µm — MYOPI JSON")
                     logger.info("CCT: %.1f µm", cd.cct_um)
                 if k1 is not None:
@@ -808,9 +867,7 @@ def extract_from_opt(
     # Determinar confianza global
     if cd.noel_id and cd.laterality and cd.study_date:
         has_metric = (
-            cd.cmt_um is not None
-            or (cd.rnfl is not None and cd.rnfl.has_data())
-            or cd.axial_length_mm is not None
+            cd.cmt_um is not None or (cd.rnfl is not None and cd.rnfl.has_data()) or cd.axial_length_mm is not None
         )
         cd.extraction_confidence = "confirmed" if has_metric else "assumed"
     else:
@@ -837,6 +894,7 @@ def extract_batch(folder: str | Path) -> list[OCTClinicalData]:
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import sys
+
     logging.basicConfig(level=logging.WARNING)
 
     G, R, E = "\033[92m", "\033[91m", "\033[0m"
@@ -845,7 +903,7 @@ if __name__ == "__main__":
     def check(label, got, expected):
         global errors
         ok = got == expected
-        print(f"  {'✓' if ok else '✗'} [{G+'PASS'+E if ok else R+'FAIL'+E}] {label}")
+        print(f"  {'✓' if ok else '✗'} [{G + 'PASS' + E if ok else R + 'FAIL' + E}] {label}")
         if not ok:
             print(f"       got:      {got!r}")
             print(f"       expected: {expected!r}")
@@ -859,11 +917,11 @@ if __name__ == "__main__":
     with_noel = OPT_DIR / "JAHJ19870831_JAURRIETA HINOJOS_JESUS NOEL_20260226_152342_Color_fundus_OS.opt"
     if with_noel.exists():
         cd = extract_from_opt(with_noel)
-        check("noel_id desde filename",   cd.noel_id,    "JAHJ19870831")
-        check("laterality OS→L",          cd.laterality, "L")
-        check("study_date",               cd.study_date, "20260226")
-        check("study_type fundus",        cd.study_type, "fundus")
-        check("confidence ≥ assumed",     cd.extraction_confidence in ("assumed", "confirmed"), True)
+        check("noel_id desde filename", cd.noel_id, "JAHJ19870831")
+        check("laterality OS→L", cd.laterality, "L")
+        check("study_date", cd.study_date, "20260226")
+        check("study_type fundus", cd.study_type, "fundus")
+        check("confidence ≥ assumed", cd.extraction_confidence in ("assumed", "confirmed"), True)
     else:
         print(f"  ⚠ Archivo no encontrado: {with_noel.name}")
 
@@ -872,9 +930,9 @@ if __name__ == "__main__":
     if no_noel.exists():
         cd2 = extract_from_opt(no_noel)
         check("laterality OS→L (sin noel)", cd2.laterality, "L")
-        check("study_date (sin noel)",       cd2.study_date, "20260226")
-        check("study_type OCT→macular",      cd2.study_type, "macular")
-        check("patient_name presente",        bool(cd2.patient_name), True)
+        check("study_date (sin noel)", cd2.study_date, "20260226")
+        check("study_type OCT→macular", cd2.study_type, "macular")
+        check("patient_name presente", bool(cd2.patient_name), True)
     else:
         print(f"  ⚠ Archivo no encontrado: {no_noel.name}")
 
@@ -882,8 +940,8 @@ if __name__ == "__main__":
     bmetr = OPT_DIR / "JAURRIETA HINOJOS_JESUS NOEL_20260226_154740_OS_BMETR.opt"
     if bmetr.exists():
         cd3 = extract_from_opt(bmetr)
-        check("BMETR → biometry",   cd3.study_type, "biometry")
-        check("laterality OS→L",    cd3.laterality, "L")
+        check("BMETR → biometry", cd3.study_type, "biometry")
+        check("laterality OS→L", cd3.laterality, "L")
     else:
         print(f"  ⚠ Archivo no encontrado: {bmetr.name}")
 
@@ -892,7 +950,7 @@ if __name__ == "__main__":
     if demo.exists():
         cd4 = extract_from_opt(demo)
         check("DEMO laterality OD→R", cd4.laterality, "R")
-        check("DEMO study_type OCT",  cd4.study_type, "macular")
+        check("DEMO study_type OCT", cd4.study_type, "macular")
         print(f"  ℹ  confidence: {cd4.extraction_confidence}")
         print("  ℹ  notes:")
         for n in cd4.confidence_notes:
@@ -900,5 +958,5 @@ if __name__ == "__main__":
     else:
         print(f"  ⚠ Archivo no encontrado: {demo.name}")
 
-    print(f"\n{'══ TODOS LOS TESTS PASARON ══' if errors==0 else f'══ {errors} FALLARON ══'}\n")
+    print(f"\n{'══ TODOS LOS TESTS PASARON ══' if errors == 0 else f'══ {errors} FALLARON ══'}\n")
     sys.exit(0 if errors == 0 else 1)

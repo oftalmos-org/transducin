@@ -34,7 +34,9 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import io
+import json
 import logging
 import os
 import sys
@@ -43,28 +45,26 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from urllib.request import Request, urlopen
-import base64
-import json
 
 import pydicom
 from pydicom.dataset import Dataset
 
+from transducin.dicom_config import MANUFACTURER, SOP_PERIMETRY
 from transducin.pts925_extractor import extract_from_dicom
 from transducin.vf_sr_builder import build_vf_sr
-from transducin.dicom_config import SOP_PERIMETRY, MANUFACTURER
 
 logger = logging.getLogger("transducin.pts925_watcher")
 
 # ── Configuración (todo via .env) ────────────────────────────────────────────
 
-ORTHANC_HOST      = os.environ.get("ORTHANC_HOST", "127.0.0.1")
+ORTHANC_HOST = os.environ.get("ORTHANC_HOST", "127.0.0.1")
 ORTHANC_HTTP_PORT = int(os.environ.get("ORTHANC_HTTP_PORT", "8042"))
 ORTHANC_HTTP_USER = os.environ.get("ORTHANC_HTTP_USER", "orthanc")
 ORTHANC_HTTP_PASS = os.environ.get("ORTHANC_HTTP_PASS", "")
 
 POLL_INTERVAL = int(os.environ.get("PTS_POLL_INTERVAL_SECONDS", "300"))
 SR_OUTPUT_DIR = os.environ.get("PTS_SR_OUTPUT_DIR", "")  # vacío = no guardar copia local
-LOG_DIR       = Path(os.environ.get("PTS925_LOG_DIR", "logs"))
+LOG_DIR = Path(os.environ.get("PTS925_LOG_DIR", "logs"))
 
 # Tag privado que Transducin escribe en cada SR (0009,0010) — para identificar SRs propios
 _TRANSDUCIN_CREATOR = MANUFACTURER  # "RetinaOS-Transducin"
@@ -73,6 +73,7 @@ CONNECT_TIMEOUT = 10
 
 
 # ── Orthanc REST helpers ────────────────────────────────────────────────────
+
 
 def _base_url() -> str:
     return f"http://{ORTHANC_HOST}:{ORTHANC_HTTP_PORT}"
@@ -88,7 +89,7 @@ def _auth_header() -> str:
     return f"Basic {token}"
 
 
-def _post_json(url: str, payload: dict, timeout: int = CONNECT_TIMEOUT) -> Optional[list | dict]:
+def _post_json(url: str, payload: dict, timeout: int = CONNECT_TIMEOUT) -> list | dict | None:
     body = json.dumps(payload).encode()
     req = Request(url, data=body, method="POST")
     req.add_header("Content-Type", "application/json")
@@ -101,7 +102,7 @@ def _post_json(url: str, payload: dict, timeout: int = CONNECT_TIMEOUT) -> Optio
         return None
 
 
-def _get_json(url: str, timeout: int = CONNECT_TIMEOUT) -> Optional[dict | list]:
+def _get_json(url: str, timeout: int = CONNECT_TIMEOUT) -> dict | list | None:
     req = Request(url)
     req.add_header("Authorization", _auth_header())
     try:
@@ -112,7 +113,7 @@ def _get_json(url: str, timeout: int = CONNECT_TIMEOUT) -> Optional[dict | list]
         return None
 
 
-def _get_bytes(url: str, timeout: int = 30) -> Optional[bytes]:
+def _get_bytes(url: str, timeout: int = 30) -> bytes | None:
     """Descarga contenido binario (DICOM instance)."""
     req = Request(url)
     req.add_header("Authorization", _auth_header())
@@ -124,7 +125,7 @@ def _get_bytes(url: str, timeout: int = 30) -> Optional[bytes]:
         return None
 
 
-def _upload_dicom(dcm_bytes: bytes) -> Optional[str]:
+def _upload_dicom(dcm_bytes: bytes) -> str | None:
     """Sube un DICOM a Orthanc via POST /instances. Retorna el Orthanc instance ID."""
     url = f"{_base_url()}/instances"
     req = Request(url, data=dcm_bytes, method="POST")
@@ -148,6 +149,7 @@ def _upload_dicom(dcm_bytes: bytes) -> Optional[str]:
 
 # ── Lógica de polling ────────────────────────────────────────────────────────
 
+
 def find_unpaired_opv_series() -> list[dict]:
     """Encuentra series OPV en Orthanc que no tienen un SR Transducin pareado.
 
@@ -158,11 +160,14 @@ def find_unpaired_opv_series() -> list[dict]:
     base = _base_url()
 
     # 1. Buscar todas las series con Modality=OPV
-    opv_series = _post_json(f"{base}/tools/find", {
-        "Level": "Series",
-        "Query": {"Modality": "OPV"},
-        "Expand": True,
-    })
+    opv_series = _post_json(
+        f"{base}/tools/find",
+        {
+            "Level": "Series",
+            "Query": {"Modality": "OPV"},
+            "Expand": True,
+        },
+    )
 
     if not opv_series:
         return []
@@ -203,14 +208,16 @@ def find_unpaired_opv_series() -> list[dict]:
         if not instances:
             continue
 
-        unpaired.append({
-            "orthanc_series_id": series_oid,
-            "orthanc_study_id": study_oid,
-            "study_uid": study_uid,
-            "patient_id": patient_id,
-            "study_date": study_date,
-            "instances": instances,
-        })
+        unpaired.append(
+            {
+                "orthanc_series_id": series_oid,
+                "orthanc_study_id": study_oid,
+                "study_uid": study_uid,
+                "patient_id": patient_id,
+                "study_date": study_date,
+                "instances": instances,
+            }
+        )
 
     return unpaired
 
@@ -283,7 +290,9 @@ def process_unpaired_opv(entry: dict) -> bool:
 
     logger.info(
         "=== OPV sin SR: patient=%s date=%s study=...%s instances=%d",
-        patient_id, study_date, study_uid[-12:] if study_uid else "?",
+        patient_id,
+        study_date,
+        study_uid[-12:] if study_uid else "?",
         len(instances),
     )
 
@@ -319,7 +328,8 @@ def process_unpaired_opv(entry: dict) -> bool:
 
         logger.info(
             "  VF: noel=%s lat=%s MD=%s PSD=%s VFI=%s GHT=%s pts=%d",
-            vf_data.noel_id, vf_data.laterality,
+            vf_data.noel_id,
+            vf_data.laterality,
             f"{vf_data.md_db:.1f}" if vf_data.md_db is not None else "N/A",
             f"{vf_data.psd_db:.1f}" if vf_data.psd_db is not None else "N/A",
             f"{vf_data.vfi_pct:.0f}%" if vf_data.vfi_pct is not None else "N/A",
@@ -385,8 +395,14 @@ def _extract_from_dataset(ds: Dataset):
     from transducin.clinical_data import VisualFieldData
     from transducin.noel_id import is_valid_noel
     from transducin.pts925_extractor import (
-        _get_str, _get_float, _extract_laterality, _extract_test_pattern, _extract_strategy,
-        _extract_fixation_losses, _extract_global_indices, _extract_test_points,
+        _extract_fixation_losses,
+        _extract_global_indices,
+        _extract_laterality,
+        _extract_strategy,
+        _extract_test_pattern,
+        _extract_test_points,
+        _get_float,
+        _get_str,
     )
 
     sop_class = _get_str(ds, "SOPClassUID")
@@ -455,16 +471,22 @@ def _extract_from_dataset(ds: Dataset):
     n_pts = len(points)
     logger.info(
         "PTS 925 OPV: noel=%s lat=%s date=%s pattern=%s MD=%.1f PSD=%.1f VFI=%s GHT=%s pts=%d",
-        noel_id or "(none)", laterality, study_date,
-        test_pattern, md_db or 0.0, psd_db or 0.0,
+        noel_id or "(none)",
+        laterality,
+        study_date,
+        test_pattern,
+        md_db or 0.0,
+        psd_db or 0.0,
         f"{vfi_pct:.0f}%" if vfi_pct is not None else "N/A",
-        ght or "N/A", n_pts,
+        ght or "N/A",
+        n_pts,
     )
 
     return vf
 
 
 # ── Ciclo de polling ─────────────────────────────────────────────────────────
+
 
 def poll_once() -> int:
     """Ejecuta una pasada de polling. Retorna el número de SRs generados."""
@@ -507,6 +529,7 @@ def run_loop(interval: int) -> None:
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
+
 def _setup_logging(log_dir: Path) -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"pts925_{datetime.now().strftime('%Y%m%d')}.log"
@@ -525,20 +548,23 @@ def _setup_logging(log_dir: Path) -> None:
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────
 
+
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Transducin PTS 925Wi -- Orthanc polling OPV -> SR"
-    )
+    parser = argparse.ArgumentParser(description="Transducin PTS 925Wi -- Orthanc polling OPV -> SR")
     parser.add_argument(
-        "--interval", type=int, default=POLL_INTERVAL,
+        "--interval",
+        type=int,
+        default=POLL_INTERVAL,
         help=f"Intervalo de polling en segundos (default: {POLL_INTERVAL})",
     )
     parser.add_argument(
-        "--once", action="store_true",
+        "--once",
+        action="store_true",
         help="Ejecutar una sola pasada y salir (sin loop)",
     )
     parser.add_argument(
-        "--logs", default=str(LOG_DIR),
+        "--logs",
+        default=str(LOG_DIR),
         help=f"Carpeta de logs (default: {LOG_DIR})",
     )
     parser.add_argument("--orthanc-host", default=None)
@@ -546,7 +572,8 @@ def main() -> None:
     args = parser.parse_args()
 
     # Override config con CLI args
-    import transducin.pts925_watcher as _self
+    import transducin.pts925_watcher as _self  # noqa: PLW0406 — override deliberado de constantes de módulo desde la CLI
+
     if args.orthanc_host:
         _self.ORTHANC_HOST = args.orthanc_host
     if args.orthanc_http_port:

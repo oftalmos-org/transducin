@@ -33,19 +33,18 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
-from transducin.clinical_data import ETDRSGrid, OCTClinicalData, RNFLSectors
+from transducin.clinical_data import OCTClinicalData
 from transducin.noel_id import is_valid_noel
 
 logger = logging.getLogger("transducin.topcon_fda")
 
 # Defaults Topcon Triton / Atlantis si pixel_spacing no está disponible
-_DEFAULT_AXIAL_UM     = 2.60   # µm/px axial (Triton: 2.6µm, Maestro: 2.6µm)
-_DEFAULT_LATERAL_UM   = 11.72  # µm/A-scan (512 A-scans, 6mm FOV)
-_DEFAULT_SCAN_WIDTH_Y = 6.0    # mm
+_DEFAULT_AXIAL_UM = 2.60  # µm/px axial (Triton: 2.6µm, Maestro: 2.6µm)
+_DEFAULT_LATERAL_UM = 11.72  # µm/A-scan (512 A-scans, 6mm FOV)
+_DEFAULT_SCAN_WIDTH_Y = 6.0  # mm
 
 # Circle scans pRNFL: 1 B-scan, A-scans típicos Topcon
 _CIRCLE_ASCANS_FDA = {256, 512, 768, 1024}
@@ -64,7 +63,8 @@ def _detect_scan_type_fda(n_bscans: int, n_ascans: int, contour_keys: set) -> st
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _validate_layer(arr: Optional[np.ndarray], n_b: int, n_a: int) -> Optional[np.ndarray]:
+
+def _validate_layer(arr: np.ndarray | None, n_b: int, n_a: int) -> np.ndarray | None:
     """Valida que el array 2D tenga las dimensiones correctas y valores finitos.
 
     Retorna None si el array no es utilizable (dimensiones erróneas o <3 B-scans válidos).
@@ -91,8 +91,8 @@ def _geometry_from_pixel_spacing(ps: list, n_b: int) -> dict:
 
     pixel_spacing = [x_mm/A-scan, y_mm/B-scan, z_mm/px_axial]
     """
-    axial_um     = _DEFAULT_AXIAL_UM
-    lateral_um   = _DEFAULT_LATERAL_UM
+    axial_um = _DEFAULT_AXIAL_UM
+    lateral_um = _DEFAULT_LATERAL_UM
     scan_width_mm = _DEFAULT_SCAN_WIDTH_Y
 
     if ps and len(ps) >= 3:
@@ -104,8 +104,8 @@ def _geometry_from_pixel_spacing(ps: list, n_b: int) -> dict:
             scan_width_mm = ps[1] * n_b
 
     return {
-        "axial_um":      max(axial_um, 0.5),
-        "lateral_um":    max(lateral_um, 1.0),
+        "axial_um": max(axial_um, 0.5),
+        "lateral_um": max(lateral_um, 1.0),
         "scan_width_mm": max(scan_width_mm, 1.0),
     }
 
@@ -131,17 +131,18 @@ def _study_date(vol) -> str:
 
 # ── Medición reutilizable (sin dependencia de oct_converter) ─────────────────
 
+
 def measure_fda_volume(
     contours: dict,
     n_b: int,
     n_a: int,
-    pixel_spacing: Optional[list],
+    pixel_spacing: list | None,
     laterality: str,
     cd_base: dict,
-    sqi_mean: Optional[float] = None,
+    sqi_mean: float | None = None,
     label: str = "",
     require_laterality: bool = False,
-) -> Optional[OCTClinicalData]:
+) -> OCTClinicalData | None:
     """Calcula mediciones clínicas de un volumen FDA a partir de sus contornos.
 
     Es la lógica de ``extract_from_fda`` aislada de la lectura del archivo; la
@@ -165,10 +166,10 @@ def measure_fda_volume(
 
     scan_type = _detect_scan_type_fda(n_b, n_a, set(contours.keys()))
 
-    ilm      = _validate_layer(contours.get("ILM"),      n_b, n_a)
-    bm       = _validate_layer(contours.get("BM"),       n_b, n_a)
+    ilm = _validate_layer(contours.get("ILM"), n_b, n_a)
+    bm = _validate_layer(contours.get("BM"), n_b, n_a)
     rnfl_gcl = _validate_layer(contours.get("RNFL_GCL"), n_b, n_a)
-    ipl_inl  = _validate_layer(contours.get("IPL_INL"),  n_b, n_a)
+    ipl_inl = _validate_layer(contours.get("IPL_INL"), n_b, n_a)
 
     if ilm is None:
         logger.debug("FDA: ILM no disponible en %s — saltando", label)
@@ -176,11 +177,11 @@ def measure_fda_volume(
 
     geo = _geometry_from_pixel_spacing(pixel_spacing or [], n_b)
     params = {
-        "axial_um":      geo["axial_um"],
-        "lateral_um":    geo["lateral_um"],
+        "axial_um": geo["axial_um"],
+        "lateral_um": geo["lateral_um"],
         "scan_width_mm": geo["scan_width_mm"],
-        "n_bscans":      n_b,
-        "n_ascans":      n_a,
+        "n_bscans": n_b,
+        "n_ascans": n_a,
     }
 
     lat = str(laterality or "").upper()
@@ -192,7 +193,12 @@ def measure_fda_volume(
 
     logger.info(
         "FDA volumen %s: %d B-scans × %d A-scans, tipo=%s lat=%s axial=%.2fµm/px",
-        label, n_b, n_a, scan_type, lat, params["axial_um"],
+        label,
+        n_b,
+        n_a,
+        scan_type,
+        lat,
+        params["axial_um"],
     )
 
     cd_base = dict(cd_base, laterality=lat)
@@ -200,6 +206,7 @@ def measure_fda_volume(
     # ── Circle scan → pRNFL ───────────────────────────────────────────────
     if scan_type == "rnfl_circle":
         from transducin.spectralis_extractor import _compute_prnfl_circle
+
         if rnfl_gcl is None:
             return None
         prnfl = _compute_prnfl_circle(ilm, rnfl_gcl, params["axial_um"], lat)
@@ -207,10 +214,10 @@ def measure_fda_volume(
             return None
         cd = OCTClinicalData(
             **cd_base,
-            study_type = "rnfl_circle",
-            rnfl       = prnfl,
-            sqi_mean   = sqi_mean,
-            extraction_confidence = "confirmed",
+            study_type="rnfl_circle",
+            rnfl=prnfl,
+            sqi_mean=sqi_mean,
+            extraction_confidence="confirmed",
         )
         cd.add_note(
             f"CONFIRMED: pRNFL={prnfl.global_avg:.1f}µm "
@@ -226,7 +233,7 @@ def measure_fda_volume(
         logger.debug("FDA: BM no disponible en %s — saltando", label)
         return None
 
-    etdrs  = compute_etdrs(ilm, bm, params, laterality=lat)
+    etdrs = compute_etdrs(ilm, bm, params, laterality=lat)
     cmt_um = round(float(etdrs.C), 1) if (etdrs and etdrs.C is not None) else None
 
     rnfl = None
@@ -239,15 +246,14 @@ def measure_fda_volume(
 
     cd = OCTClinicalData(
         **cd_base,
-        study_type = scan_type,
-        cmt_um     = cmt_um,
-        etdrs_grid   = etdrs,
-        rnfl         = rnfl,
-        gcl_ipl      = gcl_ipl,
-        gcl_avg_um   = round(float(gcl_ipl.global_avg), 1)
-                       if (gcl_ipl and gcl_ipl.global_avg is not None) else None,
-        sqi_mean     = sqi_mean,
-        extraction_confidence = "confirmed" if cmt_um is not None else "assumed",
+        study_type=scan_type,
+        cmt_um=cmt_um,
+        etdrs_grid=etdrs,
+        rnfl=rnfl,
+        gcl_ipl=gcl_ipl,
+        gcl_avg_um=round(float(gcl_ipl.global_avg), 1) if (gcl_ipl and gcl_ipl.global_avg is not None) else None,
+        sqi_mean=sqi_mean,
+        extraction_confidence="confirmed" if cmt_um is not None else "assumed",
     )
 
     if cmt_um is not None:
@@ -283,6 +289,7 @@ def measure_fda_volume(
 
 # ── Extractor principal ──────────────────────────────────────────────────────
 
+
 def extract_from_fda(
     filepath: Path,
     noel_id: str = "",
@@ -307,7 +314,7 @@ def extract_from_fda(
 
     try:
         reader = FDA(str(filepath))
-        vol    = reader.read_oct_volume()
+        vol = reader.read_oct_volume()
     except Exception as exc:
         logger.error("FDA: no se pudo leer %s: %s", filepath.name, exc)
         return results
@@ -322,20 +329,19 @@ def extract_from_fda(
         noel_id = str(pid)
 
     # ── SQI desde PARAM_OBS_02 / image_quality ────────────────────────────
-    sqi_mean: Optional[float] = None
+    sqi_mean: float | None = None
     try:
-        meta       = getattr(vol, "metadata", None) or {}
-        param_obs  = meta.get("param_obs_02") or {}
-        iq_raw     = param_obs.get("image_quality", "")
-        iq_str     = str(iq_raw).strip().strip("\x00").strip()
+        meta = getattr(vol, "metadata", None) or {}
+        param_obs = meta.get("param_obs_02") or {}
+        iq_raw = param_obs.get("image_quality", "")
+        iq_str = str(iq_raw).strip().strip("\x00").strip()
         if iq_str:
             iq_val = float(iq_str)
             if iq_val > 1.0:
                 sqi_mean = round(iq_val / 100.0, 4)  # escala 0–100 → 0–1
             elif 0.0 <= iq_val <= 1.0:
                 sqi_mean = round(iq_val, 4)
-            logger.info("FDA SQI: image_quality=%s → sqi=%.4f (%s)",
-                        iq_str, sqi_mean or 0, filepath.name)
+            logger.info("FDA SQI: image_quality=%s → sqi=%.4f (%s)", iq_str, sqi_mean or 0, filepath.name)
     except Exception:
         pass
 
@@ -357,17 +363,19 @@ def extract_from_fda(
         logger.warning("FDA: %s dimensiones insuficientes (%d B-scans, %d A-scans)", filepath.name, n_b, n_a)
         return results
 
-    cd_base = dict(
-        noel_id      = noel_id,
-        vendor       = "topcon_triton",
-        source_file  = str(filepath),
-        study_date   = _study_date(vol),
-        study_time   = "",
-        patient_name = _patient_name(vol),
-        patient_dob  = str(getattr(vol, "patient_dob", "") or ""),
-    )
+    cd_base = {
+        "noel_id": noel_id,
+        "vendor": "topcon_triton",
+        "source_file": str(filepath),
+        "study_date": _study_date(vol),
+        "study_time": "",
+        "patient_name": _patient_name(vol),
+        "patient_dob": str(getattr(vol, "patient_dob", "") or ""),
+    }
     cd = measure_fda_volume(
-        contours, n_b, n_a,
+        contours,
+        n_b,
+        n_a,
         getattr(vol, "pixel_spacing", None),
         getattr(vol, "laterality", ""),
         cd_base,

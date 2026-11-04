@@ -31,74 +31,80 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from watchdog.events import FileCreatedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from transducin.clinical_data import OCTClinicalData
-from transducin.opt_extractor import extract_from_opt
-from transducin.revo_opt_reader import opt_to_dicom
-from transducin.sr_builder import build_sr
 from transducin.cirrus_extractor import extract_from_exam as cirrus_extract_from_exam
 from transducin.cirrus_pdf_extractor import extract_from_pdf as cirrus_extract_from_pdf
-from transducin.noel_id import is_valid_noel, dob_from_noel
 from transducin.cirrus_tags import apply_cirrus_study_tags
+from transducin.clinical_data import OCTClinicalData
+from transducin.noel_id import dob_from_noel, is_valid_noel
+from transducin.opt_extractor import extract_from_opt
 from transducin.orthanc_client import resolve_study_uid
+from transducin.revo_opt_reader import opt_to_dicom
+from transducin.sr_builder import build_sr
 
 logger = logging.getLogger("transducin.watcher")
 
 # ── Configuración por defecto ────────────────────────────────────────────────
 
-DEFAULT_WATCH_DIR  = Path("input/REVO")
+DEFAULT_WATCH_DIR = Path("input/REVO")
 DEFAULT_CZM_WATCH_DIR = Path("/data/input/CZM")
 DEFAULT_OUTPUT_DIR = Path("Output")
-DEFAULT_LOG_DIR    = Path("logs")
-ORTHANC_HOST       = os.environ.get("ORTHANC_HOST", "localhost")
-ORTHANC_PORT       = int(os.environ.get("ORTHANC_PORT", "4242"))
-ORTHANC_HTTP_PORT  = int(os.environ.get("ORTHANC_HTTP_PORT", "8042"))
-ORTHANC_HTTP_USER  = os.environ.get("ORTHANC_HTTP_USER", "orthanc")
-ORTHANC_HTTP_PASS  = os.environ.get("ORTHANC_HTTP_PASS", "")
-ORTHANC_AET        = os.environ.get("ORTHANC_AET", "ORTHANC")
-LOCAL_AET          = os.environ.get("TRANSDUCIN_AET", "TRANSDUCIN")
-GRAEFE_WEBHOOK_URL    = os.environ.get("GRAEFE_WEBHOOK_URL", "")      # vacío = desactivado
+DEFAULT_LOG_DIR = Path("logs")
+ORTHANC_HOST = os.environ.get("ORTHANC_HOST", "localhost")
+ORTHANC_PORT = int(os.environ.get("ORTHANC_PORT", "4242"))
+ORTHANC_HTTP_PORT = int(os.environ.get("ORTHANC_HTTP_PORT", "8042"))
+ORTHANC_HTTP_USER = os.environ.get("ORTHANC_HTTP_USER", "orthanc")
+ORTHANC_HTTP_PASS = os.environ.get("ORTHANC_HTTP_PASS", "")
+ORTHANC_AET = os.environ.get("ORTHANC_AET", "ORTHANC")
+LOCAL_AET = os.environ.get("TRANSDUCIN_AET", "TRANSDUCIN")
+GRAEFE_WEBHOOK_URL = os.environ.get("GRAEFE_WEBHOOK_URL", "")  # vacío = desactivado
 GRAEFE_INSTRUMENT_KEY = os.environ.get("GRAEFE_INSTRUMENT_KEY", "")
 
 
 def _orthanc_rest_url() -> str:
     """URL base de la REST API de Orthanc."""
-    import transducin.hot_folder_watcher as _self
+    import transducin.hot_folder_watcher as _self  # noqa: PLW0406 — override deliberado de constantes de módulo desde la CLI
+
     return f"http://{_self.ORTHANC_HOST}:{_self.ORTHANC_HTTP_PORT}"
 
 
 def _orthanc_auth() -> tuple[str, str]:
-    import transducin.hot_folder_watcher as _self
+    import transducin.hot_folder_watcher as _self  # noqa: PLW0406 — override deliberado de constantes de módulo desde la CLI
+
     return (_self.ORTHANC_HTTP_USER, _self.ORTHANC_HTTP_PASS)
-CSTORE_RETRIES     = 3
-CSTORE_RETRY_DELAY = 5   # segundos entre reintentos
-SETTLE_DELAY       = 2   # segundos de espera tras detección (evita leer archivo incompleto)
+
+
+CSTORE_RETRIES = 3
+CSTORE_RETRY_DELAY = 5  # segundos entre reintentos
+SETTLE_DELAY = 2  # segundos de espera tras detección (evita leer archivo incompleto)
 
 # ── Routing de formatos — vía adapter registry ───────────────────────────────
-from transducin.adapter_registry import ALL_WATCHED_EXTENSIONS as ALL_WATCHED_EXTS, find_adapter
-
+from transducin.adapter_registry import ALL_WATCHED_EXTENSIONS as ALL_WATCHED_EXTS
+from transducin.adapter_registry import find_adapter
 
 # ── Webhook Graefe ───────────────────────────────────────────────────────────
 
-def _notify_graefe(clinical_data: "OCTClinicalData", study_uid: str) -> None:
+
+def _notify_graefe(clinical_data: OCTClinicalData, study_uid: str) -> None:
     """Notifica a Graefe con un resumen del estudio recién procesado.
 
     Fire-and-forget: máx 3 intentos con backoff. Nunca bloquea el pipeline.
     No-op si GRAEFE_WEBHOOK_URL está vacío o clinical_data.noel_id está vacío.
     """
-    import transducin.hot_folder_watcher as _self
+    import transducin.hot_folder_watcher as _self  # noqa: PLW0406 — override deliberado de constantes de módulo desde la CLI
+
     url = _self.GRAEFE_WEBHOOK_URL
     key = _self.GRAEFE_INSTRUMENT_KEY
     if not url or not clinical_data.noel_id:
         return
 
     import json
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     study_dt = ""
     if clinical_data.study_date:
@@ -110,16 +116,16 @@ def _notify_graefe(clinical_data: "OCTClinicalData", study_uid: str) -> None:
             study_dt = clinical_data.study_date
 
     payload = {
-        "noel_id":          clinical_data.noel_id,
-        "study_uid":        study_uid,
-        "laterality":       clinical_data.laterality,
+        "noel_id": clinical_data.noel_id,
+        "study_uid": study_uid,
+        "laterality": clinical_data.laterality,
         "acquisition_type": clinical_data.study_type,
-        "cmt_um":           clinical_data.cmt_um,
-        "rnfl_global_um":   (clinical_data.rnfl.global_avg if clinical_data.rnfl else None),
-        "sqi_mean":         clinical_data.sqi_mean,
-        "study_datetime":   study_dt,
-        "vendor":           clinical_data.vendor,
-        "device_serial":    clinical_data.device_serial,
+        "cmt_um": clinical_data.cmt_um,
+        "rnfl_global_um": (clinical_data.rnfl.global_avg if clinical_data.rnfl else None),
+        "sqi_mean": clinical_data.sqi_mean,
+        "study_datetime": study_dt,
+        "vendor": clinical_data.vendor,
+        "device_serial": clinical_data.device_serial,
     }
     body = json.dumps(payload).encode()
     headers = {"Content-Type": "application/json"}
@@ -147,16 +153,18 @@ def _notify_graefe(clinical_data: "OCTClinicalData", study_uid: str) -> None:
 
 # ── C-STORE via pynetdicom ───────────────────────────────────────────────────
 
+
 def _cstore(dcm_path: Path, retries: int = CSTORE_RETRIES) -> bool:
     """Envía un .dcm a Orthanc via C-STORE. Retorna True si éxito."""
     try:
-        from pynetdicom import AE, StoragePresentationContexts
         import pydicom
+        from pynetdicom import AE, StoragePresentationContexts
     except ImportError:
         logger.error("pynetdicom no disponible — C-STORE omitido.")
         return False
 
     import pydicom
+
     try:
         ds = pydicom.dcmread(str(dcm_path))
     except Exception as e:
@@ -175,11 +183,14 @@ def _cstore(dcm_path: Path, retries: int = CSTORE_RETRIES) -> bool:
                     logger.info("C-STORE OK: %s → Orthanc", dcm_path.name)
                     return True
                 else:
-                    logger.warning("C-STORE status inesperado: 0x%04x (intento %d/%d)",
-                                   status.Status if status else 0xFFFF, attempt, retries)
+                    logger.warning(
+                        "C-STORE status inesperado: 0x%04x (intento %d/%d)",
+                        status.Status if status else 0xFFFF,
+                        attempt,
+                        retries,
+                    )
             else:
-                logger.warning("C-STORE: no se pudo establecer asociación (intento %d/%d)",
-                               attempt, retries)
+                logger.warning("C-STORE: no se pudo establecer asociación (intento %d/%d)", attempt, retries)
         except Exception as e:
             logger.warning("C-STORE error (intento %d/%d): %s", attempt, retries, e)
 
@@ -191,6 +202,7 @@ def _cstore(dcm_path: Path, retries: int = CSTORE_RETRIES) -> bool:
 
 
 # ── Conversión .opt → .dcm imagen ───────────────────────────────────────────
+
 
 def _convert_opt_to_dcm(
     opt_path: Path,
@@ -210,13 +222,16 @@ def _convert_opt_to_dcm(
         # PatientID = noel_id o "" (nunca un literal ni derivado de PHI; ver NOEL Protocol).
         noel = clinical_data.noel_id or ""
         date = clinical_data.study_date or ""
-        lat  = clinical_data.laterality or ""
+        lat = clinical_data.laterality or ""
         dcm_paths = opt_to_dicom(
-            opt_path, output_dir,
-            noel_id=noel, study_date=date, laterality=lat,
+            opt_path,
+            output_dir,
+            noel_id=noel,
+            study_date=date,
+            laterality=lat,
             patient_name=clinical_data.patient_name or "",
             patient_dob=clinical_data.patient_dob or "",
-            study_type=clinical_data.study_type or "",   # → ProtocolName (0018,1030), que Gass usa
+            study_type=clinical_data.study_type or "",  # → ProtocolName (0018,1030), que Gass usa
             study_time=clinical_data.study_time or "",
         )
         return dcm_paths
@@ -227,10 +242,11 @@ def _convert_opt_to_dcm(
 
 # ── Nombre estandarizado para processed/ ─────────────────────────────────────
 
+
 def _standardized_name(
-    cd: "OCTClinicalData",
+    cd: OCTClinicalData,
     suffix: str,
-    ts: Optional[str] = None,
+    ts: str | None = None,
 ) -> str:
     """Genera nombre estandarizado: {NOEL}_{YYYYMMDD}_{LAT}_{TYPE}.opt
 
@@ -256,11 +272,12 @@ def _standardized_name(
 
 # ── Pipeline completo por archivo ────────────────────────────────────────────
 
+
 def process_opt_file(
     opt_path: Path,
     output_dir: Path,
     do_cstore: bool = True,
-    noel_index: Optional[dict[str, str]] = None,
+    noel_index: dict[str, str] | None = None,
 ) -> bool:
     """Ejecuta el pipeline completo para un archivo .opt.
 
@@ -273,12 +290,14 @@ def process_opt_file(
     # 1. Extraer metadatos clínicos
     try:
         clinical_data = extract_from_opt(opt_path, noel_index=noel_index)
-        logger.info("  Extracción: noel=%s lat=%s type=%s date=%s confidence=%s",
-                    clinical_data.noel_id or "(none)",
-                    clinical_data.laterality,
-                    clinical_data.study_type,
-                    clinical_data.study_date,
-                    clinical_data.extraction_confidence)
+        logger.info(
+            "  Extracción: noel=%s lat=%s type=%s date=%s confidence=%s",
+            clinical_data.noel_id or "(none)",
+            clinical_data.laterality,
+            clinical_data.study_type,
+            clinical_data.study_date,
+            clinical_data.extraction_confidence,
+        )
     except Exception as e:
         logger.error("  Extracción FALLÓ: %s", e)
         return False
@@ -301,7 +320,7 @@ def process_opt_file(
         success = False
 
     # 3. Generar DICOM SR (solo para estudios con mediciones clínicas y NOEL ID conocido)
-    sr_path: Optional[Path] = None
+    sr_path: Path | None = None
     _study_uid: str = ""  # se asigna si resolve_study_uid tiene éxito
     if clinical_data.study_type == "unknown" and not clinical_data.has_measurements():
         logger.info("  SR omitido: tipo '%s' sin mediciones.", clinical_data.study_type)
@@ -314,10 +333,12 @@ def process_opt_file(
             sr_path = output_dir / "sr" / sr_filename
 
             import pydicom
+
             # Usar el primer DICOM como referencia para el SR
             ref_ds = pydicom.dcmread(str(dcm_image_paths[0])) if dcm_image_paths else None
 
             from pydicom.uid import generate_uid as _gen_uid
+
             _fallback_uid = ref_ds.StudyInstanceUID if ref_ds else _gen_uid()
             _study_uid = resolve_study_uid(
                 noel_id=clinical_data.noel_id,
@@ -326,8 +347,7 @@ def process_opt_file(
                 orthanc_base_url=_orthanc_rest_url(),
                 auth=_orthanc_auth(),
             )
-            build_sr(clinical_data, reference_dataset=ref_ds,
-                     output_path=sr_path, study_instance_uid=_study_uid)
+            build_sr(clinical_data, reference_dataset=ref_ds, output_path=sr_path, study_instance_uid=_study_uid)
             logger.info("  SR generado: %s (study_uid=…%s)", sr_path.name, _study_uid[-12:])
         except Exception as e:
             logger.error("  Generación SR FALLÓ: %s", e)
@@ -371,14 +391,12 @@ def process_opt_file(
     return success
 
 
-
-
 _ADAPTER_DISPATCH: dict[str, Any] = {
-    "revo_opt":   lambda p, o, c: process_opt_file(p, o, do_cstore=c),
+    "revo_opt": lambda p, o, c: process_opt_file(p, o, do_cstore=c),
     "cirrus_dcm": lambda p, o, c: process_czm_file(p, o, do_cstore=c),
     "cirrus_pdf": lambda p, o, c: process_cirrus_pdf_file(p, o, do_cstore=c),
     "spectralis": lambda p, o, c: process_spectralis_file(p, o, do_cstore=c),
-    "topcon":     lambda p, o, c: process_topcon_file(p, o, do_cstore=c),
+    "topcon": lambda p, o, c: process_topcon_file(p, o, do_cstore=c),
 }
 
 
@@ -397,6 +415,7 @@ def _route_file(path: Path, output_dir: Path, do_cstore: bool) -> None:
 
 # ── Pipeline Cirrus CZM .DCM ────────────────────────────────────────────────
 
+
 def process_czm_file(
     dcm_path: Path,
     output_dir: Path,
@@ -409,6 +428,7 @@ def process_czm_file(
     """
     logger.info("═══ Cirrus CZM: %s", dcm_path.name)
     import pydicom
+
     from transducin.carl_deobfuscator import is_obfuscated, process_dicom_file
 
     success = True
@@ -438,12 +458,13 @@ def process_czm_file(
         # ── Sanitizar y enriquecer ANTES del C-STORE ───────────────────────────
         # La ofuscación CZM agrega null-bytes y basura a PID y campos de fecha.
         # Se corrigen en disco para que la imagen almacenada en Orthanc sea válida.
-        noel_id: Optional[str] = None
+        noel_id: str | None = None
         patient_name: str = ""
         patient_dob: str = ""
         ref_ds = None
         try:
             import re as _re
+
             ref_ds = pydicom.dcmread(str(clean_dcm))
 
             # PID: conservar solo A-Z0-9, tomar primeros 12 chars
@@ -454,18 +475,27 @@ def process_czm_file(
                 ref_ds.PatientID = pid
 
             _DA_TAGS = [
-                "PatientBirthDate", "StudyDate", "SeriesDate",
-                "ContentDate", "AcquisitionDate",
+                "PatientBirthDate",
+                "StudyDate",
+                "SeriesDate",
+                "ContentDate",
+                "AcquisitionDate",
             ]
             _TM_TAGS = ["StudyTime", "SeriesTime", "ContentTime", "AcquisitionTime"]
             _UI_TAGS = [
-                "StudyInstanceUID", "SeriesInstanceUID", "SOPInstanceUID",
-                "FrameOfReferenceUID", "MediaStorageSOPInstanceUID",
-                "SOPClassUID", "MediaStorageSOPClassUID",
+                "StudyInstanceUID",
+                "SeriesInstanceUID",
+                "SOPInstanceUID",
+                "FrameOfReferenceUID",
+                "MediaStorageSOPInstanceUID",
+                "SOPClassUID",
+                "MediaStorageSOPClassUID",
             ]
             _PN_TAGS = [
-                "PatientName", "ReferringPhysicianName",
-                "PerformingPhysicianName", "OperatorsName",
+                "PatientName",
+                "ReferringPhysicianName",
+                "PerformingPhysicianName",
+                "OperatorsName",
             ]
             for _tag in _DA_TAGS:
                 if hasattr(ref_ds, _tag):
@@ -479,7 +509,7 @@ def process_czm_file(
                 if hasattr(ref_ds, _tag):
                     raw_val = getattr(ref_ds, _tag, "")
                     if hasattr(raw_val, "__iter__") and not isinstance(raw_val, str):
-                        raw_val = list(raw_val)[0] if raw_val else ""
+                        raw_val = next(iter(raw_val)) if raw_val else ""
                     setattr(ref_ds, _tag, _re.sub(r"[^0-9.]", "", str(raw_val))[:64])
             # PN: conservar solo ASCII imprimible; NO usar noel_id como fallback
             for _tag in _PN_TAGS:
@@ -490,7 +520,7 @@ def process_czm_file(
 
             # Capturar nombre y DOB limpios del DICOM; DOB con fallback desde NOEL
             patient_name = str(getattr(ref_ds, "PatientName", ""))
-            patient_dob  = str(getattr(ref_ds, "PatientBirthDate", ""))
+            patient_dob = str(getattr(ref_ds, "PatientBirthDate", ""))
             if not patient_dob and noel_id:
                 patient_dob = dob_from_noel(noel_id)
                 ref_ds.PatientBirthDate = patient_dob
@@ -501,9 +531,13 @@ def process_czm_file(
 
             # Guardar tags corregidos en disco ANTES del C-STORE
             ref_ds.save_as(str(clean_dcm), write_like_original=False)
-            logger.info("  Tags sanitizados → %s (NOEL=%s, DOB=%s, study=%s)",
-                        clean_dcm.name, noel_id or "?", patient_dob or "?",
-                        study_desc)
+            logger.info(
+                "  Tags sanitizados → %s (NOEL=%s, DOB=%s, study=%s)",
+                clean_dcm.name,
+                noel_id or "?",
+                patient_dob or "?",
+                study_desc,
+            )
         except Exception as e:
             logger.warning("  Sanitización DICOM parcial: %s", e)
 
@@ -539,14 +573,9 @@ def process_czm_file(
 
         # Comprobar si quedan archivos pendientes en la carpeta del examen.
         # Si aún hay .EX.DCM sin procesar, esperar al último — evita SR duplicados.
-        pending = [
-            f for f in dcm_path.parent.iterdir()
-            if f.name.upper().endswith(".EX.DCM") and f != dcm_path
-        ]
+        pending = [f for f in dcm_path.parent.iterdir() if f.name.upper().endswith(".EX.DCM") and f != dcm_path]
         if pending:
-            logger.info(
-                "  Examen incompleto (%d archivos pendientes) — SR diferido.", len(pending)
-            )
+            logger.info("  Examen incompleto (%d archivos pendientes) — SR diferido.", len(pending))
             return success
 
         if not noel_id:
@@ -556,7 +585,8 @@ def process_czm_file(
             exam_dir = processed_dir  # leer desde processed/
             try:
                 clinical_results = cirrus_extract_from_exam(
-                    exam_dir, noel_id,
+                    exam_dir,
+                    noel_id,
                     patient_name=patient_name,
                     patient_dob=patient_dob,
                 )
@@ -568,6 +598,7 @@ def process_czm_file(
                         sr_path = output_dir / "sr" / sr_name
                         sr_path.parent.mkdir(parents=True, exist_ok=True)
                         from pydicom.uid import generate_uid as _gen_uid
+
                         _study_uid = resolve_study_uid(
                             noel_id=noel_id,
                             study_date=cd.study_date or "",
@@ -575,8 +606,7 @@ def process_czm_file(
                             orthanc_base_url=_orthanc_rest_url(),
                             auth=_orthanc_auth(),
                         )
-                        build_sr(cd, reference_dataset=ref_ds, output_path=sr_path,
-                                 study_instance_uid=_study_uid)
+                        build_sr(cd, reference_dataset=ref_ds, output_path=sr_path, study_instance_uid=_study_uid)
                         logger.info("  SR generado: %s (study_uid=…%s)", sr_path.name, _study_uid[-12:])
                         if do_cstore:
                             ok = _cstore(sr_path)
@@ -598,6 +628,7 @@ def process_czm_file(
 
 
 # ── Pipeline Cirrus PDF ──────────────────────────────────────────────────────
+
 
 def process_cirrus_pdf_file(
     pdf_path: Path,
@@ -634,6 +665,7 @@ def process_cirrus_pdf_file(
                 stem = pdf_path.stem.replace(" ", "_")
                 sr_path = sr_dir / f"{stem}_{cd.laterality}_SR.dcm"
                 from pydicom.uid import generate_uid as _gen_uid
+
                 _study_uid = resolve_study_uid(
                     noel_id=cd.noel_id or "",
                     study_date=cd.study_date or "",
@@ -641,8 +673,7 @@ def process_cirrus_pdf_file(
                     orthanc_base_url=_orthanc_rest_url(),
                     auth=_orthanc_auth(),
                 )
-                build_sr(cd, reference_dataset=None, output_path=sr_path,
-                         study_instance_uid=_study_uid)
+                build_sr(cd, reference_dataset=None, output_path=sr_path, study_instance_uid=_study_uid)
                 logger.info("  SR generado: %s", sr_path.name)
                 if do_cstore:
                     ok = _cstore(sr_path)
@@ -672,6 +703,7 @@ def process_cirrus_pdf_file(
 
 # ── Pipeline Heidelberg Spectralis .e2e ─────────────────────────────────────
 
+
 def process_spectralis_file(
     e2e_path: Path,
     output_dir: Path,
@@ -683,6 +715,7 @@ def process_spectralis_file(
         True si el SR fue generado sin errores críticos.
     """
     from transducin.adapters.spectralis import SpectralisE2EAdapter
+
     logger.info("═══ Spectralis .e2e: %s", e2e_path.name)
     return _process_generic_oct_file(
         path=e2e_path,
@@ -693,6 +726,7 @@ def process_spectralis_file(
 
 
 # ── Pipeline Topcon DRI OCT .fda/.fds ────────────────────────────────────────
+
 
 def process_topcon_file(
     fda_path: Path,
@@ -705,6 +739,7 @@ def process_topcon_file(
         True si el SR fue generado sin errores críticos.
     """
     from transducin.adapters.topcon import TopconFdaAdapter
+
     logger.info("═══ Topcon DRI OCT: %s", fda_path.name)
     return _process_generic_oct_file(
         path=fda_path,
@@ -725,6 +760,7 @@ def _process_generic_oct_file(
     Estructura idéntica a process_opt_file() adaptada para el protocolo DeviceAdapter.
     """
     import re as _re
+
     success = True
 
     # 1. Resolver NOEL ID desde el nombre del archivo (patrón XXXX99999999_*)
@@ -737,11 +773,13 @@ def _process_generic_oct_file(
         clinical_data = adapter.extract(path)
         clinical_data.noel_id = filename_noel
         clinical_data.source_file = str(path)
-        logger.info("  Extracción: noel=%s lat=%s type=%s confidence=%s",
-                    clinical_data.noel_id or "(none)",
-                    clinical_data.laterality,
-                    clinical_data.study_type,
-                    clinical_data.extraction_confidence)
+        logger.info(
+            "  Extracción: noel=%s lat=%s type=%s confidence=%s",
+            clinical_data.noel_id or "(none)",
+            clinical_data.laterality,
+            clinical_data.study_type,
+            clinical_data.extraction_confidence,
+        )
     except Exception as e:
         logger.error("  Extracción FALLÓ: %s", e)
         return False
@@ -760,7 +798,7 @@ def _process_generic_oct_file(
         success = False
 
     # 4. Generar SR
-    sr_path: Optional[Path] = None
+    sr_path: Path | None = None
     _study_uid: str = ""
     if not clinical_data.noel_id:
         logger.warning("  SR omitido: noel_id desconocido.")
@@ -773,6 +811,7 @@ def _process_generic_oct_file(
 
             import pydicom
             from pydicom.uid import generate_uid as _gen_uid
+
             ref_ds = pydicom.dcmread(str(dcm_image_paths[0])) if dcm_image_paths else None
             _fallback_uid = (ref_ds.StudyInstanceUID if ref_ds else None) or _gen_uid()
             _study_uid = resolve_study_uid(
@@ -782,8 +821,7 @@ def _process_generic_oct_file(
                 orthanc_base_url=_orthanc_rest_url(),
                 auth=_orthanc_auth(),
             )
-            build_sr(clinical_data, reference_dataset=ref_ds,
-                     output_path=sr_path, study_instance_uid=_study_uid)
+            build_sr(clinical_data, reference_dataset=ref_ds, output_path=sr_path, study_instance_uid=_study_uid)
             logger.info("  SR generado: %s (study_uid=…%s)", sr_path.name, _study_uid[-12:])
         except Exception as e:
             logger.error("  Generación SR FALLÓ: %s", e)
@@ -796,10 +834,9 @@ def _process_generic_oct_file(
             if not _cstore(dcm_p):
                 logger.error("  C-STORE imagen FALLÓ: %s", Path(dcm_p).name)
                 success = False
-        if sr_path and sr_path.exists():
-            if not _cstore(sr_path):
-                logger.error("  C-STORE SR FALLÓ: %s", sr_path.name)
-                success = False
+        if sr_path and sr_path.exists() and not _cstore(sr_path):
+            logger.error("  C-STORE SR FALLÓ: %s", sr_path.name)
+            success = False
     else:
         logger.info("  C-STORE omitido (do_cstore=False)")
 
@@ -824,10 +861,11 @@ def _process_generic_oct_file(
 
 # ── Watchdog handler ─────────────────────────────────────────────────────────
 
+
 class OptFileHandler(FileSystemEventHandler):
     def __init__(self, output_dir: Path, do_cstore: bool = True):
         self.output_dir = output_dir
-        self.do_cstore  = do_cstore
+        self.do_cstore = do_cstore
         self._processing: set[str] = set()
 
     def on_created(self, event: FileCreatedEvent) -> None:
@@ -856,13 +894,10 @@ class OptFileHandler(FileSystemEventHandler):
 
 # ── Procesamiento de archivos existentes ────────────────────────────────────
 
+
 def process_existing(watch_dir: Path, output_dir: Path, do_cstore: bool = True) -> None:
     """Procesa todos los archivos soportados ya existentes en la carpeta vigilada."""
-    pending = [
-        f for f in watch_dir.rglob("*")
-        if f.suffix.lower() in ALL_WATCHED_EXTS
-        and "processed" not in f.parts
-    ]
+    pending = [f for f in watch_dir.rglob("*") if f.suffix.lower() in ALL_WATCHED_EXTS and "processed" not in f.parts]
 
     if not pending:
         logger.info("No hay archivos pendientes en %s", watch_dir)
@@ -877,6 +912,7 @@ def process_existing(watch_dir: Path, output_dir: Path, do_cstore: bool = True) 
 
 
 # ── Setup logging ────────────────────────────────────────────────────────────
+
 
 def _setup_logging(log_dir: Path) -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -896,37 +932,47 @@ def _setup_logging(log_dir: Path) -> None:
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────
 
+
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Transducin — watcher automático .opt → DICOM + C-STORE"
+    parser = argparse.ArgumentParser(description="Transducin — watcher automático .opt → DICOM + C-STORE")
+    parser.add_argument(
+        "--watch",
+        nargs="+",
+        default=[str(DEFAULT_WATCH_DIR)],
+        help=f"Carpeta(s) a vigilar (default: {DEFAULT_WATCH_DIR}); acepta múltiples rutas",
     )
-    parser.add_argument("--watch",   nargs="+",
-                        default=[str(DEFAULT_WATCH_DIR)],
-                        help=f"Carpeta(s) a vigilar (default: {DEFAULT_WATCH_DIR}); acepta múltiples rutas")
-    parser.add_argument("--output",  default=str(DEFAULT_OUTPUT_DIR),
-                        help=f"Carpeta de salida DICOM (default: {DEFAULT_OUTPUT_DIR})")
-    parser.add_argument("--logs",    default=str(DEFAULT_LOG_DIR),
-                        help=f"Carpeta de logs (default: {DEFAULT_LOG_DIR})")
-    parser.add_argument("--no-cstore", action="store_true",
-                        help="Deshabilitar C-STORE (solo convertir localmente)")
-    parser.add_argument("--process-existing", action="store_true",
-                        help="Procesar archivos .opt ya existentes antes de empezar a vigilar")
-    parser.add_argument("--orthanc-host", default=None,
-                        help="Orthanc host (default: env ORTHANC_HOST o localhost)")
-    parser.add_argument("--orthanc-port", type=int, default=None,
-                        help="Orthanc port DICOM (default: env ORTHANC_PORT o 4242)")
-    parser.add_argument("--orthanc-http-port", type=int, default=None,
-                        help="Orthanc REST API port (default: env ORTHANC_HTTP_PORT o 8042)")
-    parser.add_argument("--orthanc-user", default=None,
-                        help="Orthanc REST user (default: env ORTHANC_HTTP_USER o 'ojos')")
-    parser.add_argument("--orthanc-pass", default=None,
-                        help="Orthanc REST password (default: env ORTHANC_HTTP_PASS o 'ojos')")
-    parser.add_argument("--orthanc-aet",  default=None,
-                        help="Orthanc AE Title (default: env ORTHANC_AET o ORTHANC)")
+    parser.add_argument(
+        "--output", default=str(DEFAULT_OUTPUT_DIR), help=f"Carpeta de salida DICOM (default: {DEFAULT_OUTPUT_DIR})"
+    )
+    parser.add_argument("--logs", default=str(DEFAULT_LOG_DIR), help=f"Carpeta de logs (default: {DEFAULT_LOG_DIR})")
+    parser.add_argument("--no-cstore", action="store_true", help="Deshabilitar C-STORE (solo convertir localmente)")
+    parser.add_argument(
+        "--process-existing",
+        action="store_true",
+        help="Procesar archivos .opt ya existentes antes de empezar a vigilar",
+    )
+    parser.add_argument("--orthanc-host", default=None, help="Orthanc host (default: env ORTHANC_HOST o localhost)")
+    parser.add_argument(
+        "--orthanc-port", type=int, default=None, help="Orthanc port DICOM (default: env ORTHANC_PORT o 4242)"
+    )
+    parser.add_argument(
+        "--orthanc-http-port",
+        type=int,
+        default=None,
+        help="Orthanc REST API port (default: env ORTHANC_HTTP_PORT o 8042)",
+    )
+    parser.add_argument(
+        "--orthanc-user", default=None, help="Orthanc REST user (default: env ORTHANC_HTTP_USER o 'ojos')"
+    )
+    parser.add_argument(
+        "--orthanc-pass", default=None, help="Orthanc REST password (default: env ORTHANC_HTTP_PASS o 'ojos')"
+    )
+    parser.add_argument("--orthanc-aet", default=None, help="Orthanc AE Title (default: env ORTHANC_AET o ORTHANC)")
     args = parser.parse_args()
 
     # Override constants con valores de CLI si se proporcionaron
-    import transducin.hot_folder_watcher as _self
+    import transducin.hot_folder_watcher as _self  # noqa: PLW0406 — override deliberado de constantes de módulo desde la CLI
+
     if args.orthanc_host:
         _self.ORTHANC_HOST = args.orthanc_host
     if args.orthanc_port:
@@ -942,8 +988,8 @@ def main() -> None:
 
     watch_dirs = [Path(d).expanduser().resolve() for d in args.watch]
     output_dir = Path(args.output).expanduser().resolve()
-    log_dir    = Path(args.logs).expanduser().resolve()
-    do_cstore  = not args.no_cstore
+    log_dir = Path(args.logs).expanduser().resolve()
+    do_cstore = not args.no_cstore
 
     _setup_logging(log_dir)
 
@@ -971,7 +1017,7 @@ def main() -> None:
         for wd in valid_watch_dirs:
             process_existing(wd, output_dir, do_cstore=do_cstore)
 
-    handler  = OptFileHandler(output_dir=output_dir, do_cstore=do_cstore)
+    handler = OptFileHandler(output_dir=output_dir, do_cstore=do_cstore)
     observer = Observer()
     for wd in valid_watch_dirs:
         observer.schedule(handler, str(wd), recursive=True)

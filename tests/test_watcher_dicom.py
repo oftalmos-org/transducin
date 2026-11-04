@@ -2,6 +2,7 @@
 
 Datos sintéticos únicamente (tests/fixtures/synthetic_macular.opt); sin PHI.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -37,8 +38,9 @@ def test_watcher_never_writes_unknown_patient_id(monkeypatch, tmp_path):
 
 def test_watcher_passes_noel_id_and_study_type(monkeypatch, tmp_path):
     calls = _capture_opt_to_dicom(monkeypatch)
-    cd = OCTClinicalData(noel_id="GHSI20000101", study_type="optic_nerve",
-                         study_date="20260101", study_time="101010", laterality="L")
+    cd = OCTClinicalData(
+        noel_id="GHSI20000101", study_type="optic_nerve", study_date="20260101", study_time="101010", laterality="L"
+    )
     hfw._convert_opt_to_dcm(FIXTURE, tmp_path, cd)
     kw = calls[0]
     assert kw["noel_id"] == "GHSI20000101"
@@ -47,8 +49,7 @@ def test_watcher_passes_noel_id_and_study_type(monkeypatch, tmp_path):
 
 
 def test_dicom_has_patient_id_and_protocol_name(tmp_path):
-    cd = OCTClinicalData(noel_id="GHSI20000101", study_type="macular",
-                         study_date="20260101", laterality="R")
+    cd = OCTClinicalData(noel_id="GHSI20000101", study_type="macular", study_date="20260101", laterality="R")
     paths = hfw._convert_opt_to_dcm(FIXTURE, tmp_path, cd)
     assert paths
     for p in paths:
@@ -60,22 +61,37 @@ def test_dicom_has_patient_id_and_protocol_name(tmp_path):
 def test_dicom_without_noel_has_empty_patient_id(tmp_path):
     cd = OCTClinicalData(noel_id="", study_type="macular", study_date="20260101", laterality="R")
     ds = pydicom.dcmread(hfw._convert_opt_to_dcm(FIXTURE, tmp_path, cd)[0])
-    assert ds.PatientID == ""          # nunca "UNKNOWN" ni derivado del nombre
+    assert ds.PatientID == ""  # nunca "UNKNOWN" ni derivado del nombre
     assert ds.ProtocolName == "macular"
 
 
 def test_placeholder_1x1_frame_is_not_written(monkeypatch, tmp_path):
     """Un fundus .opt trae un 'B-scan' de 1×1 px: no debe generar *_OCT.dcm."""
-    monkeypatch.setattr(revo_opt_reader, "read_opt", lambda p: {
-        "bscans": [np.zeros((1, 1), dtype=np.uint8)],
-        "study_uid": "1.2.826.0.1.3680043.8.498.1",
-    })
+    monkeypatch.setattr(
+        revo_opt_reader,
+        "read_opt",
+        lambda p: {
+            "bscans": [np.zeros((1, 1), dtype=np.uint8)],
+            "study_uid": "1.2.826.0.1.3680043.8.498.1",
+        },
+    )
     src = tmp_path / "fundus.opt"
     src.write_bytes(b"x")
     with pytest.raises(ValueError, match="No se generó ningún DICOM"):
-        revo_opt_reader.opt_to_dicom(src, tmp_path / "out", noel_id="", study_date="20260101",
-                                     laterality="R", study_time="101010", study_type="fundus")
+        revo_opt_reader.opt_to_dicom(
+            src,
+            tmp_path / "out",
+            noel_id="",
+            study_date="20260101",
+            laterality="R",
+            study_time="101010",
+            study_type="fundus",
+        )
     assert not list((tmp_path / "out").glob("*_OCT.dcm"))
     # y el watcher lo trata como "sin imagen", sin excepción
-    assert hfw._convert_opt_to_dcm(src, tmp_path / "out2", OCTClinicalData(
-        study_type="fundus", study_date="20260101", laterality="R")) == []
+    assert (
+        hfw._convert_opt_to_dcm(
+            src, tmp_path / "out2", OCTClinicalData(study_type="fundus", study_date="20260101", laterality="R")
+        )
+        == []
+    )

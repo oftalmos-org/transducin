@@ -35,14 +35,12 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
-
-import pydicom
-from pydicom.uid import generate_uid
 
 import highdicom as hd
 import highdicom.sr as hd_sr
+import pydicom
 from highdicom.coding_schemes import CodingSchemeIdentificationItem
+from pydicom.uid import generate_uid
 
 from transducin.dicom_config import (
     MANUFACTURER,
@@ -72,23 +70,23 @@ from transducin import __version__ as _TRANSDUCIN_VERSION
 
 _SPH_CODE = hd_sr.CodedConcept("REFRSPH", PRIVATE_SCHEME, "Sphere power")
 _CYL_CODE = hd_sr.CodedConcept("REFRCYL", PRIVATE_SCHEME, "Cylinder power")
-_AX_CODE  = hd_sr.CodedConcept("REFRAX",  PRIVATE_SCHEME, "Cylinder axis")
+_AX_CODE = hd_sr.CodedConcept("REFRAX", PRIVATE_SCHEME, "Cylinder axis")
 _ADD_CODE = hd_sr.CodedConcept("REFRADD", PRIVATE_SCHEME, "Near addition power")
-_PD_CODE  = hd_sr.CodedConcept("REFRPD",  PRIVATE_SCHEME, "Pupillary distance")
-_VA_CODE  = hd_sr.CodedConcept("REFRVA",  PRIVATE_SCHEME, "Visual acuity")
+_PD_CODE = hd_sr.CodedConcept("REFRPD", PRIVATE_SCHEME, "Pupillary distance")
+_VA_CODE = hd_sr.CodedConcept("REFRVA", PRIVATE_SCHEME, "Visual acuity")
 
 # Unidades UCUM
 _DIOP = hd_sr.CodedConcept("[diop]", "UCUM", "diopter")
-_DEG  = hd_sr.CodedConcept("deg",   "UCUM", "degree")
-_MM   = hd_sr.CodedConcept("mm",    "UCUM", "millimeter")
+_DEG = hd_sr.CodedConcept("deg", "UCUM", "degree")
+_MM = hd_sr.CodedConcept("mm", "UCUM", "millimeter")
 
 # Procedimientos reportados
 _PROC_AUTOREFRACTION = hd_sr.CodedConcept("252886007", "SCT", "Refraction of eye")
-_PROC_LENSOMETRY     = hd_sr.CodedConcept("167004",    "SCT", "Lensometry")
+_PROC_LENSOMETRY = hd_sr.CodedConcept("167004", "SCT", "Lensometry")
 
 # Lateralidad
 _LAT_RIGHT = hd_sr.CodedConcept("24028007", "SCT", "Right")
-_LAT_LEFT  = hd_sr.CodedConcept("7771000",  "SCT", "Left")
+_LAT_LEFT = hd_sr.CodedConcept("7771000", "SCT", "Left")
 
 # Sitio anatómico
 _SITE_EYE = hd_sr.CodedConcept("81745001", "SCT", "Eye")
@@ -96,19 +94,22 @@ _SITE_EYE = hd_sr.CodedConcept("81745001", "SCT", "Eye")
 
 # ── Dataclass de entrada ──────────────────────────────────────────────────────
 
+
 @dataclass
 class RefractionEye:
     """Mediciones refractivas de un ojo, tal como las reporta el instrumento."""
-    eye:       str                   # "OD" | "OI"
-    sph:       Optional[float] = None  # esfera en dioptrías
-    cyl:       Optional[float] = None  # cilindro en dioptrías
-    ax:        Optional[int]   = None  # eje en grados (0–180)
-    add_power: Optional[float] = None  # adición para cerca en dioptrías
-    pd:        Optional[float] = None  # distancia pupilar en mm
-    va:        Optional[str]   = None  # agudeza visual texto libre ("20/20", "0.8")
+
+    eye: str  # "OD" | "OI"
+    sph: float | None = None  # esfera en dioptrías
+    cyl: float | None = None  # cilindro en dioptrías
+    ax: int | None = None  # eje en grados (0–180)
+    add_power: float | None = None  # adición para cerca en dioptrías
+    pd: float | None = None  # distancia pupilar en mm
+    va: str | None = None  # agudeza visual texto libre ("20/20", "0.8")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _lat_code(eye: str) -> hd_sr.CodedConcept:
     return _LAT_RIGHT if eye.upper() in ("OD", "R") else _LAT_LEFT
@@ -152,10 +153,11 @@ def _to_dicom_pn(name: str) -> str:
 
 # ── Grupo de medición por ojo ─────────────────────────────────────────────────
 
+
 def _build_eye_group(
     reading: RefractionEye,
     device_source: str,
-) -> Optional[hd_sr.MeasurementsAndQualitativeEvaluations]:
+) -> hd_sr.MeasurementsAndQualitativeEvaluations | None:
     """Construye un grupo TID 1501 con las mediciones de un ojo."""
     eye = reading.eye.upper()
     measurements: list[hd_sr.Measurement] = []
@@ -197,6 +199,7 @@ def _build_eye_group(
 
 # ── Builder principal ─────────────────────────────────────────────────────────
 
+
 def build_refraction_sr(
     readings: list[RefractionEye],
     noel_id: str,
@@ -205,10 +208,10 @@ def build_refraction_sr(
     study_date: str,
     patient_name: str = "",
     patient_dob: str = "",
-    output_dir: Optional[Path] = None,
-    orthanc_base_url: Optional[str] = None,
-    auth: Optional[tuple[str, str]] = None,
-) -> Optional[Path]:
+    output_dir: Path | None = None,
+    orthanc_base_url: str | None = None,
+    auth: tuple[str, str] | None = None,
+) -> Path | None:
     """Genera un DICOM ComprehensiveSR TID 1500 con mediciones refractivas
     y lo sube a Orthanc. Si Orthanc no está disponible, guarda el .dcm en
     output_dir.
@@ -247,6 +250,7 @@ def build_refraction_sr(
     proc = _PROC_AUTOREFRACTION if device_source == "autorefractor" else _PROC_LENSOMETRY
 
     from pydicom.sr.codedict import codes as dcm_codes
+
     obs_ctx = hd_sr.ObservationContext(
         observer_person_context=hd_sr.ObserverContext(
             observer_type=dcm_codes.cid270.Person,
@@ -264,10 +268,10 @@ def build_refraction_sr(
 
     # ── Fabricante ────────────────────────────────────────────────────────────
     if device_source == "autorefractor":
-        _mfr   = MANUFACTURER_UNICOS
+        _mfr = MANUFACTURER_UNICOS
         _model = MODEL_URK800
     else:
-        _mfr   = MANUFACTURER_YEASN
+        _mfr = MANUFACTURER_YEASN
         _model = MODEL_CCQ800
     # Si el device_model real difiere del default, usarlo literalmente
     if device_model and device_model not in (MODEL_URK800, MODEL_CCQ800):
@@ -283,22 +287,23 @@ def build_refraction_sr(
     # ── Dataset de referencia mínimo ──────────────────────────────────────────
     # ComprehensiveSR requiere un Dataset de referencia con metadatos de paciente.
     # Para refracción no hay imagen DICOM fuente — construimos un stub completo.
-    now      = datetime.now()
+    now = datetime.now()
     modality = "AR" if device_source == "autorefractor" else "LEN"
 
     from pydicom.dataset import FileMetaDataset
+
     file_meta = FileMetaDataset()
-    file_meta.MediaStorageSOPClassUID    = "1.2.840.10008.5.1.4.1.1.78.3"
+    file_meta.MediaStorageSOPClassUID = "1.2.840.10008.5.1.4.1.1.78.3"
     file_meta.MediaStorageSOPInstanceUID = generate_uid()
-    file_meta.TransferSyntaxUID          = RETINAOS_TRANSFER_SYNTAX
+    file_meta.TransferSyntaxUID = RETINAOS_TRANSFER_SYNTAX
 
     ref_ds = pydicom.Dataset()
     ref_ds.file_meta = file_meta
     ref_ds.ensure_file_meta()
 
-    ref_ds.SOPClassUID    = "1.2.840.10008.5.1.4.1.1.78.3"
+    ref_ds.SOPClassUID = "1.2.840.10008.5.1.4.1.1.78.3"
     ref_ds.SOPInstanceUID = generate_uid()
-    ref_ds.StudyInstanceUID  = resolve_study_uid(
+    ref_ds.StudyInstanceUID = resolve_study_uid(
         noel_id=noel_id,
         study_date=study_date,
         fallback_uid=generate_uid(),
@@ -306,18 +311,18 @@ def build_refraction_sr(
         auth=auth,
     )
     ref_ds.SeriesInstanceUID = generate_uid()
-    ref_ds.PatientName       = _to_dicom_pn(patient_name) or noel_id
-    ref_ds.PatientID         = noel_id
-    ref_ds.PatientBirthDate  = patient_dob or ""
-    ref_ds.PatientSex        = ""
-    ref_ds.StudyDate         = study_date
-    ref_ds.StudyTime         = ""
-    ref_ds.AccessionNumber   = ""
-    ref_ds.StudyID           = ""
+    ref_ds.PatientName = _to_dicom_pn(patient_name) or noel_id
+    ref_ds.PatientID = noel_id
+    ref_ds.PatientBirthDate = patient_dob or ""
+    ref_ds.PatientSex = ""
+    ref_ds.StudyDate = study_date
+    ref_ds.StudyTime = ""
+    ref_ds.AccessionNumber = ""
+    ref_ds.StudyID = ""
     ref_ds.ReferringPhysicianName = ""
-    ref_ds.Modality          = modality
-    ref_ds.SeriesNumber      = 1
-    ref_ds.InstanceNumber    = 1
+    ref_ds.Modality = modality
+    ref_ds.SeriesNumber = 1
+    ref_ds.InstanceNumber = 1
 
     # ── ComprehensiveSR ───────────────────────────────────────────────────────
     sr = hd.sr.ComprehensiveSR(
@@ -333,14 +338,14 @@ def build_refraction_sr(
     )
 
     sr.ManufacturerModelName = _model
-    sr.DeviceSerialNumber    = ""
-    sr.PatientID             = noel_id
-    sr.PatientName           = _to_dicom_pn(patient_name) or noel_id
-    sr.PatientBirthDate      = patient_dob or ""
-    sr.StudyDate             = study_date
-    sr.StudyInstanceUID      = ref_ds.StudyInstanceUID
-    sr.ContentDate           = now.strftime("%Y%m%d")
-    sr.ContentTime           = now.strftime("%H%M%S.%f")
+    sr.DeviceSerialNumber = ""
+    sr.PatientID = noel_id
+    sr.PatientName = _to_dicom_pn(patient_name) or noel_id
+    sr.PatientBirthDate = patient_dob or ""
+    sr.StudyDate = study_date
+    sr.StudyInstanceUID = ref_ds.StudyInstanceUID
+    sr.ContentDate = now.strftime("%Y%m%d")
+    sr.ContentTime = now.strftime("%H%M%S.%f")
     sr.add_new((0x0009, 0x0010), "LO", MANUFACTURER)
     sr.add_new((0x0009, 0x1001), "LO", _TRANSDUCIN_VERSION)
 
@@ -351,10 +356,10 @@ def build_refraction_sr(
 
     # ── Upload a Orthanc ──────────────────────────────────────────────────────
     base_url = orthanc_base_url or f"http://{ORTHANC_HTTP_HOST}:{ORTHANC_HTTP_PORT}"
-    _auth    = auth or (ORTHANC_HTTP_USER, ORTHANC_HTTP_PASS)
+    _auth = auth or (ORTHANC_HTTP_USER, ORTHANC_HTTP_PASS)
 
-    from urllib.request import Request, urlopen
     from urllib.error import URLError
+    from urllib.request import Request, urlopen
 
     uploaded = False
     try:
@@ -365,7 +370,9 @@ def build_refraction_sr(
             result = json.loads(resp.read())
             logger.info(
                 "refraction SR → Orthanc OK: %s (%s %s)",
-                result.get("ID", "?"), device_source, noel_id,
+                result.get("ID", "?"),
+                device_source,
+                noel_id,
             )
             uploaded = True
     except URLError as e:
@@ -377,7 +384,7 @@ def build_refraction_sr(
     out_dir = Path(output_dir) if output_dir else Path("/tmp")
     out_dir.mkdir(parents=True, exist_ok=True)
     lat_str = "_".join(r.eye for r in readings)
-    fname   = f"{noel_id}_{study_date}_{device_source}_{lat_str}_SR.dcm"
+    fname = f"{noel_id}_{study_date}_{device_source}_{lat_str}_SR.dcm"
     out_path = out_dir / fname
     out_path.write_bytes(dcm_bytes)
     if not uploaded:
@@ -388,9 +395,10 @@ def build_refraction_sr(
 
 # ── Tests internos ────────────────────────────────────────────────────────────
 
+
 def _run_tests() -> None:
-    from pathlib import Path as _Path
     import tempfile
+    from pathlib import Path as _Path
 
     errs = 0
 
@@ -408,7 +416,7 @@ def _run_tests() -> None:
         path = build_refraction_sr(
             readings=[
                 RefractionEye("OD", -1.25, -0.75, 180, None, 64.0, "20/30"),
-                RefractionEye("OI", -0.50, -0.25, 90,  None, 64.0, "20/20"),
+                RefractionEye("OI", -0.50, -0.25, 90, None, 64.0, "20/20"),
             ],
             noel_id="JAHJ19870831",
             device_source="autorefractor",
@@ -421,9 +429,11 @@ def _run_tests() -> None:
 
         if path and path.exists():
             ds = pydicom.dcmread(str(path))
-            check("SOPClassUID es ComprehensiveSR",
-                  str(ds.SOPClassUID) == "1.2.840.10008.5.1.4.1.1.88.33",
-                  str(ds.SOPClassUID))
+            check(
+                "SOPClassUID es ComprehensiveSR",
+                str(ds.SOPClassUID) == "1.2.840.10008.5.1.4.1.1.88.33",
+                str(ds.SOPClassUID),
+            )
             check("PatientID correcto", ds.PatientID == "JAHJ19870831")
             check("Modality SR", ds.Modality == "SR")  # ComprehensiveSR siempre es SR
 
@@ -461,5 +471,6 @@ def _run_tests() -> None:
 
 if __name__ == "__main__":
     import logging as _log
+
     _log.basicConfig(level=_log.INFO)
     _run_tests()

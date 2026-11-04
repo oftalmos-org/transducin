@@ -17,13 +17,12 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import os
-from typing import Optional
-from urllib.request import Request, urlopen
 from urllib.error import URLError
-import json
-import base64
+from urllib.request import Request, urlopen
 
 logger = logging.getLogger("transducin.orthanc")
 
@@ -34,7 +33,7 @@ ORTHANC_HTTP_PORT = int(os.environ.get("ORTHANC_HTTP_PORT", "8042"))
 ORTHANC_HTTP_USER = os.environ.get("ORTHANC_HTTP_USER", "orthanc")
 ORTHANC_HTTP_PASS = os.environ.get("ORTHANC_HTTP_PASS", "")
 
-CONNECT_TIMEOUT = 5   # segundos — no bloquear el pipeline si Orthanc no responde
+CONNECT_TIMEOUT = 5  # segundos — no bloquear el pipeline si Orthanc no responde
 
 
 def _orthanc_url() -> str:
@@ -46,9 +45,9 @@ def _auth_header(user: str, password: str) -> str:
     return f"Basic {token}"
 
 
-def _post_json(url: str, payload: dict,
-               auth: Optional[tuple[str, str]] = None,
-               timeout: int = CONNECT_TIMEOUT) -> Optional[list | dict]:
+def _post_json(
+    url: str, payload: dict, auth: tuple[str, str] | None = None, timeout: int = CONNECT_TIMEOUT
+) -> list | dict | None:
     """POST JSON a Orthanc y retorna la respuesta deserializada, o None si falla."""
     body = json.dumps(payload).encode()
     req = Request(url, data=body, method="POST")
@@ -66,9 +65,7 @@ def _post_json(url: str, payload: dict,
         return None
 
 
-def _get_json(url: str,
-              auth: Optional[tuple[str, str]] = None,
-              timeout: int = CONNECT_TIMEOUT) -> Optional[dict]:
+def _get_json(url: str, auth: tuple[str, str] | None = None, timeout: int = CONNECT_TIMEOUT) -> dict | None:
     """GET JSON desde Orthanc, retorna None si falla."""
     req = Request(url)
     if auth:
@@ -85,8 +82,8 @@ def resolve_study_uid(
     noel_id: str,
     study_date: str,
     fallback_uid: str,
-    orthanc_base_url: Optional[str] = None,
-    auth: Optional[tuple[str, str]] = None,
+    orthanc_base_url: str | None = None,
+    auth: tuple[str, str] | None = None,
 ) -> str:
     """Devuelve el StudyInstanceUID de un estudio existente en Orthanc.
 
@@ -144,12 +141,17 @@ def resolve_study_uid(
     if n_studies > 1:
         logger.info(
             "resolve_study_uid: %d estudios para %s/%s — usando el primero (%s)",
-            n_studies, noel_id, study_date, uid[:20] + "...",
+            n_studies,
+            noel_id,
+            study_date,
+            uid[:20] + "...",
         )
     else:
         logger.info(
             "resolve_study_uid: estudio existente para %s/%s → %s",
-            noel_id, study_date, uid[:20] + "...",
+            noel_id,
+            study_date,
+            uid[:20] + "...",
         )
 
     return uid
@@ -157,8 +159,8 @@ def resolve_study_uid(
 
 def list_patient_studies(
     noel_id: str,
-    orthanc_base_url: Optional[str] = None,
-    auth: Optional[tuple[str, str]] = None,
+    orthanc_base_url: str | None = None,
+    auth: tuple[str, str] | None = None,
 ) -> list[dict]:
     """Lista todos los estudios de un paciente en Orthanc.
 
@@ -170,9 +172,7 @@ def list_patient_studies(
     if auth is None:
         auth = (ORTHANC_HTTP_USER, ORTHANC_HTTP_PASS)
 
-    result = _post_json(f"{base_url}/tools/find",
-                        {"Level": "Study", "Query": {"PatientID": noel_id}},
-                        auth=auth)
+    result = _post_json(f"{base_url}/tools/find", {"Level": "Study", "Query": {"PatientID": noel_id}}, auth=auth)
     if not result:
         return []
 
@@ -181,16 +181,19 @@ def list_patient_studies(
         info = _get_json(f"{base_url}/studies/{oid}", auth=auth)
         if info:
             tags = info.get("MainDicomTags", {})
-            studies.append({
-                "orthanc_id": oid,
-                "study_uid": tags.get("StudyInstanceUID", ""),
-                "study_date": tags.get("StudyDate", ""),
-                "modalities": info.get("ModalitiesInStudy", []),
-            })
+            studies.append(
+                {
+                    "orthanc_id": oid,
+                    "study_uid": tags.get("StudyInstanceUID", ""),
+                    "study_date": tags.get("StudyDate", ""),
+                    "modalities": info.get("ModalitiesInStudy", []),
+                }
+            )
     return sorted(studies, key=lambda s: s["study_date"])
 
 
 # ── Tests internos ────────────────────────────────────────────────────────────
+
 
 def _run_tests() -> None:
     errs = 0
@@ -223,9 +226,11 @@ def _run_tests() -> None:
     if test_uid == "FALLBACK_UID":
         print("  [SKIP] resolve contra Orthanc real — no disponible desde este entorno")
     else:
-        check("resolve SILT19800101/20250107 devuelve UID real",
-              test_uid.startswith("1.") or test_uid.startswith("2."),
-              f"uid={test_uid[:40]}")
+        check(
+            "resolve SILT19800101/20250107 devuelve UID real",
+            test_uid.startswith(("1.", "2.")),
+            f"uid={test_uid[:40]}",
+        )
 
     print(f"{'PASS' if errs == 0 else 'FAIL'} — {errs} error(es)\n")
     if errs:
@@ -234,5 +239,6 @@ def _run_tests() -> None:
 
 if __name__ == "__main__":
     import logging as _log
+
     _log.basicConfig(level=_log.DEBUG)
     _run_tests()
