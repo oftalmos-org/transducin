@@ -23,6 +23,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `docker-compose.yml`: la imagen `orthancteam/orthanc:24.6.0` no existe (ahora `24.6.3`) y el healthcheck usaba `curl`, ausente en la imagen (ahora bash + `/dev/tcp`)
 - CI: `ci.yml` instala `construct`; `ruff check` y `ruff format --check` pasan (se ignoran `BLE001`/`S110`/`S112` por degradación elegante deliberada)
 
+### Added (modelo de evidencia de lateralidad, solo observación)
+- `transducin/laterality_evidence.py`: fuentes agrupadas por **origen del dato** (DICOM 0020,0060/0062/9072 y privados de Cirrus = un solo origen; metadato nativo; geometría de adquisición, p. ej. signo de OCTPARAMS tag 23 en Revo; nombre de archivo = fuente débil; confirmación médica y localizador sin productor aún). Estados: declarada / inferida / confirmada / conflicto / desconocida. Un conflicto no se rotula como ojo equivocado. No cambia lateralidad ni emisiones
+- Log sombra v2: evidencia por emisión, categorías de R1 (`defaulted`, `conflict`, `concordant_multi_source`, `unverified_single_source`, `inferred_only`, `no_evidence_available`, `confirmed`), interruptor inmediato (`TRANSDUCIN_SHADOW_DISABLE` o archivo `DISABLE` en el directorio del log), informe Markdown (`scripts/shadow_report.py --md`)
+
 ### Added (registro en modo sombra R1–R6, desactivado por defecto)
 - `transducin/shadow_log.py`: registra por emisión (SR y webhook a Graefe) banderas de riesgo R1–R6, ruta, fuente de lateralidad, origen del centro y procedencia, **sin cambiar ninguna medición ni emisión**. Local, fuera de Git, sin PHI (HMAC-SHA256 con clave 0600), retención 30 días configurable, nunca lanza. Se activa con `TRANSDUCIN_SHADOW_LOG_DIR` y una clave HMAC
 - `scripts/shadow_report.py` (`structural` / `corpus` / `log`): frecuencias agregadas sin identificadores; `validation/informe_modo_sombra_2026-11-04.md`

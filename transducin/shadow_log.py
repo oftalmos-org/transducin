@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_RETENTION_DAYS = 30
 _FILE_RE = re.compile(r"^shadow-(\d{8})\.jsonl$")
 
@@ -148,20 +148,33 @@ def _has_etdrs(data: OCTClinicalData) -> bool:
     return bool(g is not None and g.has_data())
 
 
-def assess(data: OCTClinicalData, emission: str) -> dict[str, Any]:
-    """Calcula las banderas R1–R6 de una emisión. No modifica ``data`` ni usa red/disco."""
+def assess(data: OCTClinicalData, emission: str, lat_eval: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Calcula las banderas R1–R6 de una emisión. No modifica ``data`` ni usa red; no lee disco (la evidencia llega en ``lat_eval``)."""
     route = classify_route(data)
     lat = (data.laterality or "").strip()
     has_etdrs = _has_etdrs(data)
     has_cmt = data.cmt_um is not None
     has_meas = bool(data.has_measurements())
 
+    from transducin.laterality_evidence import evaluate
+
+    ev = lat_eval if lat_eval is not None else evaluate([], lat)
     if not lat:
         r1 = "defaulted"  # el SR asigna "R" (sr_builder) / lateralidad ausente en el webhook
     elif lat not in ("R", "L"):
         r1 = "other_value"
+    elif ev["state"] == "conflict":
+        r1 = "conflict"
+    elif ev["state"] == "confirmed":
+        r1 = "confirmed"
+    elif ev["concordant_multi_group"]:
+        r1 = "concordant_multi_source"
+    elif ev["state"] == "declared":
+        r1 = "unverified_single_source"
+    elif ev["state"] == "inferred":
+        r1 = "inferred_only"
     else:
-        r1 = "unverified_single_source"  # no existe cotejo entre fuentes en ninguna ruta
+        r1 = "no_evidence_available"
 
     if route in _GEOMETRIC_CENTER_ROUTES:
         center_origin = "geometric_volume_center"
@@ -212,7 +225,7 @@ def assess(data: OCTClinicalData, emission: str) -> dict[str, Any]:
         "study_type": data.study_type or "",
         "laterality_value": lat,
         "laterality_source": laterality_source(data, route),
-        "laterality_cross_checked": False,
+        "laterality_evidence": ev,
         "center_origin": center_origin,
         "value_origin": value_origin,
         "etdrs_impl": etdrs_impl,
@@ -243,6 +256,13 @@ def _purge(cfg: ShadowConfig, now: float) -> None:
             p.unlink()
 
 
+def _disabled(cfg: ShadowConfig) -> bool:
+    """Interruptor inmediato: variable ``TRANSDUCIN_SHADOW_DISABLE`` o archivo ``DISABLE`` en el directorio del log."""
+    if os.environ.get("TRANSDUCIN_SHADOW_DISABLE", "").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    return (cfg.log_dir / "DISABLE").exists()
+
+
 def record_emission(
     data: OCTClinicalData,
     emission: str,
@@ -259,8 +279,14 @@ def record_emission(
         cfg = config if config is not None else load_config()
         if cfg is None:
             return None
+        if _disabled(cfg):
+            return None
         ts = time.time() if now is None else now
-        rec = assess(data, emission)
+        from transducin.laterality_evidence import collect, evaluate
+
+        route = classify_route(data)
+        evidence, unavailable = collect(data, route)
+        rec = assess(data, emission, evaluate(evidence, (data.laterality or "").strip(), unavailable))
         # Correlación seudónima. Sin study_uid, se usa una huella de campos del estudio (nunca el nombre de archivo en claro).
         ident = study_uid or f"{data.study_date}|{data.study_time}|{data.vendor}|{data.source_file}"
         rec.update(
@@ -300,17 +326,46 @@ def _version() -> str:
 # ── Agregación (para el informe de frecuencias) ──────────────────────────────
 
 
+def _bump(d: dict, key: object) -> None:
+    d[str(key)] = d.get(str(key), 0) + 1
+
+
 def aggregate(records: list[dict[str, Any]]) -> dict[str, Any]:
-    """Frecuencias agregadas R1–R6 por ruta y emisión. Solo cuentas; sin identificadores."""
-    out: dict[str, Any] = {"n_records": len(records), "by_route": {}}
+    """Frecuencias agregadas por ruta y destino (``emission``) y por ruta y tipo de estudio. Solo cuentas."""
+    out: dict[str, Any] = {"n_records": len(records), "by_route": {}, "by_route_study_type": {}, "unique_studies": {}}
+    studies: dict[str, set[str]] = {}
     for r in records:
-        key = f"{r['route']}|{r['emission']}"
-        b = out["by_route"].setdefault(key, {"n": 0, "flags": {}, "laterality_source": {}})
-        b["n"] += 1
-        b["laterality_source"][r["laterality_source"]] = b["laterality_source"].get(r["laterality_source"], 0) + 1
-        for fname, val in r["flags"].items():
-            slot = b["flags"].setdefault(fname, {})
-            slot[str(val)] = slot.get(str(val), 0) + 1
+        studies.setdefault(r["route"], set()).add(r.get("study_hmac", ""))
+        for key, section in (
+            (f"{r['route']}|{r['emission']}", "by_route"),
+            (f"{r['route']}|{r['study_type'] or 'sin_tipo'}", "by_route_study_type"),
+        ):
+            b = out[section].setdefault(
+                key,
+                {
+                    "n": 0,
+                    "flags": {},
+                    "laterality_source": {},
+                    "laterality_state": {},
+                    "emitted_vs_evidence": {},
+                    "evidence": {},
+                },
+            )
+            b["n"] += 1
+            _bump(b["laterality_source"], r["laterality_source"])
+            for fname, val in r["flags"].items():
+                _bump(b["flags"].setdefault(fname, {}), val)
+            ev = r.get("laterality_evidence") or {}
+            if ev:
+                _bump(b["laterality_state"], ev.get("state"))
+                _bump(b["emitted_vs_evidence"], ev.get("emitted_vs_evidence"))
+                for k in ("concordant_multi_group", "concordant_independent", "confirmed_by_reference", "conflict"):
+                    _bump(b["evidence"].setdefault(k, {}), bool(ev.get(k)))
+                for u in ev.get("unavailable", []):
+                    _bump(b["evidence"].setdefault("unavailable", {}), u)
+                if ev.get("conflict"):
+                    _bump(b["evidence"].setdefault("conflict_kind", {}), ev.get("conflict_kind"))
+    out["unique_studies"] = {route: len(ids) for route, ids in studies.items()}
     return out
 
 

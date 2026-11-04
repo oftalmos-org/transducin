@@ -1,6 +1,23 @@
 {
   "by_route": {
     "topcon_fda|sr": {
+      "emitted_vs_evidence": {
+        "match": 4
+      },
+      "evidence": {
+        "concordant_independent": {
+          "False": 4
+        },
+        "concordant_multi_group": {
+          "False": 4
+        },
+        "confirmed_by_reference": {
+          "False": 4
+        },
+        "conflict": {
+          "False": 4
+        }
+      },
       "flags": {
         "R1_laterality": {
           "unverified_single_source": 4
@@ -24,6 +41,57 @@
       "laterality_source": {
         "native_metadata": 4
       },
+      "laterality_state": {
+        "declared": 4
+      },
+      "n": 4
+    }
+  },
+  "by_route_study_type": {
+    "topcon_fda|macular": {
+      "emitted_vs_evidence": {
+        "match": 4
+      },
+      "evidence": {
+        "concordant_independent": {
+          "False": 4
+        },
+        "concordant_multi_group": {
+          "False": 4
+        },
+        "confirmed_by_reference": {
+          "False": 4
+        },
+        "conflict": {
+          "False": 4
+        }
+      },
+      "flags": {
+        "R1_laterality": {
+          "unverified_single_source": 4
+        },
+        "R2_overlap_sectors": {
+          "False": 4
+        },
+        "R3_cirrus_nasal_wedge": {
+          "False": 4
+        },
+        "R4_orientation_unvalidated": {
+          "False": 4
+        },
+        "R5_geometric_center_as_foveal": {
+          "not_applicable": 4
+        },
+        "R6_no_provenance_or_validation": {
+          "False": 4
+        }
+      },
+      "laterality_source": {
+        "native_metadata": 4
+      },
+      "laterality_state": {
+        "declared": 4
+      },
       "n": 4
     }
   },
@@ -31,5 +99,8 @@
     "procesado": 4,
     "sin_adaptador (extensión no soportada)": 291
   },
-  "n_records": 4
+  "n_records": 4,
+  "unique_studies": {
+    "topcon_fda": 4
+  }
 }
