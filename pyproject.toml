@@ -56,6 +56,12 @@ line-length = 120
 [tool.ruff.lint]
 ignore = [
     "E402",  # imports after load_dotenv() — intentional pattern throughout
+    # `except Exception` (+ pass/continue) es deliberado: los extractores de formatos
+    # propietarios degradan con elegancia ante archivos corruptos o parciales en vez de
+    # abortar el pipeline clínico. Acotar cada excepción sin archivos reales es riesgoso.
+    "BLE001",
+    "S110",
+    "S112",
 ]
 
 [tool.bumpver]

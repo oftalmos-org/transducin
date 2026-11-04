@@ -8,7 +8,6 @@
 # Binary struct definitions for Topcon .fda/.fds (Topcon File Format).
 # Based on: https://bitbucket.org/uocte/uocte/wiki/Topcon%20File%20Format
 from construct import (
-    Array,
     Float32n,
     Float64n,
     Int8un,
@@ -16,7 +15,6 @@ from construct import (
     Int32un,
     PaddedString,
     Struct,
-    this,
 )
 
 header = Struct(

@@ -40,33 +40,30 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 from urllib.request import Request, urlopen
 
+from dotenv import load_dotenv
 from watchdog.events import FileCreatedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from dotenv import load_dotenv
 load_dotenv()  # carga .env del directorio de trabajo antes de leer os.environ
 
-from transducin.opt_extractor import extract_from_opt, build_noel_index
 from transducin.noel_resolver import resolve_noel_id, resolve_patient_demographics
+from transducin.opt_extractor import build_noel_index, extract_from_opt
 from transducin.orthanc_client import resolve_study_uid
 
 logger = logging.getLogger("transducin.revo_watcher")
 
 # ── Configuracion (todo via .env) ────────────────────────────────────────────
 
-ORTHANC_HOST      = os.environ.get("ORTHANC_HOST", "127.0.0.1")
+ORTHANC_HOST = os.environ.get("ORTHANC_HOST", "127.0.0.1")
 ORTHANC_HTTP_PORT = int(os.environ.get("ORTHANC_HTTP_PORT", "8042"))
-ORTHANC_HTTP_USER = os.environ.get("ORTHANC_HTTP_USER",
-                        os.environ.get("ORTHANC_USER", "orthanc"))
-ORTHANC_HTTP_PASS = os.environ.get("ORTHANC_HTTP_PASS",
-                        os.environ.get("ORTHANC_PASSWORD", ""))
+ORTHANC_HTTP_USER = os.environ.get("ORTHANC_HTTP_USER", os.environ.get("ORTHANC_USER", "orthanc"))
+ORTHANC_HTTP_PASS = os.environ.get("ORTHANC_HTTP_PASS", os.environ.get("ORTHANC_PASSWORD", ""))
 
-DEFAULT_WATCH_DIR  = Path(os.environ.get("REVO_WATCH_FOLDER", "input/REVO"))
+DEFAULT_WATCH_DIR = Path(os.environ.get("REVO_WATCH_FOLDER", "input/REVO"))
 DEFAULT_OUTPUT_DIR = Path(os.environ.get("REVO_OUTPUT_DIR", "Output/revo"))
-DEFAULT_LOG_DIR    = Path(os.environ.get("REVO_LOG_DIR", "logs"))
+DEFAULT_LOG_DIR = Path(os.environ.get("REVO_LOG_DIR", "logs"))
 
 SETTLE_DELAY = int(os.environ.get("REVO_SETTLE_DELAY", "2"))
 
@@ -80,6 +77,7 @@ _WATCHED_EXTS = {".opt"}
 
 
 # ── Orthanc REST API ────────────────────────────────────────────────────────
+
 
 def _orthanc_url() -> str:
     return f"http://{ORTHANC_HOST}:{ORTHANC_HTTP_PORT}"
@@ -126,7 +124,8 @@ def _upload_to_orthanc(dcm_path: Path) -> bool:
 
 # ── Nombre estandarizado para processed/ ─────────────────────────────────────
 
-def _standardized_name(cd, suffix: str, ts: Optional[str] = None) -> str:
+
+def _standardized_name(cd, suffix: str, ts: str | None = None) -> str:
     """Genera: {NOEL}_{YYYYMMDD}_{LAT}_{TYPE}.opt"""
     prefix = cd.noel_id
     if not prefix:
@@ -159,6 +158,7 @@ def _move_to_processed(src: Path, cd, do_move: bool = True) -> None:
 
 
 # ── Espera de segmentación ───────────────────────────────────────────────────
+
 
 def _wait_for_segmentation(
     opt_path: Path,
@@ -200,17 +200,17 @@ def _wait_for_segmentation(
             logger.info("  Segmentación detectada tras %ds", elapsed)
             return True
 
-    logger.warning("  Timeout esperando segmentación (%ds) — procesando sin capas",
-                    timeout)
+    logger.warning("  Timeout esperando segmentación (%ds) — procesando sin capas", timeout)
     return False
 
 
 # ── Pipeline principal ───────────────────────────────────────────────────────
 
+
 def process_opt(
     opt_path: Path,
     output_dir: Path,
-    noel_index: Optional[dict[str, str]] = None,
+    noel_index: dict[str, str] | None = None,
     do_upload: bool = True,
     do_move: bool = True,
     wait_for_segmentation: bool = True,
@@ -229,9 +229,14 @@ def process_opt(
     # 1. Extraer metadatos clinicos
     try:
         cd = extract_from_opt(opt_path, noel_index=noel_index)
-        logger.info("  Extraccion: noel=%s lat=%s type=%s date=%s confidence=%s",
-                     cd.noel_id or "(none)", cd.laterality, cd.study_type,
-                     cd.study_date, cd.extraction_confidence)
+        logger.info(
+            "  Extraccion: noel=%s lat=%s type=%s date=%s confidence=%s",
+            cd.noel_id or "(none)",
+            cd.laterality,
+            cd.study_type,
+            cd.study_date,
+            cd.extraction_confidence,
+        )
     except Exception as e:
         logger.error("  Extraccion FALLO: %s", e)
         return False
@@ -261,10 +266,12 @@ def process_opt(
     if cd.study_type not in ("bmetr", "biometry"):
         try:
             from transducin.revo_opt_reader import opt_to_dicom
+
             img_dir = output_dir / "images"
             img_dir.mkdir(parents=True, exist_ok=True)
             dcm_paths = opt_to_dicom(
-                opt_path, img_dir,
+                opt_path,
+                img_dir,
                 noel_id=cd.noel_id or "",
                 study_date=cd.study_date or "",
                 study_time=cd.study_time or "",
@@ -284,14 +291,15 @@ def process_opt(
         logger.info("  Biometry -- sin imagen.")
 
     # 3. Generar SR TID 1500
-    sr_path: Optional[Path] = None
+    sr_path: Path | None = None
     if cd.study_type == "unknown" and not cd.has_measurements():
         logger.info("  SR omitido: tipo unknown sin mediciones.")
     else:
         try:
-            from transducin.sr_builder import build_sr
             import pydicom
             from pydicom.uid import generate_uid as _gen_uid
+
+            from transducin.sr_builder import build_sr
 
             ref_ds = pydicom.dcmread(str(dcm_paths[0])) if dcm_paths else None
             fallback_uid = ref_ds.StudyInstanceUID if ref_ds else str(_gen_uid())
@@ -306,8 +314,7 @@ def process_opt(
 
             stem = opt_path.stem.replace(" ", "_")
             sr_path = output_dir / "sr" / f"{stem}_SR.dcm"
-            build_sr(cd, reference_dataset=ref_ds, output_path=sr_path,
-                     study_instance_uid=study_uid)
+            build_sr(cd, reference_dataset=ref_ds, output_path=sr_path, study_instance_uid=study_uid)
             logger.info("  SR generado: %s (study_uid=...%s)", sr_path.name, study_uid[-12:])
         except Exception as e:
             logger.error("  Generacion SR FALLO: %s", e)
@@ -340,8 +347,8 @@ def process_opt(
 
 # ── Dry-run ──────────────────────────────────────────────────────────────────
 
-def _dry_run_single(opt_path: Path, output_dir: Path,
-                    noel_index: Optional[dict[str, str]] = None) -> None:
+
+def _dry_run_single(opt_path: Path, output_dir: Path, noel_index: dict[str, str] | None = None) -> None:
     """Extrae datos clinicos y genera SR localmente -- sin upload, sin mover."""
     from transducin.revo_opt_reader import opt_to_dicom
     from transducin.sr_builder import build_sr
@@ -403,7 +410,8 @@ def _dry_run_single(opt_path: Path, output_dir: Path,
         try:
             img_dir = output_dir / "dry_run" / "images"
             dcm_paths = opt_to_dicom(
-                opt_path, img_dir,
+                opt_path,
+                img_dir,
                 noel_id=cd.noel_id or "",
                 study_date=cd.study_date or "",
                 study_time=cd.study_time or "",
@@ -425,6 +433,7 @@ def _dry_run_single(opt_path: Path, output_dir: Path,
 
     try:
         import pydicom
+
         ref_ds = pydicom.dcmread(str(dcm_paths[0])) if dcm_paths else None
         sr_dir = output_dir / "dry_run" / "sr"
         stem = opt_path.stem.replace(" ", "_")
@@ -442,14 +451,16 @@ def _dry_run_single(opt_path: Path, output_dir: Path,
 
 # ── Procesamiento de archivos existentes ─────────────────────────────────────
 
-def process_existing(watch_dir: Path, output_dir: Path,
-                     noel_index: Optional[dict[str, str]] = None,
-                     do_upload: bool = True, do_move: bool = True) -> None:
+
+def process_existing(
+    watch_dir: Path,
+    output_dir: Path,
+    noel_index: dict[str, str] | None = None,
+    do_upload: bool = True,
+    do_move: bool = True,
+) -> None:
     """Procesa todos los .OPT ya existentes en la carpeta vigilada."""
-    pending = [
-        f for f in watch_dir.rglob("*.opt")
-        if "processed" not in f.parts
-    ]
+    pending = [f for f in watch_dir.rglob("*.opt") if "processed" not in f.parts]
     if not pending:
         logger.info("No hay archivos .OPT pendientes en %s", watch_dir)
         return
@@ -457,19 +468,20 @@ def process_existing(watch_dir: Path, output_dir: Path,
     logger.info("Procesando %d archivo(s) .OPT existentes...", len(pending))
     for f in sorted(pending):
         try:
-            process_opt(f, output_dir, noel_index=noel_index,
-                        do_upload=do_upload, do_move=do_move)
+            process_opt(f, output_dir, noel_index=noel_index, do_upload=do_upload, do_move=do_move)
         except Exception as e:
             logger.error("Error procesando %s: %s", f.name, e)
 
 
 # ── Watchdog handler ─────────────────────────────────────────────────────────
 
+
 class RevoOptHandler(FileSystemEventHandler):
     """Handler de watchdog para archivos .OPT del Revo FC130."""
 
-    def __init__(self, output_dir: Path, noel_index: Optional[dict[str, str]] = None,
-                 do_upload: bool = True, do_move: bool = True):
+    def __init__(
+        self, output_dir: Path, noel_index: dict[str, str] | None = None, do_upload: bool = True, do_move: bool = True
+    ):
         self.output_dir = output_dir
         self.noel_index = noel_index or {}
         self.do_upload = do_upload
@@ -497,8 +509,9 @@ class RevoOptHandler(FileSystemEventHandler):
             return
 
         try:
-            process_opt(path, self.output_dir, noel_index=self.noel_index,
-                        do_upload=self.do_upload, do_move=self.do_move)
+            process_opt(
+                path, self.output_dir, noel_index=self.noel_index, do_upload=self.do_upload, do_move=self.do_move
+            )
         except Exception as e:
             logger.error("Error no capturado procesando %s: %s", path.name, e)
         finally:
@@ -506,6 +519,7 @@ class RevoOptHandler(FileSystemEventHandler):
 
 
 # ── Logging ──────────────────────────────────────────────────────────────────
+
 
 def _setup_logging(log_dir: Path) -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -524,32 +538,29 @@ def _setup_logging(log_dir: Path) -> None:
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────
 
+
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Transducin Revo FC130 -- watcher .OPT -> DICOM + SR -> Orthanc"
+    parser = argparse.ArgumentParser(description="Transducin Revo FC130 -- watcher .OPT -> DICOM + SR -> Orthanc")
+    parser.add_argument("--watch", default=str(DEFAULT_WATCH_DIR), help=f"Carpeta .OPT (default: {DEFAULT_WATCH_DIR})")
+    parser.add_argument(
+        "--output", default=str(DEFAULT_OUTPUT_DIR), help=f"Carpeta salida DICOM (default: {DEFAULT_OUTPUT_DIR})"
     )
-    parser.add_argument("--watch", default=str(DEFAULT_WATCH_DIR),
-                        help=f"Carpeta .OPT (default: {DEFAULT_WATCH_DIR})")
-    parser.add_argument("--output", default=str(DEFAULT_OUTPUT_DIR),
-                        help=f"Carpeta salida DICOM (default: {DEFAULT_OUTPUT_DIR})")
-    parser.add_argument("--logs", default=str(DEFAULT_LOG_DIR),
-                        help=f"Carpeta de logs (default: {DEFAULT_LOG_DIR})")
-    parser.add_argument("--no-upload", action="store_true",
-                        help="Deshabilitar upload a Orthanc (solo generar localmente)")
-    parser.add_argument("--no-move", action="store_true",
-                        help="No mover el archivo original a processed/")
-    parser.add_argument("--process-existing", action="store_true",
-                        help="Procesar archivos .OPT existentes antes de vigilar")
-    parser.add_argument("--file", default=None,
-                        help="Procesar un solo archivo .OPT y salir")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Solo extraer y generar SR -- sin upload, sin mover")
+    parser.add_argument("--logs", default=str(DEFAULT_LOG_DIR), help=f"Carpeta de logs (default: {DEFAULT_LOG_DIR})")
+    parser.add_argument(
+        "--no-upload", action="store_true", help="Deshabilitar upload a Orthanc (solo generar localmente)"
+    )
+    parser.add_argument("--no-move", action="store_true", help="No mover el archivo original a processed/")
+    parser.add_argument(
+        "--process-existing", action="store_true", help="Procesar archivos .OPT existentes antes de vigilar"
+    )
+    parser.add_argument("--file", default=None, help="Procesar un solo archivo .OPT y salir")
+    parser.add_argument("--dry-run", action="store_true", help="Solo extraer y generar SR -- sin upload, sin mover")
     args = parser.parse_args()
 
     output_dir = Path(args.output).expanduser().resolve()
-    log_dir    = Path(args.logs).expanduser().resolve()
-    do_upload  = not args.no_upload
-    do_move    = not args.no_move
+    log_dir = Path(args.logs).expanduser().resolve()
+    do_upload = not args.no_upload
+    do_move = not args.no_move
 
     if args.dry_run:
         do_upload = False
@@ -572,8 +583,7 @@ def main() -> None:
         if args.dry_run:
             _dry_run_single(opt_path, output_dir, noel_index=noel_idx)
         else:
-            process_opt(opt_path, output_dir, noel_index=noel_idx,
-                        do_upload=do_upload, do_move=do_move)
+            process_opt(opt_path, output_dir, noel_index=noel_idx, do_upload=do_upload, do_move=do_move)
         return
 
     # ── watcher mode ─────────────────────────────────────────────────────────
@@ -590,11 +600,9 @@ def main() -> None:
     noel_idx = build_noel_index(watch_dir)
 
     if args.process_existing:
-        process_existing(watch_dir, output_dir, noel_index=noel_idx,
-                         do_upload=do_upload, do_move=do_move)
+        process_existing(watch_dir, output_dir, noel_index=noel_idx, do_upload=do_upload, do_move=do_move)
 
-    handler = RevoOptHandler(output_dir=output_dir, noel_index=noel_idx,
-                             do_upload=do_upload, do_move=do_move)
+    handler = RevoOptHandler(output_dir=output_dir, noel_index=noel_idx, do_upload=do_upload, do_move=do_move)
     observer = Observer()
     observer.schedule(handler, str(watch_dir), recursive=True)
     observer.start()

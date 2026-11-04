@@ -16,7 +16,6 @@ import struct
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -34,7 +33,8 @@ logger = logging.getLogger("transducin.readers.e2e")
 @dataclass
 class _OCTVolume:
     """Minimal OCT volume container — carries only what Transducin needs."""
-    laterality: Optional[str] = None
+
+    laterality: str | None = None
 
 
 class E2EReader:
@@ -92,7 +92,7 @@ class E2EReader:
             return [_OCTVolume(laterality=laterality)]
         return []
 
-    def _read_laterality(self) -> Optional[str]:
+    def _read_laterality(self) -> str | None:
         """Scan chunk type 3 (scan preamble) for laterality."""
         with open(self.filepath, "rb") as f:
             chunk_stack = self._build_chunk_stack(f)
@@ -128,7 +128,7 @@ class E2EReader:
         bscan_by_vol: dict[str, list[dict]] = {}
         qual_by_vol: dict[str, list[float]] = {}
         lat_by_vol: dict[str, str] = {}
-        first_date: Optional[datetime] = None
+        first_date: datetime | None = None
         float_max = np.finfo(np.float32).max
 
         with open(self.filepath, "rb") as f:
@@ -152,7 +152,7 @@ class E2EReader:
                     continue
                 vs = f"{chunk.patient_db_id}_{chunk.study_id}_{chunk.series_id}"
 
-                if chunk.type == 10019:      # contour data
+                if chunk.type == 10019:  # contour data
                     try:
                         head = e2e_binary.contour_structure.parse(f.read(16))
                         if head.width <= 0:
@@ -164,21 +164,23 @@ class E2EReader:
                         arr[(arr < 1e-9) | (arr == float_max)] = np.nan
                     except Exception:
                         continue
-                    contour_dict.setdefault(vs, {}).setdefault(
-                        f"contour{head.id}", {}
-                    )[int(chunk.slice_id / 2)] = arr
+                    contour_dict.setdefault(vs, {}).setdefault(f"contour{head.id}", {})[int(chunk.slice_id / 2)] = arr
 
-                elif chunk.type == 10004:    # bscan metadata
+                elif chunk.type == 10004:  # bscan metadata
                     payload = f.read(104)
                     try:
                         m = e2e_binary.bscan_metadata.parse(payload)
                     except Exception:
                         continue
-                    bscan_by_vol.setdefault(vs, []).append({
-                        "scaley": float(m.scaley),
-                        "posX1": float(m.posX1), "posX2": float(m.posX2),
-                        "posY1": float(m.posY1), "posY2": float(m.posY2),
-                    })
+                    bscan_by_vol.setdefault(vs, []).append(
+                        {
+                            "scaley": float(m.scaley),
+                            "posX1": float(m.posX1),
+                            "posX2": float(m.posX2),
+                            "posY1": float(m.posY1),
+                            "posY2": float(m.posY2),
+                        }
+                    )
                     # imgQuality: mismo offset (byte 84) que
                     # spectralis_extractor._extract_e2e_scan_quality, para paridad.
                     if len(payload) >= 88:
@@ -192,7 +194,7 @@ class E2EReader:
                         except Exception:
                             pass
 
-                elif chunk.type == 3:        # scan preamble → lateralidad
+                elif chunk.type == 3:  # scan preamble → lateralidad
                     try:
                         pre = e2e_binary.pre_data.parse(f.read(chunk.size))
                         if pre.laterality in ("R", "L") and vs not in lat_by_vol:
@@ -220,17 +222,19 @@ class E2EReader:
             quals = qual_by_vol.get(vs) or all_qual
             # Lateralidad: la del volumen; si falta, la del archivo solo si es unívoca.
             lat = lat_by_vol.get(vs) or (next(iter(file_lats)) if len(file_lats) == 1 else None)
-            volumes.append(LayerVolume(
-                volume_id=vs,
-                contours=contours,
-                pixel_spacing=[0.01, bdata[0]["scaley"], 0.05] if bdata else None,
-                laterality=lat,
-                acquisition_date=first_date,
-                bscan_data=bdata,
-                n_bscans=n_slices,
-                n_ascans=len(first),
-                sqi_mean=round(float(np.mean(quals)), 4) if quals else None,
-            ))
+            volumes.append(
+                LayerVolume(
+                    volume_id=vs,
+                    contours=contours,
+                    pixel_spacing=[0.01, bdata[0]["scaley"], 0.05] if bdata else None,
+                    laterality=lat,
+                    acquisition_date=first_date,
+                    bscan_data=bdata,
+                    n_bscans=n_slices,
+                    n_ascans=len(first),
+                    sqi_mean=round(float(np.mean(quals)), 4) if quals else None,
+                )
+            )
         return volumes
 
     def read_thickness_map(self) -> list[ThicknessMapData]:
@@ -245,21 +249,26 @@ class E2EReader:
         try:
             volumes = self.read_layer_volumes()
         except Exception as exc:
-            logger.warning("E2E: no se pudo leer la segmentación de %s: %s",
-                           self.filepath.name, exc)
+            logger.warning("E2E: no se pudo leer la segmentación de %s: %s", self.filepath.name, exc)
             return maps
 
         for vol in volumes:
-            cd_base = dict(
-                noel_id="", vendor="heidelberg_spectralis",
-                source_file=str(self.filepath),
-                study_date=vol.acquisition_date.strftime("%Y%m%d") if vol.acquisition_date else "",
-                study_time="",
-            )
+            cd_base = {
+                "noel_id": "",
+                "vendor": "heidelberg_spectralis",
+                "source_file": str(self.filepath),
+                "study_date": vol.acquisition_date.strftime("%Y%m%d") if vol.acquisition_date else "",
+                "study_time": "",
+            }
             cd = measure_e2e_volume(
-                vol.contours, vol.pixel_spacing, {"bscan_data": vol.bscan_data},
-                vol.laterality or "", cd_base, vol.sqi_mean,
-                label=self.filepath.stem, require_laterality=True,
+                vol.contours,
+                vol.pixel_spacing,
+                {"bscan_data": vol.bscan_data},
+                vol.laterality or "",
+                cd_base,
+                vol.sqi_mean,
+                label=self.filepath.stem,
+                require_laterality=True,
             )
             if cd is not None:
                 maps.append(thickness_map_from_clinical(cd, vol.acquisition_date))

@@ -34,17 +34,16 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
-from transducin.clinical_data import ETDRSGrid, OCTClinicalData, RNFLSectors
+from transducin.clinical_data import OCTClinicalData, RNFLSectors
 from transducin.noel_id import is_valid_noel
 
 logger = logging.getLogger("transducin.spectralis")
 
 
-def _extract_e2e_scan_quality(filepath: Path, byte_skip: int) -> Optional[float]:
+def _extract_e2e_scan_quality(filepath: Path, byte_skip: int) -> float | None:
     """Extrae el imgQuality medio de todos los B-scans en un archivo .e2e.
 
     El chunk type 10004 (bscan_metadata) contiene imgQuality como Float32l
@@ -56,6 +55,7 @@ def _extract_e2e_scan_quality(filepath: Path, byte_skip: int) -> Optional[float]
         se pudo leer ningún valor válido.
     """
     import struct as _struct
+
     try:
         with open(filepath, "rb") as f:
             # Leer header principal (36 bytes) + main_directory (52 bytes)
@@ -97,9 +97,9 @@ def _extract_e2e_scan_quality(filepath: Path, byte_skip: int) -> Optional[float]
                     entry_raw = f.read(44)
                     if len(entry_raw) < 44:
                         break
-                    entry_pos   = _struct.unpack_from("<I", entry_raw, 0)[0]
+                    entry_pos = _struct.unpack_from("<I", entry_raw, 0)[0]
                     entry_start = _struct.unpack_from("<I", entry_raw, 4)[0]
-                    entry_size  = _struct.unpack_from("<I", entry_raw, 8)[0]
+                    entry_size = _struct.unpack_from("<I", entry_raw, 8)[0]
                     if entry_start > entry_pos:
                         chunk_stack.append((entry_start, entry_size))
 
@@ -127,10 +127,11 @@ def _extract_e2e_scan_quality(filepath: Path, byte_skip: int) -> Optional[float]
         logger.debug("E2E: no se pudo extraer imgQuality de %s: %s", filepath.name, exc)
         return None
 
+
 # Valores por defecto Spectralis si no hay metadata de geometría
-_DEFAULT_AXIAL_UM     = 3.87   # µm/px axial (Spectralis HR 1024px, ~3.97mm depth)
-_DEFAULT_LATERAL_UM   = 11.72  # µm/A-scan (512 A-scans, 6mm FOV)
-_DEFAULT_SCAN_WIDTH_Y = 6.0    # mm (macular cube 20°×20° ≈ 6×6mm)
+_DEFAULT_AXIAL_UM = 3.87  # µm/px axial (Spectralis HR 1024px, ~3.97mm depth)
+_DEFAULT_LATERAL_UM = 11.72  # µm/A-scan (512 A-scans, 6mm FOV)
+_DEFAULT_SCAN_WIDTH_Y = 6.0  # mm (macular cube 20°×20° ≈ 6×6mm)
 
 # Detección de tipo de scan por dimensiones (Spectralis)
 # Circle scans para pRNFL: 1 B-scan, 768 o 1536 A-scans
@@ -158,7 +159,7 @@ def _compute_prnfl_circle(
     rnfl_gcl: np.ndarray,
     axial_um: float,
     laterality: str,
-) -> Optional[RNFLSectors]:
+) -> RNFLSectors | None:
     """Extrae pRNFL promedio y sectores S/I/N/T desde un circle scan.
 
     El circle scan de Spectralis tiene 1 B-scan × N A-scans en orden TSNIT:
@@ -192,10 +193,10 @@ def _compute_prnfl_circle(
 
     # Sectores en orden TSNIT — cuadrantes de 90°
     q = n_a // 4
-    t_seg = np.concatenate([thickness[:q], thickness[3*q:]])  # temporal (inicio+fin)
-    s_seg = thickness[q:2*q]                                   # superior
-    n_seg = thickness[2*q:3*q]                                 # nasal
-    i_seg = thickness[3*q:][:q]                                # inferior (simplificado)
+    t_seg = np.concatenate([thickness[:q], thickness[3 * q :]])  # temporal (inicio+fin)
+    s_seg = thickness[q : 2 * q]  # superior
+    n_seg = thickness[2 * q : 3 * q]  # nasal
+    i_seg = thickness[3 * q :][:q]  # inferior (simplificado)
 
     def _s(arr):
         v = float(np.nanmean(arr)) if np.any(np.isfinite(arr)) else None
@@ -208,20 +209,21 @@ def _compute_prnfl_circle(
         sup, inf, nas, tem = _s(s_seg), _s(i_seg), _s(n_seg), _s(t_seg)
 
     return RNFLSectors(
-        global_avg = round(global_avg, 1),
-        superior   = sup,
-        inferior   = inf,
-        nasal      = nas,
-        temporal   = tem,
+        global_avg=round(global_avg, 1),
+        superior=sup,
+        inferior=inf,
+        nasal=nas,
+        temporal=tem,
     )
 
 
 # ── Helpers internos ─────────────────────────────────────────────────────────
 
+
 def _build_layer_map(
     contours: dict,
     key: str,
-) -> Optional[np.ndarray]:
+) -> np.ndarray | None:
     """Convierte contours[key] (list of 1D arrays) en mapa 2D [n_bscans × n_ascans].
 
     Valores NaN donde la segmentación falló o el array es None.
@@ -252,18 +254,16 @@ def _geometry_from_metadata(metadata: dict, n_ascans: int, n_bscans: int) -> dic
     Retorna dict con axial_um, lateral_um, scan_width_mm.
     Si metadata no tiene datos útiles usa defaults Spectralis.
     """
-    axial_um     = _DEFAULT_AXIAL_UM
-    lateral_um   = _DEFAULT_LATERAL_UM
+    axial_um = _DEFAULT_AXIAL_UM
+    lateral_um = _DEFAULT_LATERAL_UM
     scan_width_mm = _DEFAULT_SCAN_WIDTH_Y
 
     bscan_data = metadata.get("bscan_data", []) if metadata else []
     if not bscan_data:
-        return {"axial_um": axial_um, "lateral_um": lateral_um,
-                "scan_width_mm": scan_width_mm}
+        return {"axial_um": axial_um, "lateral_um": lateral_um, "scan_width_mm": scan_width_mm}
 
     # Axial scale — scaley del archivo (fiable)
-    scaley_vals = [bd.get("scaley", 0.0) for bd in bscan_data
-                   if 0.001 < bd.get("scaley", 0.0) < 0.1]
+    scaley_vals = [bd.get("scaley", 0.0) for bd in bscan_data if 0.001 < bd.get("scaley", 0.0) < 0.1]
     if scaley_vals:
         axial_um = float(np.median(scaley_vals)) * 1000.0
 
@@ -274,7 +274,7 @@ def _geometry_from_metadata(metadata: dict, n_ascans: int, n_bscans: int) -> dic
         px1 = bd.get("posX1", 0.0)
         px2 = bd.get("posX2", 0.0)
         w = abs(float(px2) - float(px1))
-        if 0.5 < w < 20.0:   # rango razonable mm
+        if 0.5 < w < 20.0:  # rango razonable mm
             widths_x.append(w)
         py1 = bd.get("posY1", 0.0)
         if py1 is not None:
@@ -291,8 +291,8 @@ def _geometry_from_metadata(metadata: dict, n_ascans: int, n_bscans: int) -> dic
             scan_width_mm = y_range
 
     return {
-        "axial_um":      max(axial_um, 0.5),    # sanity: ≥ 0.5 µm/px
-        "lateral_um":    max(lateral_um, 1.0),   # sanity: ≥ 1 µm/A-scan
+        "axial_um": max(axial_um, 0.5),  # sanity: ≥ 0.5 µm/px
+        "lateral_um": max(lateral_um, 1.0),  # sanity: ≥ 1 µm/A-scan
         "scan_width_mm": max(scan_width_mm, 1.0),
     }
 
@@ -318,16 +318,17 @@ def _study_date(vol) -> str:
 
 # ── Medición reutilizable (sin dependencia de oct_converter) ─────────────────
 
+
 def measure_e2e_volume(
     contours: dict,
-    pixel_spacing: Optional[list],
-    metadata: Optional[dict],
+    pixel_spacing: list | None,
+    metadata: dict | None,
     laterality: str,
     cd_base: dict,
-    sqi_mean: Optional[float] = None,
+    sqi_mean: float | None = None,
     label: str = "",
     require_laterality: bool = False,
-) -> Optional[OCTClinicalData]:
+) -> OCTClinicalData | None:
     """Calcula mediciones clínicas de UN volumen E2E a partir de sus contornos.
 
     Es la lógica de ``extract_from_e2e`` aislada de la lectura del archivo, de modo
@@ -353,10 +354,10 @@ def measure_e2e_volume(
         compute_rnfl_sectors,
     )
 
-    ilm      = _build_layer_map(contours, "contour0")   # ILM
-    bm       = _build_layer_map(contours, "contour9")   # BM
-    rnfl_gcl = _build_layer_map(contours, "contour1")   # RNFL/GCL boundary
-    ipl_inl  = _build_layer_map(contours, "contour3")   # IPL/INL boundary
+    ilm = _build_layer_map(contours, "contour0")  # ILM
+    bm = _build_layer_map(contours, "contour9")  # BM
+    rnfl_gcl = _build_layer_map(contours, "contour1")  # RNFL/GCL boundary
+    ipl_inl = _build_layer_map(contours, "contour3")  # IPL/INL boundary
 
     if ilm is None or bm is None:
         logger.debug("E2E: ILM o BM no disponibles — saltando volumen")
@@ -377,11 +378,11 @@ def measure_e2e_volume(
         geo["axial_um"] = axial_um_file
 
     params = {
-        "axial_um":      geo["axial_um"],
-        "lateral_um":    geo["lateral_um"],
+        "axial_um": geo["axial_um"],
+        "lateral_um": geo["lateral_um"],
         "scan_width_mm": geo["scan_width_mm"],
-        "n_bscans":      n_b,
-        "n_ascans":      n_a,
+        "n_bscans": n_b,
+        "n_ascans": n_a,
     }
 
     lat = str(laterality or "").upper()
@@ -393,7 +394,12 @@ def measure_e2e_volume(
 
     logger.info(
         "E2E volumen %s: %d B-scans × %d A-scans, tipo=%s lat=%s, axial=%.2fµm/px",
-        label, n_b, n_a, scan_type, lat, params["axial_um"],
+        label,
+        n_b,
+        n_a,
+        scan_type,
+        lat,
+        params["axial_um"],
     )
 
     cd_base = dict(cd_base, laterality=lat)
@@ -409,10 +415,10 @@ def measure_e2e_volume(
             return None
         cd = OCTClinicalData(
             **cd_base,
-            study_type = "rnfl_circle",
-            rnfl       = prnfl,
-            sqi_mean   = sqi_mean,
-            extraction_confidence = "confirmed",
+            study_type="rnfl_circle",
+            rnfl=prnfl,
+            sqi_mean=sqi_mean,
+            extraction_confidence="confirmed",
         )
         cd.add_note(
             f"CONFIRMED: pRNFL={prnfl.global_avg:.1f}µm "
@@ -436,15 +442,14 @@ def measure_e2e_volume(
 
     cd = OCTClinicalData(
         **cd_base,
-        study_type = scan_type,   # "macular" o "unknown"
-        cmt_um     = cmt_um,
-        etdrs_grid = etdrs,
-        rnfl       = rnfl,
-        gcl_ipl    = gcl_ipl,
-        gcl_avg_um = round(float(gcl_ipl.global_avg), 1)
-                     if (gcl_ipl and gcl_ipl.global_avg is not None) else None,
-        sqi_mean   = sqi_mean,
-        extraction_confidence = "confirmed" if cmt_um is not None else "assumed",
+        study_type=scan_type,  # "macular" o "unknown"
+        cmt_um=cmt_um,
+        etdrs_grid=etdrs,
+        rnfl=rnfl,
+        gcl_ipl=gcl_ipl,
+        gcl_avg_um=round(float(gcl_ipl.global_avg), 1) if (gcl_ipl and gcl_ipl.global_avg is not None) else None,
+        sqi_mean=sqi_mean,
+        extraction_confidence="confirmed" if cmt_um is not None else "assumed",
     )
 
     if cmt_um is not None:
@@ -480,6 +485,7 @@ def measure_e2e_volume(
 
 # ── Extractor principal ──────────────────────────────────────────────────────
 
+
 def extract_from_e2e(
     filepath: Path,
     noel_id: str = "",
@@ -505,7 +511,7 @@ def extract_from_e2e(
     results: list[OCTClinicalData] = []
 
     try:
-        reader  = E2E(str(filepath))
+        reader = E2E(str(filepath))
         volumes = reader.read_oct_volume()
     except Exception as exc:
         logger.error("E2E: no se pudo leer %s: %s", filepath.name, exc)
@@ -539,15 +545,15 @@ def extract_from_e2e(
             logger.debug("E2E: volumen sin contours — saltando")
             continue
 
-        cd_base = dict(
-            noel_id      = noel_id,
-            vendor       = "heidelberg_spectralis",
-            source_file  = str(filepath),
-            study_date   = _study_date(vol),
-            study_time   = "",
-            patient_name = _patient_name(vol),
-            patient_dob  = str(getattr(vol, "patient_dob", "") or ""),
-        )
+        cd_base = {
+            "noel_id": noel_id,
+            "vendor": "heidelberg_spectralis",
+            "source_file": str(filepath),
+            "study_date": _study_date(vol),
+            "study_time": "",
+            "patient_name": _patient_name(vol),
+            "patient_dob": str(getattr(vol, "patient_dob", "") or ""),
+        }
         cd = measure_e2e_volume(
             contours,
             getattr(vol, "pixel_spacing", None),

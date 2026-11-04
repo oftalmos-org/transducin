@@ -37,7 +37,6 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pydicom
@@ -47,14 +46,14 @@ from transducin.clinical_data import ETDRSGrid, OCTClinicalData, RNFLSectors
 logger = logging.getLogger(__name__)
 
 # ── Calibración Cirrus HD-OCT 500 ──────────────────────────────────────────
-_AXIAL_UM_PER_PX    = 2000.0 / 1024.0   # ≈ 1.953 µm/px
-_MAC_N_BSCANS       = 128
-_MAC_N_ASCANS       = 512
-_MAC_SCAN_MM        = 6.0                # 6×6 mm campo macular
-_A_PER_MM           = _MAC_N_ASCANS / _MAC_SCAN_MM   # ≈ 85.3 A-scans/mm
-_B_PER_MM           = _MAC_N_BSCANS / _MAC_SCAN_MM   # ≈ 21.3 B-scans/mm
-_DISC_N_BSCANS      = 200
-_DISC_N_ASCANS      = 200
+_AXIAL_UM_PER_PX = 2000.0 / 1024.0  # ≈ 1.953 µm/px
+_MAC_N_BSCANS = 128
+_MAC_N_ASCANS = 512
+_MAC_SCAN_MM = 6.0  # 6×6 mm campo macular
+_A_PER_MM = _MAC_N_ASCANS / _MAC_SCAN_MM  # ≈ 85.3 A-scans/mm
+_B_PER_MM = _MAC_N_BSCANS / _MAC_SCAN_MM  # ≈ 21.3 B-scans/mm
+_DISC_N_BSCANS = 200
+_DISC_N_ASCANS = 200
 
 # SOP Classes
 _SOP_RAW_DATA = "1.2.840.10008.5.1.4.1.1.66"
@@ -62,7 +61,8 @@ _SOP_RAW_DATA = "1.2.840.10008.5.1.4.1.1.66"
 
 # ── Signal Quality Index ───────────────────────────────────────────────────
 
-def _extract_signal_quality(ds: "pydicom.Dataset") -> Optional[float]:
+
+def _extract_signal_quality(ds: pydicom.Dataset) -> float | None:
     """Extrae el Signal Quality Index (SQI, 0–1) desde un DICOM Cirrus.
 
     Cirrus HD-OCT guarda la calidad de señal en escala 0–10 (entero).
@@ -102,7 +102,8 @@ def _extract_signal_quality(ds: "pydicom.Dataset") -> Optional[float]:
 
 # ── Helpers de parsing XML ──────────────────────────────────────────────────
 
-def _xml_float(xml: str, tag: str) -> Optional[float]:
+
+def _xml_float(xml: str, tag: str) -> float | None:
     m = re.search(rf"<{tag}>([\d.E+\-]+)</{tag}>", xml)
     if m:
         try:
@@ -112,7 +113,7 @@ def _xml_float(xml: str, tag: str) -> Optional[float]:
     return None
 
 
-def _xml_str(xml: str, tag: str) -> Optional[str]:
+def _xml_str(xml: str, tag: str) -> str | None:
     m = re.search(rf"<{tag}>([^<]*)</{tag}>", xml)
     return m.group(1).strip() if m else None
 
@@ -127,7 +128,8 @@ def _clean_tag_str(val) -> str:
 
 # ── Extracción de capas de segmentación ────────────────────────────────────
 
-def _parse_layers(ds: pydicom.Dataset) -> Optional[tuple[np.ndarray, np.ndarray]]:
+
+def _parse_layers(ds: pydicom.Dataset) -> tuple[np.ndarray, np.ndarray] | None:
     """Extrae ILM y BM/RPE desde tags OB.
 
     Infiere dimensiones desde el tamaño del payload:
@@ -138,7 +140,7 @@ def _parse_layers(ds: pydicom.Dataset) -> Optional[tuple[np.ndarray, np.ndarray]
         (ilm, bm) con forma inferida, o None si tamaño desconocido.
     """
     t_ilm = ds.get((0x0073, 0x1150))
-    t_bm  = ds.get((0x0073, 0x1155))
+    t_bm = ds.get((0x0073, 0x1155))
     if t_ilm is None or t_bm is None:
         return None
     if t_ilm.VR != "OB" or t_bm.VR != "OB":
@@ -151,11 +153,13 @@ def _parse_layers(ds: pydicom.Dataset) -> Optional[tuple[np.ndarray, np.ndarray]
     else:
         logger.warning(
             "_parse_layers: tamaño inesperado %d px (esperado %d ó %d) — ignorando",
-            n, _MAC_N_BSCANS * _MAC_N_ASCANS, _DISC_N_BSCANS * _DISC_N_ASCANS,
+            n,
+            _MAC_N_BSCANS * _MAC_N_ASCANS,
+            _DISC_N_BSCANS * _DISC_N_ASCANS,
         )
         return None
     ilm = np.frombuffer(t_ilm.value, dtype="<u2").reshape(n_rows, n_cols).astype(float)
-    bm  = np.frombuffer(t_bm.value,  dtype="<u2").reshape(n_rows, n_cols).astype(float)
+    bm = np.frombuffer(t_bm.value, dtype="<u2").reshape(n_rows, n_cols).astype(float)
     return ilm, bm
 
 
@@ -165,6 +169,7 @@ def _compute_thickness_map(ilm: np.ndarray, bm: np.ndarray) -> np.ndarray:
 
 
 # ── Posición foveal ────────────────────────────────────────────────────────
+
 
 def _parse_fovea(ds: pydicom.Dataset) -> tuple[int, int]:
     """Extrae posición foveal desde AnalysisParameters XML.
@@ -183,8 +188,8 @@ def _parse_fovea(ds: pydicom.Dataset) -> tuple[int, int]:
             x_norm = float(fx.group(1))
             y_norm = float(fx.group(2))
             return (
-                int(round(x_norm * _MAC_N_ASCANS)),
-                int(round(y_norm * _MAC_N_BSCANS)),
+                round(x_norm * _MAC_N_ASCANS),
+                round(y_norm * _MAC_N_BSCANS),
             )
         except (ValueError, IndexError):
             pass
@@ -193,11 +198,12 @@ def _parse_fovea(ds: pydicom.Dataset) -> tuple[int, int]:
 
 # ── Cálculo ETDRS ─────────────────────────────────────────────────────────
 
+
 def _etdrs_from_map(
     th: np.ndarray,
     cx: int,
     cy: int,
-) -> tuple[Optional[float], ETDRSGrid]:
+) -> tuple[float | None, ETDRSGrid]:
     """Calcula CMT y ETDRS 9 sectores desde el mapa de grosor.
 
     ETDRS rings:
@@ -218,16 +224,13 @@ def _etdrs_from_map(
     y_idx, x_idx = np.ogrid[:_MAC_N_BSCANS, :_MAC_N_ASCANS]
 
     # Distancia radial en mm desde la fóvea
-    d_mm = np.sqrt(
-        ((x_idx - cx) / _A_PER_MM) ** 2 +
-        ((y_idx - cy) / _B_PER_MM) ** 2
-    )
+    d_mm = np.sqrt(((x_idx - cx) / _A_PER_MM) ** 2 + ((y_idx - cy) / _B_PER_MM) ** 2)
 
     # Ángulo en grados: 0° = derecha, 90° = arriba en imagen
     # arctan2(dy_up, dx) donde dy_up = cy - y (porque y crece hacia abajo)
     ang = np.degrees(np.arctan2(cy - y_idx, x_idx - cx))
 
-    def _sector_mean(r_min: float, r_max: float, a_min: float, a_max: float) -> Optional[float]:
+    def _sector_mean(r_min: float, r_max: float, a_min: float, a_max: float) -> float | None:
         if a_min < a_max:
             mask = (d_mm >= r_min) & (d_mm < r_max) & (ang >= a_min) & (ang < a_max)
         else:
@@ -241,17 +244,17 @@ def _etdrs_from_map(
     cmt = float(th[mask_c].mean()) if mask_c.sum() > 0 else None
 
     grid = ETDRSGrid(
-        C  = cmt,
+        C=cmt,
         # Anillo interno 1-3 mm (radio 0.5-1.5)
-        S1 = _sector_mean(0.5, 1.5,   45.0, 135.0),
-        N1 = _sector_mean(0.5, 1.5,  135.0, 225.0),   # N = izquierda (nasal OS)
-        I1 = _sector_mean(0.5, 1.5, -135.0, -45.0),
-        T1 = _sector_mean(0.5, 1.5, -45.0,  45.0),    # T = derecha  (temporal OS)
+        S1=_sector_mean(0.5, 1.5, 45.0, 135.0),
+        N1=_sector_mean(0.5, 1.5, 135.0, 225.0),  # N = izquierda (nasal OS)
+        I1=_sector_mean(0.5, 1.5, -135.0, -45.0),
+        T1=_sector_mean(0.5, 1.5, -45.0, 45.0),  # T = derecha  (temporal OS)
         # Anillo externo 3-6 mm (radio 1.5-3.0)
-        S2 = _sector_mean(1.5, 3.0,   45.0, 135.0),
-        N2 = _sector_mean(1.5, 3.0,  135.0, 225.0),
-        I2 = _sector_mean(1.5, 3.0, -135.0, -45.0),
-        T2 = _sector_mean(1.5, 3.0,  -45.0,  45.0),
+        S2=_sector_mean(1.5, 3.0, 45.0, 135.0),
+        N2=_sector_mean(1.5, 3.0, 135.0, 225.0),
+        I2=_sector_mean(1.5, 3.0, -135.0, -45.0),
+        T2=_sector_mean(1.5, 3.0, -45.0, 45.0),
     )
     # Usar C del grid como CMT si está disponible
     cmt_out = cmt
@@ -260,7 +263,8 @@ def _etdrs_from_map(
 
 # ── Extracción ONH ────────────────────────────────────────────────────────
 
-def _xml_first(xml: str, *tags: str) -> Optional[float]:
+
+def _xml_first(xml: str, *tags: str) -> float | None:
     """Intenta _xml_float con múltiples nombres de campo, retorna el primero no-None."""
     for tag in tags:
         v = _xml_float(xml, tag)
@@ -292,28 +296,25 @@ def _parse_onh(ds: pydicom.Dataset) -> dict:
 
     rnfl = _xml_float(xml, "AverageRNFLThickness")
     if rnfl is not None and rnfl == 0.0:
-        return {}   # sin datos de análisis
+        return {}  # sin datos de análisis
 
     return {
         "rnfl_avg": rnfl,
         # Sectores S/I/N/T — dos variantes de nombre según versión SW Cirrus
-        "rnfl_sup": _xml_first(xml, "SuperiorAvgRNFL", "SuperiorRNFLThickness",
-                                     "SuperiorAverage"),
-        "rnfl_inf": _xml_first(xml, "InferiorAvgRNFL", "InferiorRNFLThickness",
-                                     "InferiorAverage"),
-        "rnfl_nas": _xml_first(xml, "NasalAvgRNFL",    "NasalRNFLThickness",
-                                     "NasalAverage"),
-        "rnfl_tem": _xml_first(xml, "TemporalAvgRNFL", "TemporalRNFLThickness",
-                                     "TemporalAverage"),
-        "cdr":           _xml_float(xml, "CupDiscRatio"),
-        "vcdr":          _xml_float(xml, "VeritcalDiscRatio"),
+        "rnfl_sup": _xml_first(xml, "SuperiorAvgRNFL", "SuperiorRNFLThickness", "SuperiorAverage"),
+        "rnfl_inf": _xml_first(xml, "InferiorAvgRNFL", "InferiorRNFLThickness", "InferiorAverage"),
+        "rnfl_nas": _xml_first(xml, "NasalAvgRNFL", "NasalRNFLThickness", "NasalAverage"),
+        "rnfl_tem": _xml_first(xml, "TemporalAvgRNFL", "TemporalRNFLThickness", "TemporalAverage"),
+        "cdr": _xml_float(xml, "CupDiscRatio"),
+        "vcdr": _xml_float(xml, "VeritcalDiscRatio"),
         "disc_area_mm2": _xml_float(xml, "DiscAreaMM_2"),
-        "rim_area_mm2":  _xml_float(xml, "RimAreaMM_2"),
-        "cup_vol_mm3":   _xml_float(xml, "CupVolumeMM_3"),
+        "rim_area_mm2": _xml_float(xml, "RimAreaMM_2"),
+        "cup_vol_mm3": _xml_float(xml, "CupVolumeMM_3"),
     }
 
 
 # ── Detección de lateralidad ───────────────────────────────────────────────
+
 
 def _infer_laterality(ds: pydicom.Dataset) -> str:
     """Infiere lateralidad desde tags CZM (OD→R, OS→L).
@@ -364,6 +365,7 @@ def _infer_laterality(ds: pydicom.Dataset) -> str:
 
 # ── Extractor principal ────────────────────────────────────────────────────
 
+
 def extract_from_exam(
     exam_dir: str | Path,
     noel_id: str,
@@ -394,9 +396,7 @@ def extract_from_exam(
         Lista de OCTClinicalData, uno por estudio con mediciones (puede ser vacía).
     """
     exam_dir = Path(exam_dir)
-    dcm_files = sorted(
-        list(exam_dir.glob("*.DCM")) + list(exam_dir.glob("*.dcm"))
-    )
+    dcm_files = sorted(list(exam_dir.glob("*.DCM")) + list(exam_dir.glob("*.dcm")))
     if not dcm_files:
         logger.warning("No se encontraron .DCM en %s", exam_dir)
         return []
@@ -413,7 +413,7 @@ def extract_from_exam(
         # Solo procesar archivos de análisis (Raw Data Storage o con capas OB)
         sop = str(getattr(ds, "SOPClassUID", "")).split("\x00")[0].strip()
         has_layers = ds.get((0x0073, 0x1150)) is not None
-        has_onh    = ds.get((0x0073, 0x1255)) is not None
+        has_onh = ds.get((0x0073, 0x1255)) is not None
 
         if not (sop == _SOP_RAW_DATA or has_layers or has_onh):
             continue
@@ -427,18 +427,18 @@ def extract_from_exam(
 
     for uid, ds_list in studies.items():
         cd = OCTClinicalData(
-            noel_id      = noel_id,
-            vendor       = "zeiss_cirrus",
-            study_date   = study_date,
-            laterality   = laterality,
-            patient_name = patient_name,
-            patient_dob  = patient_dob,
-            study_type   = "unknown",
-            extraction_confidence = "unknown",
+            noel_id=noel_id,
+            vendor="zeiss_cirrus",
+            study_date=study_date,
+            laterality=laterality,
+            patient_name=patient_name,
+            patient_dob=patient_dob,
+            study_type="unknown",
+            extraction_confidence="unknown",
         )
 
         macular_done = False
-        onh_done     = False
+        onh_done = False
 
         for ds in ds_list:
             # Leer fecha del estudio si no se proveyó
@@ -474,7 +474,7 @@ def extract_from_exam(
                     th = _compute_thickness_map(ilm, bm)
                     cx, cy = _parse_fovea(ds)
                     cmt, grid = _etdrs_from_map(th, cx, cy)
-                    cd.cmt_um     = round(cmt, 1) if cmt is not None else None
+                    cd.cmt_um = round(cmt, 1) if cmt is not None else None
                     cd.etdrs_grid = grid
                     cd.study_type = "macular"
                     cd.add_note(
@@ -488,11 +488,11 @@ def extract_from_exam(
                 onh = _parse_onh(ds)
                 if onh.get("rnfl_avg") is not None:
                     cd.rnfl = RNFLSectors(
-                        global_avg = round(onh["rnfl_avg"], 2),
-                        superior   = round(onh["rnfl_sup"], 2) if onh.get("rnfl_sup") is not None else None,
-                        inferior   = round(onh["rnfl_inf"], 2) if onh.get("rnfl_inf") is not None else None,
-                        nasal      = round(onh["rnfl_nas"], 2) if onh.get("rnfl_nas") is not None else None,
-                        temporal   = round(onh["rnfl_tem"], 2) if onh.get("rnfl_tem") is not None else None,
+                        global_avg=round(onh["rnfl_avg"], 2),
+                        superior=round(onh["rnfl_sup"], 2) if onh.get("rnfl_sup") is not None else None,
+                        inferior=round(onh["rnfl_inf"], 2) if onh.get("rnfl_inf") is not None else None,
+                        nasal=round(onh["rnfl_nas"], 2) if onh.get("rnfl_nas") is not None else None,
+                        temporal=round(onh["rnfl_tem"], 2) if onh.get("rnfl_tem") is not None else None,
                     )
                     if onh.get("cdr") is not None:
                         cd.cup_disc_ratio = round(onh["cdr"], 3)
@@ -508,9 +508,11 @@ def extract_from_exam(
                     has_sectors = cd.rnfl.superior is not None
                     cd.add_note(
                         f"CONFIRMED: pRNFL={cd.rnfl.global_avg}µm"
-                        + (f" S={cd.rnfl.superior} I={cd.rnfl.inferior}"
-                           f" N={cd.rnfl.nasal} T={cd.rnfl.temporal}µm"
-                           if has_sectors else " (sectores no disponibles en este XML)")
+                        + (
+                            f" S={cd.rnfl.superior} I={cd.rnfl.inferior} N={cd.rnfl.nasal} T={cd.rnfl.temporal}µm"
+                            if has_sectors
+                            else " (sectores no disponibles en este XML)"
+                        )
                         + f", C/D={cd.cup_disc_ratio}, VCDR={cd.vcdr}, "
                         f"disc={cd.disc_area_mm2}mm², rim={cd.rim_area_mm2}mm²"
                     )
@@ -562,8 +564,8 @@ def extract_batch(
 # TESTS — python -m transducin.cirrus_extractor
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    import sys
     import logging
+    import sys
 
     logging.basicConfig(level=logging.WARNING)
     G, R, E = "\033[92m", "\033[91m", "\033[0m"
@@ -572,7 +574,10 @@ if __name__ == "__main__":
     def check(label, condition, detail=""):
         global errors
         ok = bool(condition)
-        print(f"  {'✓' if ok else '✗'} [{G+'PASS'+E if ok else R+'FAIL'+E}] {label}" + (f": {detail}" if detail else ""))
+        print(
+            f"  {'✓' if ok else '✗'} [{G + 'PASS' + E if ok else R + 'FAIL' + E}] {label}"
+            + (f": {detail}" if detail else "")
+        )
         if not ok:
             errors += 1
 
@@ -588,23 +593,25 @@ if __name__ == "__main__":
   <IsDataValid>true</IsDataValid>
 </OnhAnalysisParameters>"""
 
-    check("_xml_float RNFL",   _xml_float(xml, "AverageRNFLThickness") == 96.81)
-    check("_xml_float CDR",    abs(_xml_float(xml, "CupDiscRatio") - 0.503) < 0.001)
-    check("_xml_str IsValid",  _xml_str(xml, "IsDataValid") == "true")
+    check("_xml_float RNFL", _xml_float(xml, "AverageRNFLThickness") == 96.81)
+    check("_xml_float CDR", abs(_xml_float(xml, "CupDiscRatio") - 0.503) < 0.001)
+    check("_xml_str IsValid", _xml_str(xml, "IsDataValid") == "true")
 
     # Test ETDRS calculation with synthetic data
     th_flat = np.full((_MAC_N_BSCANS, _MAC_N_ASCANS), 300.0)
     cx_c, cy_c = _MAC_N_ASCANS // 2, _MAC_N_BSCANS // 2
     cmt, grid = _etdrs_from_map(th_flat, cx_c, cy_c)
-    check("CMT flat 300µm",    cmt is not None and abs(cmt - 300.0) < 1.0, f"{cmt:.1f}" if cmt else "None")
-    check("ETDRS C=300",       grid.C is not None and abs(grid.C - 300.0) < 1.0)
-    check("ETDRS S1=300",      grid.S1 is not None and abs(grid.S1 - 300.0) < 1.0)
-    check("ETDRS has 9 vals",  all(v is not None for v in [grid.C, grid.S1, grid.N1, grid.I1, grid.T1,
-                                                             grid.S2, grid.N2, grid.I2, grid.T2]))
+    check("CMT flat 300µm", cmt is not None and abs(cmt - 300.0) < 1.0, f"{cmt:.1f}" if cmt else "None")
+    check("ETDRS C=300", grid.C is not None and abs(grid.C - 300.0) < 1.0)
+    check("ETDRS S1=300", grid.S1 is not None and abs(grid.S1 - 300.0) < 1.0)
+    check(
+        "ETDRS has 9 vals",
+        all(v is not None for v in [grid.C, grid.S1, grid.N1, grid.I1, grid.T1, grid.S2, grid.N2, grid.I2, grid.T2]),
+    )
 
     # Test with gradient (thicker in center)
     y_g, x_g = np.ogrid[:_MAC_N_BSCANS, :_MAC_N_ASCANS]
-    d_g = np.sqrt(((x_g - cx_c) / _A_PER_MM)**2 + ((y_g - cy_c) / _B_PER_MM)**2)
+    d_g = np.sqrt(((x_g - cx_c) / _A_PER_MM) ** 2 + ((y_g - cy_c) / _B_PER_MM) ** 2)
     th_grad = 350.0 - d_g * 20.0  # thicker center
     cmt_g, grid_g = _etdrs_from_map(th_grad, cx_c, cy_c)
     check("CMT > sectors (gradient)", cmt_g > grid_g.S1 and cmt_g > grid_g.I1, f"CMT={cmt_g:.1f} S1={grid_g.S1:.1f}")
@@ -615,31 +622,29 @@ if __name__ == "__main__":
     if exam_dirs:
         print("\n══ Integration — archivos reales ══")
         results = extract_from_exam(exam_dirs[0], noel_id="SILT19900101")
-        check("extract_from_exam retorna lista",  isinstance(results, list))
-        check("al menos 1 resultado",             len(results) >= 1, f"n={len(results)}")
+        check("extract_from_exam retorna lista", isinstance(results, list))
+        check("al menos 1 resultado", len(results) >= 1, f"n={len(results)}")
 
         if results:
             cd = results[0]
-            check("noel_id asignado",             cd.noel_id == "SILT19900101")
-            check("has_measurements()",           cd.has_measurements())
-            check("confidence confirmed",         cd.extraction_confidence == "confirmed")
+            check("noel_id asignado", cd.noel_id == "SILT19900101")
+            check("has_measurements()", cd.has_measurements())
+            check("confidence confirmed", cd.extraction_confidence == "confirmed")
 
             if cd.cmt_um is not None:
-                check("CMT en rango 100-500µm",   100 < cd.cmt_um < 500, f"{cd.cmt_um}µm")
+                check("CMT en rango 100-500µm", 100 < cd.cmt_um < 500, f"{cd.cmt_um}µm")
             if cd.etdrs_grid is not None:
-                check("ETDRS grid tiene datos",   cd.etdrs_grid.has_data())
+                check("ETDRS grid tiene datos", cd.etdrs_grid.has_data())
             if cd.rnfl is not None:
-                check("RNFL en rango 40-160µm",   40 < cd.rnfl.global_avg < 160,
-                      f"{cd.rnfl.global_avg}µm")
+                check("RNFL en rango 40-160µm", 40 < cd.rnfl.global_avg < 160, f"{cd.rnfl.global_avg}µm")
             if cd.cup_disc_ratio is not None:
-                check("C/D en rango 0-1",         0 < cd.cup_disc_ratio < 1,
-                      f"{cd.cup_disc_ratio:.3f}")
+                check("C/D en rango 0-1", 0 < cd.cup_disc_ratio < 1, f"{cd.cup_disc_ratio:.3f}")
 
             # Batch
             batch = extract_batch("input/DATAFILES", noel_id="SILT19900101")
-            check("batch retorna múltiples",      len(batch) >= 1, f"n={len(batch)}")
+            check("batch retorna múltiples", len(batch) >= 1, f"n={len(batch)}")
     else:
         print("\n  (sin archivos reales — solo unit tests)")
 
-    print(f"\n{'══ TODOS LOS TESTS PASARON ══' if errors==0 else f'══ {errors} FALLARON ══'}\n")
+    print(f"\n{'══ TODOS LOS TESTS PASARON ══' if errors == 0 else f'══ {errors} FALLARON ══'}\n")
     sys.exit(0 if errors == 0 else 1)

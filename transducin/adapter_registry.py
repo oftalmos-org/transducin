@@ -10,31 +10,28 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
-from transducin.base_adapter import DeviceAdapter
-from transducin.adapters.revo import RevoOptAdapter
 from transducin.adapters.cirrus import CirrusDcmAdapter
 from transducin.adapters.cirrus_pdf import CirrusPdfAdapter
+from transducin.adapters.revo import RevoOptAdapter
 from transducin.adapters.spectralis import SpectralisE2EAdapter
 from transducin.adapters.topcon import TopconFdaAdapter
+from transducin.base_adapter import DeviceAdapter
 
 REGISTRY: list[DeviceAdapter] = [
     RevoOptAdapter(),
     CirrusDcmAdapter(),
     CirrusPdfAdapter(),
     SpectralisE2EAdapter(),  # D1 — Heidelberg Spectralis .e2e (reader vendorizado)
-    TopconFdaAdapter(),      # D2 — Topcon DRI OCT .fda/.fds (reader vendorizado)
+    TopconFdaAdapter(),  # D2 — Topcon DRI OCT .fda/.fds (reader vendorizado)
 ]
 
 # Extensiones agregadas de todos los adapters registrados.
 # hot_folder_watcher usa esto para filtrar eventos del filesystem.
-ALL_WATCHED_EXTENSIONS: frozenset[str] = frozenset(
-    ext for adapter in REGISTRY for ext in adapter.extensions
-)
+ALL_WATCHED_EXTENSIONS: frozenset[str] = frozenset(ext for adapter in REGISTRY for ext in adapter.extensions)
 
 
-def find_adapter(path: Path) -> Optional[DeviceAdapter]:
+def find_adapter(path: Path) -> DeviceAdapter | None:
     """Retorna el primer adapter del REGISTRY que puede manejar el archivo,
     o None si ninguno lo reconoce.
     """

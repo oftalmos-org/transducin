@@ -21,10 +21,10 @@ Inferencias:
                                          Idempotente; llamar ANTES de cualquier
                                          upload / C-STORE.
 """
+
 from __future__ import annotations
 
 import re
-
 
 # 'OCT Cube 4096x5', 'OCT Cube 1024x2', etc. — HD acquisitions whose name
 # lacks 'HD'/'Line'/'Raster'. The [25] + \b guard excludes 'Optic Disc Cube
@@ -33,15 +33,15 @@ _HD_CUBE_SHORTHAND = re.compile(r"\bcube\s+\d+x[25]\b")
 
 
 _CIRRUS_STUDY_LABELS: dict[str, str] = {
-    "macular":       "Zeiss Cirrus HD-OCT Macular",
-    "optic_nerve":   "Zeiss Cirrus HD-OCT Optic Disc",
-    "hd_line":       "Zeiss Cirrus HD-OCT HD Line",
-    "fundus":        "Zeiss Cirrus HD-OCT Fundus",
-    "en_face":       "Zeiss Cirrus HD-OCT En Face",
+    "macular": "Zeiss Cirrus HD-OCT Macular",
+    "optic_nerve": "Zeiss Cirrus HD-OCT Optic Disc",
+    "hd_line": "Zeiss Cirrus HD-OCT HD Line",
+    "fundus": "Zeiss Cirrus HD-OCT Fundus",
+    "en_face": "Zeiss Cirrus HD-OCT En Face",
     "ganglion_cell": "Zeiss Cirrus HD-OCT Ganglion Cell",
-    "angio":         "Zeiss Cirrus HD-OCT OCTA",
-    "analysis":      "Zeiss Cirrus HD-OCT Analysis Data",
-    "unknown":       "Zeiss Cirrus HD-OCT",
+    "angio": "Zeiss Cirrus HD-OCT OCTA",
+    "analysis": "Zeiss Cirrus HD-OCT Analysis Data",
+    "unknown": "Zeiss Cirrus HD-OCT",
 }
 _LAT_LABEL: dict[str, str] = {"R": "OD", "L": "OS"}
 
@@ -72,10 +72,15 @@ def infer_study_type(series_desc: str) -> str:
     if "angio" in s or "octa" in s:
         return "angio"
 
-    if ("raster" in s or "hd single" in s or "hd 5-line" in s
-            or "hd line" in s or " line" in s
-            or "4096x5" in s
-            or _HD_CUBE_SHORTHAND.search(s) is not None):
+    if (
+        "raster" in s
+        or "hd single" in s
+        or "hd 5-line" in s
+        or "hd line" in s
+        or " line" in s
+        or "4096x5" in s
+        or _HD_CUBE_SHORTHAND.search(s) is not None
+    ):
         return "hd_line"
 
     return "unknown"

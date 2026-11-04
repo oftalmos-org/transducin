@@ -19,9 +19,9 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -85,23 +85,23 @@ def noel_initials(name: str) -> str:
         tokens = n.split()
         if len(tokens) >= 4:
             mid = len(tokens) // 2
-            nombres_str   = " ".join(tokens[:mid])
+            nombres_str = " ".join(tokens[:mid])
             apellidos_str = " ".join(tokens[mid:])
         elif len(tokens) == 3:
-            nombres_str   = tokens[0]
+            nombres_str = tokens[0]
             apellidos_str = " ".join(tokens[1:])
         elif len(tokens) == 2:
-            nombres_str   = tokens[0]
+            nombres_str = tokens[0]
             apellidos_str = tokens[1]
         else:
             return ""
 
     apellidos = apellidos_str.split()
-    nombres   = nombres_str.split()
+    nombres = nombres_str.split()
 
     pat = apellidos[0] if apellidos else ""
     mat = apellidos[1] if len(apellidos) > 1 else ""
-    nom = nombres[0]   if nombres   else ""
+    nom = nombres[0] if nombres else ""
 
     if len(pat) < 2 or not nom:
         return ""
@@ -190,20 +190,20 @@ if __name__ == "__main__":
     def check(label, got, expected):
         global errors
         ok = got == expected
-        print(f"  {'✓' if ok else '✗'} [{G+'PASS'+E if ok else R+'FAIL'+E}] {label}")
+        print(f"  {'✓' if ok else '✗'} [{G + 'PASS' + E if ok else R + 'FAIL' + E}] {label}")
         if not ok:
             print(f"       got:      {got!r}")
             print(f"       expected: {expected!r}")
             errors += 1
 
     print("\n══ is_valid_noel ══")
-    check("JAHJ19870831 válido",       is_valid_noel("JAHJ19870831"), True)
-    check("minúsculas → False",        is_valid_noel("jahj19870831"), False)
-    check("vacío → False",             is_valid_noel(""), False)
-    check("3 letras + 8 → True",       is_valid_noel("JAH19870831"), True)
-    check("5 letras + 8 → False",      is_valid_noel("JAHJX19870831"), False)
-    check("4 letras + 7 → False",      is_valid_noel("JAHJ1987083"), False)
-    check("espacios → False",          is_valid_noel("JAH J19870831"), False)
+    check("JAHJ19870831 válido", is_valid_noel("JAHJ19870831"), True)
+    check("minúsculas → False", is_valid_noel("jahj19870831"), False)
+    check("vacío → False", is_valid_noel(""), False)
+    check("3 letras + 8 → True", is_valid_noel("JAH19870831"), True)
+    check("5 letras + 8 → False", is_valid_noel("JAHJX19870831"), False)
+    check("4 letras + 7 → False", is_valid_noel("JAHJ1987083"), False)
+    check("espacios → False", is_valid_noel("JAH J19870831"), False)
 
     print("\n══ build_noel_id — algoritmo NOEL correcto ══")
     # Caso canónico del protocolo
@@ -253,19 +253,19 @@ if __name__ == "__main__":
 
     print("\n══ normalize_noel_id ══")
     noel, status = normalize_noel_id("JAHJ19870831")
-    check("preservar NOEL válido",   noel,   "JAHJ19870831")
-    check("status preserved",        status, "preserved")
+    check("preservar NOEL válido", noel, "JAHJ19870831")
+    check("status preserved", status, "preserved")
 
     noel, status = normalize_noel_id("OLD-ID", "JAURRIETA HINOJOS_JESUS NOEL", "19870831")
-    check("construir desde nombre",  noel,   "JAHJ19870831")
-    check("status built",            status, "built")
+    check("construir desde nombre", noel, "JAHJ19870831")
+    check("status built", status, "built")
 
     noel, status = normalize_noel_id("MRN-007")
-    check("fallback sin datos",      noel,   "MRN-007")
-    check("status warn",             status, "warn")
+    check("fallback sin datos", noel, "MRN-007")
+    check("status warn", status, "warn")
 
     noel, status = normalize_noel_id("", "", "")
-    check("vacío → UNKNOWN",         noel,   "UNKNOWN")
+    check("vacío → UNKNOWN", noel, "UNKNOWN")
 
-    print(f"\n{'══ TODOS LOS TESTS PASARON ══' if errors==0 else f'══ {errors} FALLARON ══'}\n")
+    print(f"\n{'══ TODOS LOS TESTS PASARON ══' if errors == 0 else f'══ {errors} FALLARON ══'}\n")
     sys.exit(0 if errors == 0 else 1)

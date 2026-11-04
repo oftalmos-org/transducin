@@ -35,12 +35,11 @@ import io
 import logging
 import re
 from pathlib import Path
-from typing import Optional
 
 import pdfplumber
 import pydicom
 
-from transducin.clinical_data import VisualFieldData, VisualFieldPoint  # noqa: F401
+from transducin.clinical_data import VisualFieldData, VisualFieldPoint
 
 logger = logging.getLogger("transducin.pts925")
 
@@ -48,11 +47,12 @@ logger = logging.getLogger("transducin.pts925")
 SOP_CLASS_VISUAL_FIELD = "1.2.840.10008.5.1.4.1.1.80"
 
 # Identificación del equipo en tags DICOM
-_MANUFACTURER      = "Optopol Technology"
-_MODEL_PATTERN     = re.compile(r"PTS\s*9", re.IGNORECASE)
+_MANUFACTURER = "Optopol Technology"
+_MODEL_PATTERN = re.compile(r"PTS\s*9", re.IGNORECASE)
 
 
 # ── Detección ─────────────────────────────────────────────────────────────────
+
 
 def is_pts925_dicom(ds: pydicom.Dataset) -> bool:
     """True si el Dataset es un Secondary Capture OPV del PTS 925Wi."""
@@ -65,15 +65,15 @@ def is_pts925_dicom(ds: pydicom.Dataset) -> bool:
 
 def has_embedded_pdf(ds: pydicom.Dataset) -> bool:
     """True si el Dataset contiene un PDF encapsulado con resultados."""
-    return (
-        hasattr(ds, "EncapsulatedDocument")
-        and str(getattr(ds, "MIMETypeOfEncapsulatedDocument", "")).startswith("application/pdf")
+    return hasattr(ds, "EncapsulatedDocument") and str(getattr(ds, "MIMETypeOfEncapsulatedDocument", "")).startswith(
+        "application/pdf"
     )
 
 
 # ── Extracción PDF ─────────────────────────────────────────────────────────────
 
-def _parse_ratio(text: str, pattern: str) -> Optional[float]:
+
+def _parse_ratio(text: str, pattern: str) -> float | None:
     """Extrae una fracción N/M del texto y devuelve el ratio float."""
     m = re.search(pattern, text)
     if not m:
@@ -84,13 +84,11 @@ def _parse_ratio(text: str, pattern: str) -> Optional[float]:
     return round(num / den, 4)
 
 
-def _parse_vf_pdf(pdf_bytes: bytes, source_file: str = "") -> Optional[VisualFieldData]:
+def _parse_vf_pdf(pdf_bytes: bytes, source_file: str = "") -> VisualFieldData | None:
     """Extrae VisualFieldData del PDF embebido del PTS 925Wi."""
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            text = "\n".join(
-                page.extract_text() or "" for page in pdf.pages
-            )
+            text = "\n".join(page.extract_text() or "" for page in pdf.pages)
     except Exception as exc:
         logger.warning("pts925: no se pudo abrir PDF embebido: %s", exc)
         return None
@@ -120,8 +118,8 @@ def _parse_vf_pdf(pdf_bytes: bytes, source_file: str = "") -> Optional[VisualFie
     # ── Patrón y estrategia (ej: "24-2 ZETA Fast") ─────────────────────────
     m = re.search(r"(\d+[-]\d+)\s+(ZETA\s+\w+|SITA\s+\w+|Full\s+Threshold)", text, re.IGNORECASE)
     if m:
-        vf.test_pattern = m.group(1)          # "24-2"
-        vf.strategy     = m.group(2).strip()  # "ZETA Fast"
+        vf.test_pattern = m.group(1)  # "24-2"
+        vf.strategy = m.group(2).strip()  # "ZETA Fast"
     else:
         # Fallback: patrón sin estrategia reconocida
         m = re.search(r"\b(24-2|30-2|10-2|Macula)\b", text, re.IGNORECASE)
@@ -176,7 +174,7 @@ def _parse_vf_pdf(pdf_bytes: bytes, source_file: str = "") -> Optional[VisualFie
     vf.false_neg_pct = _parse_ratio(text, r"FNEG:\s*(\d+)/(\d+)")
 
     # ── Métricas adicionales → notes ─────────────────────────────────────────
-    m_ms  = re.search(r"MS:\s*(\d+[\.,]\d+)\s*dB", text)
+    m_ms = re.search(r"MS:\s*(\d+[\.,]\d+)\s*dB", text)
     m_sfo = re.search(r"SFo:\s*(\d+[\.,]\d+)", text)
     m_idv = re.search(r"IdV a 10º:\s*([\d.]+)\s*dB", text)
     if m_ms:
@@ -216,7 +214,8 @@ def _parse_vf_pdf(pdf_bytes: bytes, source_file: str = "") -> Optional[VisualFie
 
 # ── API pública ────────────────────────────────────────────────────────────────
 
-def extract_from_dicom(dcm_path: str | Path) -> Optional[VisualFieldData]:
+
+def extract_from_dicom(dcm_path: str | Path) -> VisualFieldData | None:
     """Extrae VisualFieldData de un Secondary Capture DICOM del PTS 925Wi.
 
     Args:
@@ -245,13 +244,11 @@ def extract_from_dicom(dcm_path: str | Path) -> Optional[VisualFieldData]:
         )
 
     if not has_embedded_pdf(ds):
-        logger.debug("pts925: %s es imagen JPEG, no PDF — sin datos estructurados",
-                     dcm_path.name)
+        logger.debug("pts925: %s es imagen JPEG, no PDF — sin datos estructurados", dcm_path.name)
         return None
 
     pdf_bytes = bytes(ds.EncapsulatedDocument)
-    logger.info("pts925: extrayendo PDF embebido de %s (%d bytes)",
-                dcm_path.name, len(pdf_bytes))
+    logger.info("pts925: extrayendo PDF embebido de %s (%d bytes)", dcm_path.name, len(pdf_bytes))
 
     vf = _parse_vf_pdf(pdf_bytes, source_file=str(dcm_path))
     if vf is None:
@@ -309,15 +306,17 @@ def extract_from_dicom_dir(dir_path: str | Path) -> list[VisualFieldData]:
         vf = extract_from_dicom(f)
         if vf is not None:
             results.append(vf)
-            logger.info("pts925: extraído %s (%s) MD=%.2f dB GHT=%s",
-                        f.name, vf.laterality, vf.md_db or 0, vf.ght or "?")
+            logger.info(
+                "pts925: extraído %s (%s) MD=%.2f dB GHT=%s", f.name, vf.laterality, vf.md_db or 0, vf.ght or "?"
+            )
 
     return results
 
 
 # ── Legacy stub (formato binario .pvf/.pts — no implementado) ─────────────────
 
-def extract_from_pts(filepath: str | Path) -> Optional[VisualFieldData]:
+
+def extract_from_pts(filepath: str | Path) -> VisualFieldData | None:
     """Extrae VisualFieldData de un archivo binario propietario del PTS 925.
 
     El PTS 925Wi exporta vía DICOM (usar extract_from_dicom en su lugar).
@@ -340,6 +339,7 @@ def extract_from_pts(filepath: str | Path) -> Optional[VisualFieldData]:
 
 
 # ── Tests internos ─────────────────────────────────────────────────────────────
+
 
 def _run_tests() -> None:
     """Tests del extractor PTS 925Wi."""
@@ -370,8 +370,9 @@ def _run_tests() -> None:
     # ── Test 2: extract_from_pts levanta NotImplementedError ────────────────
     import os
     import tempfile
+
     with tempfile.NamedTemporaryFile(suffix=".pvf", delete=False) as tmp:
-        tmp.write(b"\xA5\xA5\xA5\xFF" + b"\x00" * 100)
+        tmp.write(b"\xa5\xa5\xa5\xff" + b"\x00" * 100)
         tmp_path = tmp.name
     try:
         extract_from_pts(tmp_path)
@@ -382,14 +383,15 @@ def _run_tests() -> None:
         os.unlink(tmp_path)
 
     # ── Test 3: SOP Class correcto ───────────────────────────────────────────
-    check("SOP_CLASS_VISUAL_FIELD correcto",
-          SOP_CLASS_VISUAL_FIELD == "1.2.840.10008.5.1.4.1.1.80")
+    check("SOP_CLASS_VISUAL_FIELD correcto", SOP_CLASS_VISUAL_FIELD == "1.2.840.10008.5.1.4.1.1.80")
 
     # ── Test 4: _parse_vf_pdf con texto de ejemplo ──────────────────────────
     import io as _io
+
     # Crear PDF mínimo con el texto de ejemplo
     try:
         from reportlab.pdfgen import canvas as rl_canvas
+
         buf = _io.BytesIO()
         c = rl_canvas.Canvas(buf)
         c.drawString(10, 700, "Single Field Analysis Ojo: OD")
@@ -420,6 +422,7 @@ def _run_tests() -> None:
 
     # ── Test 5: extract_from_dicom con archivos reales ───────────────────────
     import glob as _glob
+
     real_files = sorted(_glob.glob("input/PTS/export_*.dcm"))
     if real_files:
         found_pdfs = 0
@@ -428,18 +431,14 @@ def _run_tests() -> None:
                 vf_real = extract_from_dicom(f)
                 if vf_real is not None:
                     found_pdfs += 1
-                    check(f"Real PDF {Path(f).name[-20:]}: md_db",
-                          vf_real.md_db is not None, str(vf_real.md_db))
-                    check("Real PDF: laterality",
-                          vf_real.laterality in ("R", "L"), vf_real.laterality)
-                    check("Real PDF: noel_id",
-                          bool(vf_real.noel_id), vf_real.noel_id)
+                    check(f"Real PDF {Path(f).name[-20:]}: md_db", vf_real.md_db is not None, str(vf_real.md_db))
+                    check("Real PDF: laterality", vf_real.laterality in ("R", "L"), vf_real.laterality)
+                    check("Real PDF: noel_id", bool(vf_real.noel_id), vf_real.noel_id)
             except ValueError:
                 pass  # JPEG-only, esperado
             except Exception as e:
                 check(f"Real {Path(f).name[-20:]}", False, str(e))
-        check("Archivos reales: al menos 1 PDF extraído", found_pdfs >= 1,
-              f"encontrados: {found_pdfs}")
+        check("Archivos reales: al menos 1 PDF extraído", found_pdfs >= 1, f"encontrados: {found_pdfs}")
         print(f"\n  Resumen: {found_pdfs} PDFs extraídos de {len(real_files)} DICOMs")
     else:
         print("  [SKIP] Sin archivos reales en input/PTS/")

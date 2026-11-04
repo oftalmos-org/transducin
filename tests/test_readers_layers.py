@@ -3,6 +3,7 @@
 Los .e2e/.fda se generan en tmp_path con tests/_synthetic.py; nunca se abren
 archivos reales (política de privacidad RetinaOS §2).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -14,8 +15,8 @@ from transducin.adapters.topcon import TopconFdaAdapter
 from transducin.readers.e2e_reader import E2EReader
 from transducin.readers.fda_reader import FDAReader
 
-
 # ── E2E ───────────────────────────────────────────────────────────────────────
+
 
 def test_e2e_layer_volumes(tmp_path):
     vols = E2EReader(build_e2e(tmp_path / "s.e2e")).read_layer_volumes()
@@ -66,7 +67,7 @@ def test_e2e_laterality_swaps_nasal_temporal(tmp_path):
     prof = thickness_profile(25, 256, 250.0, grad_um=120.0)
     r = SpectralisE2EAdapter().extract(build_e2e(tmp_path / "r.e2e", laterality="R", thick_um=prof))
     l = SpectralisE2EAdapter().extract(build_e2e(tmp_path / "l.e2e", laterality="L", thick_um=prof))
-    assert r.etdrs_grid.N1 != pytest.approx(r.etdrs_grid.T1, abs=1.0)   # el gradiente se nota
+    assert r.etdrs_grid.N1 != pytest.approx(r.etdrs_grid.T1, abs=1.0)  # el gradiente se nota
     assert r.etdrs_grid.N1 == pytest.approx(l.etdrs_grid.T1, abs=0.5)
     assert r.etdrs_grid.T1 == pytest.approx(l.etdrs_grid.N1, abs=0.5)
     assert r.cmt_um == pytest.approx(l.cmt_um, abs=0.5)
@@ -96,7 +97,7 @@ def test_e2e_parity_with_legacy_extractor(tmp_path):
     p = build_e2e(tmp_path / "s.e2e", laterality="L", thick_um=prof, with_image=True)
     try:
         legacy = extract_from_e2e(p)
-    except Exception as exc:                      # pragma: no cover
+    except Exception as exc:  # pragma: no cover
         pytest.skip(f"oct_converter no pudo leer el archivo sintético: {exc}")
     if not legacy:
         pytest.skip("oct_converter no produjo volúmenes con el archivo sintético mínimo")
@@ -111,10 +112,11 @@ def test_e2e_parity_with_legacy_extractor(tmp_path):
 
 # ── FDA ───────────────────────────────────────────────────────────────────────
 
+
 def test_fda_chunk_listing_works_with_numpy2(tmp_path):
     """Regresión: np.fromstring(binario) fue eliminado en numpy>=2.3."""
     r = FDAReader(build_fda(tmp_path / "t.fda"))
-    assert isinstance(r.chunk_dict[b"@CONTOUR_INFO"][0], list)   # 4 capas duplicadas
+    assert isinstance(r.chunk_dict[b"@CONTOUR_INFO"][0], list)  # 4 capas duplicadas
     assert r.read_oct_volume()[0].laterality == "R"
 
 
@@ -134,8 +136,8 @@ def test_fda_layer_volumes(tmp_path):
 
 def test_fda_thickness_map_values(tmp_path):
     m = FDAReader(build_fda(tmp_path / "t.fda")).read_thickness_map()[0]
-    assert m.cmt_um == pytest.approx(260.0, abs=1.0)           # 100 px × 2.6 µm
-    assert m.rnfl_sectors["G"] == pytest.approx(39.0, abs=1.0)   # 15 px
+    assert m.cmt_um == pytest.approx(260.0, abs=1.0)  # 100 px × 2.6 µm
+    assert m.rnfl_sectors["G"] == pytest.approx(39.0, abs=1.0)  # 15 px
     assert m.gcl_ipl_sectors["G"] == pytest.approx(59.8, abs=1.0)  # 23 px
     assert m.sqi_mean == pytest.approx(0.85)
     assert m.study_type == "macular" and m.laterality == "R"

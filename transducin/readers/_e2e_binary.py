@@ -10,7 +10,6 @@
 from construct import (
     Array,
     Float32l,
-    Float64l,
     Int8un,
     Int16un,
     Int32sn,
@@ -18,7 +17,6 @@ from construct import (
     Int64un,
     PaddedString,
     Struct,
-    this,
 )
 
 header_structure = Struct(

@@ -14,11 +14,10 @@
 
 from __future__ import annotations
 
+import argparse
 import math
-import os
 import re
 import sys
-import argparse
 from pathlib import Path
 
 import pydicom
@@ -27,13 +26,14 @@ from pydicom.uid import JPEG2000
 _uid_re = re.compile(r"^[\d.]+")
 
 # SOP Classes conocidos del Cirrus HD-OCT
-_SOP_FUNDUS_8BIT  = "1.2.840.10008.5.1.4.1.1.77.1.5.1"
+_SOP_FUNDUS_8BIT = "1.2.840.10008.5.1.4.1.1.77.1.5.1"
 _SOP_FUNDUS_16BIT = "1.2.840.10008.5.1.4.1.1.77.1.5.2"
-_SOP_OCT          = "1.2.840.10008.5.1.4.1.1.77.1.5.4"
-_SOP_CZM_BROKEN   = "1.2.840.10008.5.1.4.1.1.12.77"
+_SOP_OCT = "1.2.840.10008.5.1.4.1.1.77.1.5.4"
+_SOP_CZM_BROKEN = "1.2.840.10008.5.1.4.1.1.12.77"
 
 
 # ── UIDs ────────────────────────────────────────────────────────────────────
+
 
 def clean_dicom_uids(ds) -> None:
     """Limpia UIDs corruptos que CZM embebe con basura binaria tras '\\x00'."""
@@ -47,12 +47,15 @@ def clean_dicom_uids(ds) -> None:
 
 # ── Previsualización PNG ─────────────────────────────────────────────────────
 
+
 def _jp2_to_uint8(frame_bytes: bytes, p_low: float = 2.0, p_high: float = 98.0):
     """Decodifica JP2 y normaliza a uint8 con clipping percentil."""
     try:
-        from PIL import Image
-        import numpy as np
         import io as _io
+
+        import numpy as np
+        from PIL import Image
+
         img = Image.open(_io.BytesIO(bytes(frame_bytes)))
         arr = np.array(img).astype(float)
     except Exception:
@@ -69,9 +72,10 @@ def _jp2_to_uint8(frame_bytes: bytes, p_low: float = 2.0, p_high: float = 98.0):
 def compute_dicom_window(jp2_frames: list, n_sample: int = 5) -> tuple[int, int]:
     """Calcula WindowCenter y WindowWidth óptimos (percentiles p2-p98)."""
     try:
-        from PIL import Image
-        import numpy as np
         import io as _io
+
+        import numpy as np
+        from PIL import Image
     except ImportError:
         return 128, 256
 
@@ -79,9 +83,7 @@ def compute_dicom_window(jp2_frames: list, n_sample: int = 5) -> tuple[int, int]
     if n == 0:
         return 128, 256
 
-    indices = list(range(n)) if n <= n_sample else [
-        int(round(i * (n - 1) / (n_sample - 1))) for i in range(n_sample)
-    ]
+    indices = list(range(n)) if n <= n_sample else [round(i * (n - 1) / (n_sample - 1)) for i in range(n_sample)]
     all_pixels = []
     for idx in indices:
         try:
@@ -96,7 +98,7 @@ def compute_dicom_window(jp2_frames: list, n_sample: int = 5) -> tuple[int, int]
     flat = np.concatenate(all_pixels)
     lo = float(np.percentile(flat, 2))
     hi = float(np.percentile(flat, 98))
-    return int(round((lo + hi) / 2.0)), max(1, int(round(hi - lo)))
+    return round((lo + hi) / 2.0), max(1, round(hi - lo))
 
 
 def save_preview_png(png_path: Path, jp2_frames: list, verbose: bool = False) -> bool:
@@ -118,7 +120,7 @@ def save_preview_png(png_path: Path, jp2_frames: list, verbose: bool = False) ->
     try:
         Image.fromarray(arr_mid).save(str(png_path))
         if verbose:
-            label = f"frame {n//2 + 1}/{n}" if n > 1 else "1 frame"
+            label = f"frame {n // 2 + 1}/{n}" if n > 1 else "1 frame"
             print(f"  PNG     {png_path.name}  [{label}, {arr_mid.shape[1]}×{arr_mid.shape[0]}px]")
     except Exception:
         return False
@@ -132,7 +134,7 @@ def save_preview_png(png_path: Path, jp2_frames: list, verbose: bool = False) ->
             if arr is None:
                 continue
             try:
-                Image.fromarray(arr).save(str(frames_dir / f"frame_{i+1:03d}.png"))
+                Image.fromarray(arr).save(str(frames_dir / f"frame_{i + 1:03d}.png"))
                 saved += 1
             except Exception:
                 pass
@@ -143,6 +145,7 @@ def save_preview_png(png_path: Path, jp2_frames: list, verbose: bool = False) ->
 
 
 # ── Metadatos de serie ───────────────────────────────────────────────────────
+
 
 def infer_czm_series_meta(ds) -> tuple[str, str]:
     """Infiere SeriesDescription y Modality para un DICOM del Cirrus HD-OCT 500.
@@ -186,6 +189,7 @@ def infer_czm_series_meta(ds) -> tuple[str, str]:
 
 # ── Algoritmo de desofuscación CZM ──────────────────────────────────────────
 
+
 def unscramble_czm(frame: bytes) -> bytearray:
     """Revierte la ofuscación CZM sobre un frame JPEG 2000.
 
@@ -198,8 +202,8 @@ def unscramble_czm(frame: bytes) -> bytearray:
     for ii in range(0, len(frame), 7):
         frame[ii] ^= 0x5A
 
-    jp2_sig_full  = b"\x00\x00\x00\x0C\x6A\x50\x20\x20"
-    jp2_sig_short = b"\x00\x00\x00\x0C"
+    jp2_sig_full = b"\x00\x00\x00\x0c\x6a\x50\x20\x20"
+    jp2_sig_short = b"\x00\x00\x00\x0c"
 
     offset = frame.find(jp2_sig_full)
     if offset == -1:
@@ -216,13 +220,10 @@ def unscramble_czm(frame: bytes) -> bytearray:
     d.extend(frame[1016:jp2_offset])
     d.extend(frame[:23])
     d.extend(frame[763:993])
-    d.extend(frame[jp2_offset + 253:])
+    d.extend(frame[jp2_offset + 253 :])
 
     if len(d) != len(frame):
-        raise ValueError(
-            f"Error en la reconstrucción: longitud resultante {len(d)} "
-            f"≠ longitud original {len(frame)}"
-        )
+        raise ValueError(f"Error en la reconstrucción: longitud resultante {len(d)} ≠ longitud original {len(frame)}")
     return d
 
 
@@ -231,11 +232,11 @@ def is_obfuscated(frame: bytes) -> bool:
     if len(frame) < 16:
         return False
 
-    jp2_sig_full = b"\x00\x00\x00\x0C\x6A\x50\x20\x20"
+    jp2_sig_full = b"\x00\x00\x00\x0c\x6a\x50\x20\x20"
 
     if frame[:8] == jp2_sig_full:
         return False
-    if frame[:2] == b"\xFF\x4F":
+    if frame[:2] == b"\xff\x4f":
         return False
 
     test = bytearray(frame)
@@ -244,11 +245,12 @@ def is_obfuscated(frame: bytes) -> bool:
 
     offset = test.find(jp2_sig_full)
     if offset == -1:
-        offset = test.find(b"\x00\x00\x00\x0C")
+        offset = test.find(b"\x00\x00\x00\x0c")
     return offset is not None and offset > 100
 
 
 # ── Procesamiento de un archivo ──────────────────────────────────────────────
+
 
 def process_dicom_file(
     input_path: Path,
@@ -297,6 +299,7 @@ def process_dicom_file(
         print(f"  [INFO]  {input_path.name} — no ofuscado, copiando sin cambios")
         if input_path != output_path:
             import shutil
+
             shutil.copy2(input_path, output_path)
         return True
 
@@ -306,9 +309,9 @@ def process_dicom_file(
         try:
             processed_frames.append(bytes(unscramble_czm(frame)))
             if verbose:
-                print(f"  Frame {i+1}/{len(frames_raw)} — OK")
+                print(f"  Frame {i + 1}/{len(frames_raw)} — OK")
         except Exception as e:
-            print(f"  [WARN]  Frame {i+1} — error: {e}")
+            print(f"  [WARN]  Frame {i + 1} — error: {e}")
             processed_frames.append(frame)
             errors += 1
 
@@ -322,7 +325,7 @@ def process_dicom_file(
     ds["PixelData"].is_undefined_length = True
 
     from pydicom.dataset import FileMetaDataset
-    from pydicom.uid import ExplicitVRLittleEndian, JPEG2000Lossless
+    from pydicom.uid import JPEG2000Lossless
 
     if not hasattr(ds, "file_meta") or ds.file_meta is None:
         ds.file_meta = FileMetaDataset()
@@ -338,10 +341,10 @@ def process_dicom_file(
         if verbose:
             print(f"  SOP corregido → {_SOP_OCT}")
 
-    ds.file_meta.MediaStorageSOPClassUID    = getattr(ds, "SOPClassUID", _SOP_OCT)
+    ds.file_meta.MediaStorageSOPClassUID = getattr(ds, "SOPClassUID", _SOP_OCT)
     ds.file_meta.MediaStorageSOPInstanceUID = getattr(ds, "SOPInstanceUID", pydicom.uid.generate_uid())
-    ds.file_meta.ImplementationClassUID     = "1.2.3.4"
-    ds.is_implicit_VR   = False
+    ds.file_meta.ImplementationClassUID = "1.2.3.4"
+    ds.is_implicit_VR = False
     ds.is_little_endian = True
     ds.PixelRepresentation = 0  # JP2K del Cirrus es siempre unsigned
 
@@ -352,7 +355,7 @@ def process_dicom_file(
 
     wc, ww = compute_dicom_window(processed_frames)
     ds.WindowCenter = wc
-    ds.WindowWidth  = ww
+    ds.WindowWidth = ww
 
     if verbose:
         print(f"  Serie/Modalidad → {series_desc} / {modality}")
@@ -378,6 +381,7 @@ def process_dicom_file(
 
 
 # ── Procesamiento por lotes ──────────────────────────────────────────────────
+
 
 def process_directory(
     input_dir: Path,
@@ -415,9 +419,9 @@ def process_directory(
 
     ok = err = 0
     for fp in files:
-        rel  = fp.relative_to(input_dir)
+        rel = fp.relative_to(input_dir)
         stem = fp.name.split(".")[0]
-        out  = output_dir / rel.parent / (stem + ".dcm")
+        out = output_dir / rel.parent / (stem + ".dcm")
         print(f"Procesando: {rel}")
         if process_dicom_file(fp, out, verbose=verbose, save_png=save_png):
             ok += 1
@@ -428,6 +432,7 @@ def process_directory(
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -440,15 +445,15 @@ Ejemplos:
   python -m transducin.carl_deobfuscator -i ./DATAFILES/ -o ./output/ --no-png
         """,
     )
-    parser.add_argument("-i", "--input",  required=True, help="Archivo .DCM o directorio de entrada")
+    parser.add_argument("-i", "--input", required=True, help="Archivo .DCM o directorio de entrada")
     parser.add_argument("-o", "--output", required=True, help="Archivo .DCM o directorio de salida")
-    parser.add_argument("--overwrite",    action="store_true", help="Sobreescribir archivos existentes")
+    parser.add_argument("--overwrite", action="store_true", help="Sobreescribir archivos existentes")
     parser.add_argument("--no-recursive", action="store_true", help="No buscar en subdirectorios")
     parser.add_argument("-v", "--verbose", action="store_true", help="Información detallada por frame")
-    parser.add_argument("--no-png",       action="store_true", help="No generar PNG de previsualización")
+    parser.add_argument("--no-png", action="store_true", help="No generar PNG de previsualización")
     args = parser.parse_args()
 
-    input_path  = Path(args.input).resolve()
+    input_path = Path(args.input).resolve()
     output_path = Path(args.output).resolve()
 
     if not input_path.exists():
@@ -461,7 +466,7 @@ Ejemplos:
 
     if input_path.is_file():
         if output_path.exists() and not args.overwrite:
-            print(f"ERROR: el archivo de salida ya existe. Usa --overwrite.")
+            print("ERROR: el archivo de salida ya existe. Usa --overwrite.")
             sys.exit(1)
         ok = process_dicom_file(input_path, output_path, verbose=args.verbose, save_png=not args.no_png)
         sys.exit(0 if ok else 1)
@@ -469,7 +474,8 @@ Ejemplos:
     if input_path.is_dir():
         output_path.mkdir(parents=True, exist_ok=True)
         ok, err = process_directory(
-            input_path, output_path,
+            input_path,
+            output_path,
             recursive=not args.no_recursive,
             verbose=args.verbose,
             save_png=not args.no_png,

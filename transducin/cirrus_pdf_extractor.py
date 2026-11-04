@@ -28,7 +28,6 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Optional
 
 import pdfplumber
 import pytesseract
@@ -51,7 +50,7 @@ _RNFL_MAX = 250
 
 # Threshold OCR para binarización de imágenes (empírico, Cirrus HD-OCT 500 v8-11)
 _ETDRS_THRESH = 50
-_RNFL_THRESH_MAX = 80   # píxeles oscuros para aislar texto negro (fondo coloreado)
+_RNFL_THRESH_MAX = 80  # píxeles oscuros para aislar texto negro (fondo coloreado)
 
 # Regiones espaciales en el grid ETDRS (fracción normalizada sobre el tamaño de la imagen)
 # Determinadas empíricamente con imágenes 390×390 px del Cirrus Macular Thickness OU
@@ -65,8 +64,8 @@ _RNFL_THRESH_MAX = 80   # píxeles oscuros para aislar texto negro (fondo colore
 #   Right Inner     0.56 < x < 0.75 AND  |y - cy| < 0.15
 #   Right Outer     x > 0.76        AND  |y - cy| < 0.15
 
-_CX = 0.50   # fracción x del centro
-_CY = 0.50   # fracción y del centro
+_CX = 0.50  # fracción x del centro
+_CY = 0.50  # fracción y del centro
 _BAND = 0.18  # semi-ancho de la banda axial/medial
 _CENTER_R = 0.12  # radio máximo para zona central (fracción del tamaño de imagen)
 
@@ -87,10 +86,11 @@ _FN_RE = re.compile(
 )
 
 _SIGNAL_RE = re.compile(r"(\d+)/10")
-_DATE_RE    = re.compile(r"(\d{2})/(\d{2})/(\d{4})")
+_DATE_RE = re.compile(r"(\d{2})/(\d{2})/(\d{4})")
 
 
 # ── Helpers de parsing ───────────────────────────────────────────────────────
+
 
 def _parse_filename(pdf_path: Path) -> dict:
     """Extrae metadata del nombre de archivo Cirrus.
@@ -103,17 +103,17 @@ def _parse_filename(pdf_path: Path) -> dict:
     if not m:
         return {}
     g = m.groupdict()
-    scan_dt: str = g["scan_dt"]    # YYYYMMDDHHmmss
+    scan_dt: str = g["scan_dt"]  # YYYYMMDDHHmmss
     analysis_dt: str = g["analysis_dt"]
     return {
-        "patient_id":    g["patient_id"],
-        "patient_name":  f"{g['lname']}_{g['fname']}".replace(" ", "_"),
-        "dob":           g["dob"],          # YYYYMMDD
-        "sex":           g["sex"],
-        "scan_type":     g["scan_type"],    # "Macular Cube 512x128" | "Optic Disc Cube 200x200"
-        "scan_date":     scan_dt[:8],       # YYYYMMDD
-        "scan_time":     scan_dt[8:],       # HHmmss
-        "laterality":    g["laterality"],   # "OD" | "OS" | "OU"
+        "patient_id": g["patient_id"],
+        "patient_name": f"{g['lname']}_{g['fname']}".replace(" ", "_"),
+        "dob": g["dob"],  # YYYYMMDD
+        "sex": g["sex"],
+        "scan_type": g["scan_type"],  # "Macular Cube 512x128" | "Optic Disc Cube 200x200"
+        "scan_date": scan_dt[:8],  # YYYYMMDD
+        "scan_time": scan_dt[8:],  # HHmmss
+        "laterality": g["laterality"],  # "OD" | "OS" | "OU"
         "analysis_type": g["analysis_type"],
         "analysis_date": analysis_dt[:8],
     }
@@ -176,7 +176,8 @@ def _parse_text_header(page) -> dict:
 
 # ── OCR ETDRS grid ────────────────────────────────────────────────────────────
 
-def _classify_etdrs_pos(cx_frac: float, cy_frac: float, eye: str) -> Optional[str]:
+
+def _classify_etdrs_pos(cx_frac: float, cy_frac: float, eye: str) -> str | None:
     """Asigna un valor OCR a un sector ETDRS según su posición normalizada.
 
     Convención de imagen Cirrus Macular Thickness OU:
@@ -205,29 +206,29 @@ def _classify_etdrs_pos(cx_frac: float, cy_frac: float, eye: str) -> Optional[st
 
     # ── Eje vertical (Superior/Inferior) ─────────────────────────────────
     if cy_frac < 0.18 and abs(dx) < _BAND:
-        return "S2"                 # Superior Outer
+        return "S2"  # Superior Outer
     if 0.22 < cy_frac < 0.43 and abs(dx) < _BAND:
-        return "S1"                 # Superior Inner
+        return "S1"  # Superior Inner
     if 0.57 < cy_frac < 0.78 and abs(dx) < _BAND:
-        return "I1"                 # Inferior Inner
+        return "I1"  # Inferior Inner
     if cy_frac > 0.78 and abs(dx) < _BAND:
-        return "I2"                 # Inferior Outer
+        return "I2"  # Inferior Outer
 
     # ── Eje horizontal (Nasal/Temporal según ojo) ─────────────────────────
     if abs(dy) < _BAND:
         if cx_frac < 0.18:
-            return "N2" if eye == "OD" else "T2"   # Left Outer
+            return "N2" if eye == "OD" else "T2"  # Left Outer
         if 0.22 < cx_frac < 0.43:
-            return "N1" if eye == "OD" else "T1"   # Left Inner
+            return "N1" if eye == "OD" else "T1"  # Left Inner
         if 0.57 < cx_frac < 0.78:
-            return "T1" if eye == "OD" else "N1"   # Right Inner
+            return "T1" if eye == "OD" else "N1"  # Right Inner
         if cx_frac > 0.78:
-            return "T2" if eye == "OD" else "N2"   # Right Outer
+            return "T2" if eye == "OD" else "N2"  # Right Outer
 
     return None
 
 
-def _ocr_single_int(text: str, min_v: int = _THICKNESS_MIN, max_v: int = _THICKNESS_MAX) -> Optional[int]:
+def _ocr_single_int(text: str, min_v: int = _THICKNESS_MIN, max_v: int = _THICKNESS_MAX) -> int | None:
     """Limpia y valida un texto OCR como entero en rango válido.
     Maneja errores comunes: '1435' → 143 (prefijo de 3 dígitos), '2/4' → 274.
     """
@@ -241,7 +242,7 @@ def _ocr_single_int(text: str, min_v: int = _THICKNESS_MIN, max_v: int = _THICKN
     if len(digits) > 3:
         # Tomar los primeros 3 dígitos que estén en rango
         for start in range(len(digits) - 2):
-            candidate = int(digits[start:start + 3])
+            candidate = int(digits[start : start + 3])
             if min_v <= candidate <= max_v:
                 return candidate
         return None
@@ -251,7 +252,7 @@ def _ocr_single_int(text: str, min_v: int = _THICKNESS_MIN, max_v: int = _THICKN
     return None
 
 
-def _ocr_etdrs_grid(img: Image.Image, eye: str) -> Optional[ETDRSGrid]:
+def _ocr_etdrs_grid(img: Image.Image, eye: str) -> ETDRSGrid | None:
     """Extrae la grilla ETDRS de una imagen de grid Cirrus (≈390×390 px).
 
     Args:
@@ -266,10 +267,7 @@ def _ocr_etdrs_grid(img: Image.Image, eye: str) -> Optional[ETDRSGrid]:
     gray = img.convert("L")
     proc = gray.point(lambda p: 255 if p > _ETDRS_THRESH else 0)
 
-    data = pytesseract.image_to_data(
-        proc, output_type=pytesseract.Output.DICT,
-        config="--psm 11"
-    )
+    data = pytesseract.image_to_data(proc, output_type=pytesseract.Output.DICT, config="--psm 11")
 
     grid: dict[str, float] = {}
     for i, raw_text in enumerate(data["text"]):
@@ -297,25 +295,28 @@ def _ocr_etdrs_grid(img: Image.Image, eye: str) -> Optional[ETDRSGrid]:
             grid[f"{sector}_conf"] = conf
 
     # Filtrar claves de confianza
-    clean: dict[str, Optional[float]] = {
-        k: v for k, v in grid.items() if not k.endswith("_conf")
-    }
+    clean: dict[str, float | None] = {k: v for k, v in grid.items() if not k.endswith("_conf")}
 
     if not clean:
         return None
 
     return ETDRSGrid(
         C=clean.get("C"),
-        S1=clean.get("S1"), N1=clean.get("N1"),
-        I1=clean.get("I1"), T1=clean.get("T1"),
-        S2=clean.get("S2"), N2=clean.get("N2"),
-        I2=clean.get("I2"), T2=clean.get("T2"),
+        S1=clean.get("S1"),
+        N1=clean.get("N1"),
+        I1=clean.get("I1"),
+        T1=clean.get("T1"),
+        S2=clean.get("S2"),
+        N2=clean.get("N2"),
+        I2=clean.get("I2"),
+        T2=clean.get("T2"),
     )
 
 
 # ── OCR RNFL cuadrante ────────────────────────────────────────────────────────
 
-def _ocr_rnfl_quad_rendered(img: Image.Image, eye: str) -> dict[str, Optional[float]]:
+
+def _ocr_rnfl_quad_rendered(img: Image.Image, eye: str) -> dict[str, float | None]:
     """Extrae valores de los 4 cuadrantes RNFL desde una imagen renderizada.
 
     La imagen debe ser el resultado de renderizar la región del círculo polar
@@ -325,25 +326,23 @@ def _ocr_rnfl_quad_rendered(img: Image.Image, eye: str) -> dict[str, Optional[fl
     Retorna dict con keys: 'superior', 'inferior', 'nasal', 'temporal'.
     """
     import numpy as np
+
     arr = np.array(img.convert("RGB"))
     H, W = arr.shape[:2]
 
     # Aislar píxeles muy oscuros (texto negro) — fondo se convierte en blanco
-    dark_mask = (arr[:, :, 0] < _RNFL_THRESH_MAX) & \
-                (arr[:, :, 1] < _RNFL_THRESH_MAX) & \
-                (arr[:, :, 2] < _RNFL_THRESH_MAX)
+    dark_mask = (
+        (arr[:, :, 0] < _RNFL_THRESH_MAX) & (arr[:, :, 1] < _RNFL_THRESH_MAX) & (arr[:, :, 2] < _RNFL_THRESH_MAX)
+    )
     white = arr.copy()
     white[~dark_mask] = [255, 255, 255]
     img_clean = Image.fromarray(white)
 
     data = pytesseract.image_to_data(
-        img_clean, output_type=pytesseract.Output.DICT,
-        config="--psm 11 -c tessedit_char_whitelist=0123456789"
+        img_clean, output_type=pytesseract.Output.DICT, config="--psm 11 -c tessedit_char_whitelist=0123456789"
     )
 
-    result: dict[str, Optional[float]] = {
-        "superior": None, "inferior": None, "nasal": None, "temporal": None
-    }
+    result: dict[str, float | None] = {"superior": None, "inferior": None, "nasal": None, "temporal": None}
 
     for i, raw_text in enumerate(data["text"]):
         raw_text = raw_text.strip()
@@ -379,6 +378,7 @@ def _ocr_rnfl_quad_rendered(img: Image.Image, eye: str) -> dict[str, Optional[fl
 
 
 # ── Extractor principal ───────────────────────────────────────────────────────
+
 
 def _laterality_to_lr(lat: str, eye: str) -> str:
     """Convierte 'OD'/'OS' a 'R'/'L'."""
@@ -440,20 +440,11 @@ def extract_from_pdf(
         is_ganglion = "Ganglion Cell" in analysis_type
 
         if is_macular:
-            return _extract_macular(
-                page, hdr, pid, patient_name, dob,
-                study_date, study_time, lat_fn
-            )
+            return _extract_macular(page, hdr, pid, patient_name, dob, study_date, study_time, lat_fn)
         elif is_onh:
-            return _extract_onh(
-                page, hdr, pid, patient_name, dob,
-                study_date, study_time, lat_fn
-            )
+            return _extract_onh(page, hdr, pid, patient_name, dob, study_date, study_time, lat_fn)
         elif is_ganglion:
-            return _extract_ganglion(
-                page, hdr, pid, patient_name, dob,
-                study_date, study_time, lat_fn
-            )
+            return _extract_ganglion(page, hdr, pid, patient_name, dob, study_date, study_time, lat_fn)
         else:
             logger.warning("Tipo de análisis no reconocido: '%s'", analysis_type)
             return []
@@ -462,9 +453,14 @@ def extract_from_pdf(
 
 
 def _extract_macular(
-    page, hdr: dict,
-    pid: str, patient_name: str, dob: str,
-    study_date: str, study_time: str, lat_fn: str,
+    page,
+    hdr: dict,
+    pid: str,
+    patient_name: str,
+    dob: str,
+    study_date: str,
+    study_time: str,
+    lat_fn: str,
 ) -> list[OCTClinicalData]:
     """Extrae ETDRS de un informe Macular Thickness OU Analysis."""
     # pdfplumber: page.images devuelve dicts con x0, top, x1, bottom, srcsize (px)
@@ -473,7 +469,8 @@ def _extract_macular(
     # Filtrar imágenes aproximadamente cuadradas con tamaño > 100×100 px
     # srcsize = (width_px, height_px) de la imagen embebida
     grid_candidates = [
-        im for im in img_list
+        im
+        for im in img_list
         if im.get("srcsize", (0, 0))[0] > 100
         and im.get("srcsize", (0, 0))[1] > 100
         and abs(im["srcsize"][0] - im["srcsize"][1]) < 30
@@ -523,7 +520,7 @@ def _extract_macular(
         sig = hdr.get(sig_key)
         sqi = sig / 10.0 if sig is not None else None
 
-        cmt: Optional[float] = etdrs.C if etdrs else None
+        cmt: float | None = etdrs.C if etdrs else None
 
         cd = OCTClinicalData(
             noel_id=pid,
@@ -546,8 +543,7 @@ def _extract_macular(
             cd.add_note("OCR ETDRS fallido — imagen no legible")
 
         results.append(cd)
-        logger.debug("cirrus_pdf macular %s: CMT=%.1f ETDRS=%s",
-                     eye, cmt or 0, etdrs)
+        logger.debug("cirrus_pdf macular %s: CMT=%.1f ETDRS=%s", eye, cmt or 0, etdrs)
 
     return results
 
@@ -556,9 +552,14 @@ _RNFL_RENDER_DPI = 600
 
 
 def _extract_onh(
-    page, hdr: dict,
-    pid: str, patient_name: str, dob: str,
-    study_date: str, study_time: str, lat_fn: str,
+    page,
+    hdr: dict,
+    pid: str,
+    patient_name: str,
+    dob: str,
+    study_date: str,
+    study_time: str,
+    lat_fn: str,
 ) -> list[OCTClinicalData]:
     """Extrae RNFL cuadrantes y CDR de un informe ONH and RNFL OU Analysis."""
     img_list = page.images  # pdfplumber: dicts con x0, top, x1, bottom, srcsize
@@ -566,7 +567,8 @@ def _extract_onh(
     # Círculos RNFL ≈116×116 px, top ≈ 518–620 pts desde arriba de la página.
     # quad_candidates[:2] toma los de menor top (cuadrantes) sobre los clock-hour.
     quad_candidates = [
-        im for im in img_list
+        im
+        for im in img_list
         if 90 <= im.get("srcsize", (0, 0))[0] <= 140
         and 90 <= im.get("srcsize", (0, 0))[1] <= 140
         and abs(im["srcsize"][0] - im["srcsize"][1]) < 10
@@ -579,10 +581,8 @@ def _extract_onh(
     eye_bbox: dict[str, tuple] = {}
     if len(quad_candidates) >= 2:
         by_x = sorted(quad_candidates[:2], key=lambda im: im.get("x0", 0))
-        eye_bbox["OD"] = (by_x[0]["x0"],  by_x[0]["top"],
-                          by_x[0]["x1"],  by_x[0]["bottom"])
-        eye_bbox["OS"] = (by_x[-1]["x0"], by_x[-1]["top"],
-                          by_x[-1]["x1"], by_x[-1]["bottom"])
+        eye_bbox["OD"] = (by_x[0]["x0"], by_x[0]["top"], by_x[0]["x1"], by_x[0]["bottom"])
+        eye_bbox["OS"] = (by_x[-1]["x0"], by_x[-1]["top"], by_x[-1]["x1"], by_x[-1]["bottom"])
     elif len(quad_candidates) == 1:
         im = quad_candidates[0]
         key = "OD" if lat_fn == "OD" else "OS"
@@ -607,16 +607,12 @@ def _extract_onh(
             bbox = eye_bbox[eye]
             try:
                 # Renderiza la región del círculo RNFL a 600 DPI via pdf2image + poppler.
-                img_rendered = (
-                    page.within_bbox(bbox)
-                    .to_image(resolution=_RNFL_RENDER_DPI)
-                    .original
-                )
+                img_rendered = page.within_bbox(bbox).to_image(resolution=_RNFL_RENDER_DPI).original
                 rnfl_vals = _ocr_rnfl_quad_rendered(img_rendered, eye)
             except Exception as exc:
                 logger.warning("No se pudo renderizar RNFL quad bbox=%s: %s", bbox, exc)
 
-        rnfl: Optional[RNFLSectors] = None
+        rnfl: RNFLSectors | None = None
         if any(v is not None for v in rnfl_vals.values()):
             sup = rnfl_vals.get("superior")
             inf = rnfl_vals.get("inferior")
@@ -662,9 +658,14 @@ def _extract_onh(
 
 
 def _extract_ganglion(
-    page, hdr: dict,
-    pid: str, patient_name: str, dob: str,
-    study_date: str, study_time: str, lat_fn: str,
+    page,
+    hdr: dict,
+    pid: str,
+    patient_name: str,
+    dob: str,
+    study_date: str,
+    study_time: str,
+    lat_fn: str,
 ) -> list[OCTClinicalData]:
     """Extrae mGCIPL mínimo (Fovea) de un informe Ganglion Cell OU Analysis.
 
@@ -678,7 +679,7 @@ def _extract_ganglion(
     # Cirrus OU: OD aparece antes que OS
     fovea_vals = [int(m) for m in re.findall(r"Fovea:\s*(\d+),\s*\d+", text)]
 
-    eyes_map: dict[str, Optional[int]] = {"OD": None, "OS": None}
+    eyes_map: dict[str, int | None] = {"OD": None, "OS": None}
     if len(fovea_vals) >= 2:
         eyes_map["OD"] = fovea_vals[0]
         eyes_map["OS"] = fovea_vals[1]
@@ -729,6 +730,7 @@ def _extract_ganglion(
 
 
 # ── Batch ─────────────────────────────────────────────────────────────────────
+
 
 def extract_batch(
     folder: Path,

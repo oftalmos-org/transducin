@@ -2,20 +2,19 @@
 
 Sin archivos propietarios de muestra — se usan mocks de oct-converter.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from transducin.adapter_registry import ALL_WATCHED_EXTENSIONS, REGISTRY, find_adapter
 from transducin.adapters.spectralis import SpectralisE2EAdapter
 from transducin.adapters.topcon import TopconFdaAdapter
 from transducin.clinical_data import OCTClinicalData
 
-
 # ── Propiedades de los adapters ───────────────────────────────────────────────
+
 
 def test_spectralis_adapter_id():
     assert SpectralisE2EAdapter().adapter_id == "spectralis"
@@ -62,6 +61,7 @@ def test_topcon_can_handle():
 
 # ── Registro global ──────────────────────────────────────────────────────────
 
+
 def test_registry_includes_spectralis():
     assert any(a.adapter_id == "spectralis" for a in REGISTRY)
 
@@ -102,6 +102,7 @@ def test_find_adapter_fds():
 
 # ── extract() con mock oct-converter ─────────────────────────────────────────
 
+
 def test_spectralis_extract_with_thickness_map():
     """extract() usa read_thickness_map() cuando está disponible."""
     from unittest.mock import patch as _patch
@@ -109,8 +110,17 @@ def test_spectralis_extract_with_thickness_map():
     mock_map = MagicMock()
     mock_map.laterality = "R"
     mock_map.cmt_um = 265
-    mock_map.etdrs_sectors = {"C": 265, "S1": 340, "N1": 320, "I1": 330, "T1": 310,
-                               "S2": 290, "N2": 270, "I2": 280, "T2": 260}
+    mock_map.etdrs_sectors = {
+        "C": 265,
+        "S1": 340,
+        "N1": 320,
+        "I1": 330,
+        "T1": 310,
+        "S2": 290,
+        "N2": 270,
+        "I2": 280,
+        "T2": 260,
+    }
     mock_map.rnfl_sectors = {"G": 95, "S": 125, "I": 120, "N": 75, "T": 60}
     mock_map.scan_date = None
 
@@ -170,16 +180,13 @@ def test_topcon_extract_graceful_without_fork(mock_reader_fn):
 
 # ── to_dicom() ────────────────────────────────────────────────────────────────
 
+
 def test_spectralis_to_dicom_returns_list(tmp_path):
     """to_dicom() retorna lista (vacía en implementación inicial)."""
-    result = SpectralisE2EAdapter().to_dicom(
-        Path("scan.e2e"), OCTClinicalData(), tmp_path
-    )
+    result = SpectralisE2EAdapter().to_dicom(Path("scan.e2e"), OCTClinicalData(), tmp_path)
     assert isinstance(result, list)
 
 
 def test_topcon_to_dicom_returns_list(tmp_path):
-    result = TopconFdaAdapter().to_dicom(
-        Path("scan.fda"), OCTClinicalData(), tmp_path
-    )
+    result = TopconFdaAdapter().to_dicom(Path("scan.fda"), OCTClinicalData(), tmp_path)
     assert isinstance(result, list)
