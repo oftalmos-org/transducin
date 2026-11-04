@@ -143,7 +143,8 @@ def test_revo_laterality_sources():
     fn = sl.assess(_data(notes=["CONFIRMED: laterality, study_date — desde filename"]), "sr")
     tag = sl.assess(_data(notes=["ASSUMED: laterality=L — OCTPARAMS tag 23 scan_center_x_mm=1.0"]), "sr")
     assert fn["laterality_source"] == "filename" and tag["laterality_source"] == "octparams_tag23"
-    assert fn["flags"]["R1_laterality"] == "unverified_single_source" and fn["laterality_cross_checked"] is False
+    # sin archivo accesible no hay evidencia que cotejar: se declara, no se supone
+    assert fn["flags"]["R1_laterality"] == "no_evidence_available" and fn["laterality_evidence"]["state"] == "unknown"
 
 
 def test_cirrus_dcm_vs_pdf():
@@ -225,7 +226,7 @@ def test_aggregate_counts(tmp_path):
     agg = sl.aggregate(sl.read_records(cfg.log_dir))
     assert agg["n_records"] == 4
     revo = agg["by_route"]["revo_opt|sr"]
-    assert revo["n"] == 3 and revo["flags"]["R1_laterality"] == {"unverified_single_source": 2, "defaulted": 1}
+    assert revo["n"] == 3 and revo["flags"]["R1_laterality"] == {"no_evidence_available": 2, "defaulted": 1}
     assert agg["by_route"]["cirrus_dcm|webhook"]["flags"]["R3_cirrus_nasal_wedge"] == {"True": 1}
 
 
@@ -306,3 +307,42 @@ def test_webhook_payload_is_identical_with_shadow_on_and_off(tmp_path, monkeypat
     assert len(sent) == 2 and sent[0] == sent[1]
     recs = sl.read_records(tmp_path / "live")
     assert len(recs) == 1 and recs[0]["emission"] == "webhook"
+
+
+# ── Interruptor de desactivación inmediata ────────────────────────────────────
+
+
+def test_kill_switch_file_and_env(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path)
+    assert sl.record_emission(_data(), "sr", "1", config=cfg) is not None
+    (cfg.log_dir / "DISABLE").write_text("")
+    assert sl.record_emission(_data(), "sr", "2", config=cfg) is None  # sin reiniciar nada
+    (cfg.log_dir / "DISABLE").unlink()
+    assert sl.record_emission(_data(), "sr", "3", config=cfg) is not None
+    monkeypatch.setenv("TRANSDUCIN_SHADOW_DISABLE", "1")
+    assert sl.record_emission(_data(), "sr", "4", config=cfg) is None
+    n = sum(len(p.read_text().splitlines()) for p in cfg.log_dir.glob("shadow-*.jsonl"))
+    assert n == 2
+
+
+def test_record_includes_evidence_without_filename_or_phi(tmp_path):
+    cfg = _cfg(tmp_path)
+    p = tmp_path / f"{FAKE_NAME}_OD_x.dcm"
+    p.write_bytes(b"no es dicom")  # ilegible: se registra como no disponible, sin fallar
+    d = _data("zeiss_cirrus", str(p), lat="R")
+    rec = sl.record_emission(d, "sr", "1.2.3", config=cfg)
+    ev = rec["laterality_evidence"]
+    assert "dicom_unreadable" in ev["unavailable"] or ev["sources"]
+    text = "".join(f.read_text() for f in cfg.log_dir.glob("shadow-*.jsonl"))
+    assert FAKE_NAME not in text and str(tmp_path) not in text
+    assert rec["flags"]["R1_laterality"] in {"inferred_only", "no_evidence_available"}
+
+
+def test_aggregate_exposes_evidence_and_unique_studies(tmp_path):
+    cfg = _cfg(tmp_path)
+    sl.record_emission(_data(), "sr", "same", config=cfg)
+    sl.record_emission(_data(), "webhook", "same", config=cfg)  # misma emisión de estudio por otro destino
+    agg = sl.aggregate(sl.read_records(cfg.log_dir))
+    assert agg["n_records"] == 2 and agg["unique_studies"]["revo_opt"] == 1
+    assert "revo_opt|macular" in agg["by_route_study_type"]
+    assert agg["by_route"]["revo_opt|sr"]["laterality_state"]
