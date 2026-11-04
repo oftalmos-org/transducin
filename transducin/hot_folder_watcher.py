@@ -102,6 +102,10 @@ def _notify_graefe(clinical_data: OCTClinicalData, study_uid: str) -> None:
     if not url or not clinical_data.noel_id:
         return
 
+    from transducin.shadow_log import record_emission  # solo lectura; nunca lanza; no-op si está desactivado
+
+    record_emission(clinical_data, "webhook", study_uid)
+
     import json
     import urllib.error
     import urllib.request

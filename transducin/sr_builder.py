@@ -506,6 +506,9 @@ def build_sr(
     Returns:
         Dataset pydicom del SR (ComprehensiveSR TID 1500).
     """
+    from transducin.shadow_log import record_emission  # solo lectura; nunca lanza; no-op si está desactivado
+
+    record_emission(data, "sr", study_instance_uid)
     if not data.noel_id:
         raise ValueError("OCTClinicalData.noel_id es requerido para generar SR.")
     if not is_valid_noel(data.noel_id):
