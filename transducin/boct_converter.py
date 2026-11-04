@@ -125,13 +125,17 @@ def convert_directory(
             # create_dicom_from_boct() lee el 4D .OCT y escribe un DICOM por volumen.
             files = create_dicom_from_boct(str(src), str(output_path))
             for f in files:
-                annotate_boct_dicom(
+                notes = annotate_boct_dicom(
                     f,
                     source_name=src.name,
                     laterality=laterality,
                     pixel_spacing_mm=pixel_spacing_mm,
                     slice_thickness_mm=slice_thickness_mm,
                 )
+                if any("SIN CALIBRAR" in n for n in notes):
+                    print(
+                        "  AVISO: PixelSpacing/SliceThickness del DICOM son valores provisionales de oct-converter, NO calibración; no medir con ellos."
+                    )
                 print(f"OK  {src.name} -> {Path(f).name}")
             ok += 1
         except Exception as e:

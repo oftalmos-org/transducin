@@ -355,3 +355,36 @@ def test_boct_annotate_flags_placeholder_geometry_and_accepts_explicit_values(tm
     p3 = make("sin_lateralidad_0.dcm")
     annotate_boct_dicom(p3, source_name="sin_lateralidad.OCT")
     assert pydicom.dcmread(p3).ImageLaterality == ""  # desconocida → vacía, no asumida
+
+
+# ── Segundo cálculo experimental: ILM→RPE candidato (RETINA_1→RETINA_3) ───────
+
+
+def test_second_experimental_map_ilm_rpe_and_comparison(tmp_path):
+    # En el builder: RETINA_3 = ILM + 15 + 23 = 38 px (133 µm); RETINA_4 = ILM + 100 px (350 µm)
+    res = TopconFdaAdapter(experimental=True).experimental_thickness(_mk2_fda(tmp_path))
+    assert np.allclose(res.rpe_thickness_um, 38 * 3.5)
+    assert np.allclose(res.thickness_um, 100 * 3.5)  # ILM→BM se conserva igual
+    d = res.comparison["difference_um_ilm_bm_minus_ilm_rpe"]
+    assert d["mean"] == pytest.approx(62 * 3.5) and d["sd"] == pytest.approx(0.0, abs=0.1)
+    assert res.comparison["central_disc_r500um"]["difference_um"] == pytest.approx(62 * 3.5, abs=0.1)
+    assert res.comparison["n_positions_both_valid"] == res.thickness_um.size
+    assert res.rpe_flags["invalid_positions_total"] == 0
+    # identidad: posible límite RPE / OS-RPE, sin fijar una definición más precisa; nunca como valor de Topcon
+    assert "posible límite RPE / OS-RPE" in res.rpe_identity["note"]
+    assert res.rpe_identity["binary_correspondence_confirmed"] is False
+    assert res.measurement_provenance == "vendor_contour_derived" and res.publishable_as_clinical is False
+    js = res.to_json_dict()
+    assert "ilm_to_rpe_candidate" in js and "comparison_ilm_bm_vs_ilm_rpe" in js
+    assert "ninguno es un valor reportado por Topcon" in js["comparison_ilm_bm_vs_ilm_rpe"]["note"]
+
+
+def test_hypothesis_map_v02_records_new_evidence_and_candidate_pair():
+    assert HYPOTHESIS_RETINA_MAP["version"] == "0.2.0"
+    assert HYPOTHESIS_RETINA_MAP["used_for_candidate_thickness"] == ("RETINA_1", "RETINA_3")
+    assert "posible límite RPE / OS-RPE" in HYPOTHESIS_RETINA_MAP["retina_3_note"]
+    assert all(isinstance(x, str) for x in HYPOTHESIS_RETINA_MAP["identity_source"])  # sin tuplas anidadas
+    assert len(HYPOTHESIS_RETINA_MAP["identity_source"]) == 4
+    ev = " ".join(HYPOTHESIS_RETINA_MAP["identity_source"])
+    assert "TrueMap" in ev and "PMC6488992" in ev and "PMC3184859" in ev
+    assert any("3.21" in x for x in HYPOTHESIS_RETINA_MAP["not_established"])
