@@ -20,6 +20,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Watcher `.opt`: sin NOEL ID el DICOM ya no lleva `PatientID="UNKNOWN"` sino `""`
 - Watcher `.opt`: ahora pasa `study_type`/`study_time` a `opt_to_dicom()`; antes `ProtocolName (0018,1030)` salía vacío y Gass no podía clasificar el scan
 - Tests de regresión en `tests/test_watcher_dicom.py`
+- `docker-compose.yml`: la imagen `orthancteam/orthanc:24.6.0` no existe (ahora `24.6.3`) y el healthcheck usaba `curl`, ausente en la imagen (ahora bash + `/dev/tcp`)
+- CI: `ci.yml` instala `construct`; `ruff check` y `ruff format --check` pasan (se ignoran `BLE001`/`S110`/`S112` por degradación elegante deliberada)
+
+### Added (deploy)
+- `deploy/start_transducin.sh` y `deploy/org.oftalmos.transducin.plist`: LaunchAgent de la API (puerto 8004) en lumen
 
 ---
 
