@@ -233,7 +233,7 @@ def assess(data: OCTClinicalData, emission: str, lat_eval: dict[str, Any] | None
         "has_cmt": has_cmt,
         "has_etdrs": has_etdrs,
         "has_measurements": has_meas,
-        "provenance_internal": data.measurement_provenance or "",
+        "provenance_internal": getattr(data, "measurement_provenance", "") or "",
         "extraction_confidence": data.extraction_confidence or "",
         "flags": flags,
     }
