@@ -65,12 +65,18 @@ def _inside_git_worktree(path: Path) -> bool:
     return any((q / ".git").exists() for q in (p, *p.parents))
 
 
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
 def _read_key_file(path: Path) -> bytes | None:
     try:
         st = path.stat()
     except OSError:
         return None
-    if st.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+    # En Windows los bits POSIX no reflejan la ACL (siempre parecen abiertos): allí la protección es la ACL del
+    # archivo (ver deploy/shadow/INSTALL.md) y no se puede verificar desde aquí.
+    if not _is_windows() and st.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
         logger.warning("shadow_log: clave HMAC con permisos demasiado abiertos; log desactivado")
         return None
     raw = path.read_bytes().strip()
