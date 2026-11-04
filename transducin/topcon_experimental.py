@@ -47,6 +47,12 @@ class ExperimentalThickness:
     measurement_provenance: str = "vendor_contour_derived"
     publishable_as_clinical: bool = False
     identity: dict = field(default_factory=dict)
+    # Segundo cálculo experimental: ILM→RPE con RETINA_1 y RETINA_3 (RETINA_3 = posible límite RPE / OS-RPE)
+    rpe_thickness_um: np.ndarray | None = None
+    rpe_flags: dict = field(default_factory=dict)
+    rpe_stats: dict = field(default_factory=dict)
+    rpe_identity: dict = field(default_factory=dict)
+    comparison: dict = field(default_factory=dict)
 
     def to_json_dict(self) -> dict:
         """Metadatos y estadísticas (sin el mapa completo)."""
@@ -59,6 +65,12 @@ class ExperimentalThickness:
             "axial_scale": self.axial_scale,
             "flags": self.flags,
             "stats": self.stats,
+            "ilm_to_rpe_candidate": {
+                "identity": self.rpe_identity,
+                "flags": self.rpe_flags,
+                "stats": self.rpe_stats,
+            },
+            "comparison_ilm_bm_vs_ilm_rpe": self.comparison,
         }
 
 
@@ -182,14 +194,63 @@ def compute_experimental_thickness(reader: FDAReader) -> ExperimentalThickness:
             if k in ("version", "status", "device_model", "software_stamp")
         },
     }
+    stats = _stats(t, axial_um, lateral_um, bscan_um)
+    rpe_t = None
+    rpe_flags: dict = {}
+    rpe_stats: dict = {}
+    rpe_identity: dict = {}
+    comparison: dict = {}
+    rpe_key = HYPOTHESIS_RETINA_MAP["used_for_candidate_thickness"][1]
+    if rpe_key in vol.contours and vol.contours[rpe_key].shape == ilm.shape:
+        rpe_t, rpe_counts = thickness_from_contours(ilm, vol.contours[rpe_key], axial_um)
+        rpe_valid = np.isfinite(rpe_t)
+        rpe_flags = {**rpe_counts, "invalid_positions_total": int((~rpe_valid).sum())}
+        rpe_stats = _stats(rpe_t, axial_um, lateral_um, bscan_um)
+        rpe_identity = {
+            "ILM": first,
+            "RPE_candidate": rpe_key,
+            "anatomical_identity_source": "revisión visual del especialista (1 lector) + evidencia bibliográfica",
+            "binary_correspondence_confirmed": False,
+            "note": (
+                f"{rpe_key} = posible límite RPE / OS-RPE; no se fija una definición anatómica más precisa de la que se "
+                "puede demostrar. El algoritmo integrado de Topcon mide hasta el borde anterior del RPE (Chen 2019, "
+                "PMC6488992), pero no se demuestra que este contorno sea ese borde."
+            ),
+        }
+        both = valid & rpe_valid
+        diff = (t - rpe_t)[both]  # ILM→BM − ILM→RPE = separación RETINA_3→RETINA_4
+        c_bm, r_bm = stats["central_disc_r500um"]["mean_um"], stats["ring_500_1500um"]["mean_um"]
+        c_rp, r_rp = rpe_stats["central_disc_r500um"]["mean_um"], rpe_stats["ring_500_1500um"]["mean_um"]
+        comparison = {
+            "n_positions_both_valid": int(both.sum()),
+            "difference_um_ilm_bm_minus_ilm_rpe": {
+                "mean": round(float(diff.mean()), 1),
+                "median": round(float(np.median(diff)), 1),
+                "sd": round(float(diff.std()), 1),
+                "p5": round(float(np.percentile(diff, 5)), 1),
+                "p95": round(float(np.percentile(diff, 95)), 1),
+                "min": round(float(diff.min()), 1),
+                "max": round(float(diff.max()), 1),
+            },
+            "central_disc_r500um": {"ilm_bm_um": c_bm, "ilm_rpe_um": c_rp, "difference_um": round(c_bm - c_rp, 1)},
+            "ring_500_1500um": {"ilm_bm_um": r_bm, "ilm_rpe_um": r_rp, "difference_um": round(r_bm - r_rp, 1)},
+            "foveal_dip_um_ring_minus_central": {"ilm_bm": round(r_bm - c_bm, 1), "ilm_rpe": round(r_rp - c_rp, 1)},
+            "correlation_of_maps": round(float(np.corrcoef(t[both], rpe_t[both])[0, 1]), 4),
+            "note": "ambos mapas son exploratorios, derivados de contornos del fabricante; ninguno es un valor reportado por Topcon",
+        }
     return ExperimentalThickness(
         thickness_um=t,
         valid_mask=valid,
         flags=flags,
-        stats=_stats(t, axial_um, lateral_um, bscan_um),
+        stats=stats,
         axial_scale=axial,
         device=device,
         identity=identity,
+        rpe_thickness_um=rpe_t,
+        rpe_flags=rpe_flags,
+        rpe_stats=rpe_stats,
+        rpe_identity=rpe_identity,
+        comparison=comparison,
     )
 
 

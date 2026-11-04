@@ -34,55 +34,58 @@ from transducin.topcon_experimental import ExperimentalUnavailable
 
 
 def render(res, out_png: Path, source_name: str) -> None:
-    t = res.thickness_um
-    n_b, n_a = t.shape
-    st = res.stats
-    lat_mm = n_a * 0.01171875 if "central_disc_r500um" in st else 6.0
-    fig, ax = plt.subplots(figsize=(8, 7.4))
-    valid = t[np.isfinite(t)]
-    lo, hi = (np.percentile(valid, 2), np.percentile(valid, 98)) if valid.size else (0, 1)
-    ax.set_facecolor("#cccccc")
-    im = ax.imshow(
-        np.ma.masked_invalid(t),
-        cmap="viridis",
-        vmin=lo,
-        vmax=hi,
-        extent=[0, lat_mm, lat_mm, 0],
-        aspect="equal",
-        interpolation="nearest",
-    )
-    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03)
-    cb.set_label("espesor ILM→BM (µm) — experimental")
+    """Tres paneles: ILM→BM (RETINA_1→4), ILM→RPE candidato (RETINA_1→3) y su diferencia (RETINA_3→4)."""
+    _n_b, n_a = res.thickness_um.shape
+    lat_mm = n_a * 0.01171875
+    panels = [
+        ("ILM→BM (RETINA_1→RETINA_4)", res.thickness_um, "viridis"),
+        ("ILM→RPE candidato (RETINA_1→RETINA_3)", res.rpe_thickness_um, "viridis"),
+    ]
+    if res.rpe_thickness_um is not None:
+        panels.append(("diferencia = RETINA_3→RETINA_4", res.thickness_um - res.rpe_thickness_um, "magma"))
+    else:
+        panels = panels[:1]
+    fig, axes = plt.subplots(1, len(panels), figsize=(5.6 * len(panels), 6.2), squeeze=False)
     cx = cy = lat_mm / 2
-    for r_mm, ls in ((0.5, "-"), (1.5, "--")):
-        ax.add_patch(plt.Circle((cx, cy), r_mm, fill=False, color="white", lw=1.2, ls=ls))
-    ax.text(
-        cx,
-        cy - 0.5 - 0.08,
-        "centro geométrico (fóvea no localizada)",
-        color="white",
-        ha="center",
-        va="bottom",
-        fontsize=7,
-    )
-    for b in res.flags["incomplete_bscans_below_90pct_valid"]:
-        ax.plot([0, 0.08], [(b + 0.5) * lat_mm / n_b] * 2, color="red", lw=1.5)
-    ax.set_xlabel("A-scan (mm)")
-    ax.set_ylabel("B-scan (mm)  — sin orientación S/I/N/T verificada")
-    ax.set_title(
-        "EXPERIMENTAL — espesor ILM→BM (RETINA_1→RETINA_4)\nno es CMT clínico; identidad anatómica no confirmada en el binario",
-        fontsize=10,
+    for ax, (title, t, cmap) in zip(axes[0], panels):
+        v = t[np.isfinite(t)]
+        lo, hi = (np.percentile(v, 2), np.percentile(v, 98)) if v.size else (0, 1)
+        ax.set_facecolor("#cccccc")
+        im = ax.imshow(
+            np.ma.masked_invalid(t),
+            cmap=cmap,
+            vmin=lo,
+            vmax=hi,
+            extent=[0, lat_mm, lat_mm, 0],
+            aspect="equal",
+            interpolation="nearest",
+        )
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03).set_label("µm")
+        for r_mm, ls in ((0.5, "-"), (1.5, "--")):
+            ax.add_patch(plt.Circle((cx, cy), r_mm, fill=False, color="white", lw=1.0, ls=ls))
+        ax.set_title(title, fontsize=9)
+        ax.set_xlabel("A-scan (mm)")
+    axes[0][0].set_ylabel("B-scan (mm) — sin orientación S/I/N/T verificada")
+    fig.suptitle(
+        "EXPERIMENTAL — derivado de contornos del fabricante; no es CMT clínico ni valor reportado por Topcon\n"
+        "identidad anatómica sin confirmar en el binario (RETINA_3 = posible límite RPE / OS-RPE); círculos: 0,5 y 1,5 mm del centro geométrico",
+        fontsize=9,
         color="#b00020",
     )
-    c, ring = st["central_disc_r500um"], st["ring_500_1500um"]
+    st, cp = res.stats, res.comparison
     txt = (
-        f"{source_name} · {res.device.get('model')} ROM {res.device.get('rom')} · eje axial {res.axial_scale['value_um_per_px']} µm/px (verificado)\n"
-        f"válido {st['valid_fraction'] * 100:.1f} %  ·  media {st.get('mean_um')} µm  ·  mediana {st.get('median_um')}  ·  p5–p95 {st.get('p5_um')}–{st.get('p95_um')}\n"
-        f"disco central r=0,5 mm: {c['mean_um']} µm  ·  anillo 0,5–1,5 mm: {ring['mean_um']} µm  ·  procedencia: {res.measurement_provenance}"
+        f"{source_name} · {res.device.get('model')} ROM {res.device.get('rom')} · axial {res.axial_scale['value_um_per_px']} µm/px (verificado) · procedencia: {res.measurement_provenance}\n"
+        f"ILM→BM: válido {st['valid_fraction'] * 100:.1f} % · mediana {st.get('median_um')} µm · disco central {st['central_disc_r500um']['mean_um']} · anillo {st['ring_500_1500um']['mean_um']}"
     )
-    fig.text(0.01, 0.005, txt, fontsize=6.5, va="bottom", family="monospace")
-    fig.tight_layout(rect=(0, 0.07, 1, 1))
-    fig.savefig(out_png, dpi=160)
+    if cp:
+        d = cp["difference_um_ilm_bm_minus_ilm_rpe"]
+        txt += (
+            f"\nILM→RPE: mediana {res.rpe_stats.get('median_um')} µm · disco central {res.rpe_stats['central_disc_r500um']['mean_um']} · anillo {res.rpe_stats['ring_500_1500um']['mean_um']}"
+            f"\nBM−RPE: mediana {d['median']} µm (p5–p95 {d['p5']}–{d['p95']}) · centro {cp['central_disc_r500um']['difference_um']} · anillo {cp['ring_500_1500um']['difference_um']} · correlación de mapas {cp['correlation_of_maps']}"
+        )
+    fig.text(0.01, 0.005, txt, fontsize=7, va="bottom", family="monospace")
+    fig.tight_layout(rect=(0, 0.16, 1, 0.9))
+    fig.savefig(out_png, dpi=150)
     plt.close(fig)
 
 
@@ -106,6 +109,8 @@ def main() -> int:
         print(f"No disponible: {exc}", file=sys.stderr)
         return 3
     np.save(out / "thickness_map.npy", res.thickness_um)
+    if res.rpe_thickness_um is not None:
+        np.save(out / "thickness_map_ilm_rpe_candidate.npy", res.rpe_thickness_um)
     (out / "thickness_stats.json").write_text(
         json.dumps(res.to_json_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )

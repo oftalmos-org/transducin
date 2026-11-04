@@ -232,3 +232,13 @@ Código: `transducin/topcon_experimental.py`, `transducin/topcon_retina_map.py`,
 - Sin sectores S/N/I/T (orientación del volumen Topcon no verificada) y centro geométrico, no foveal.
 - Incertidumbre orientativa: si el software se comportara como el algoritmo de la bibliografía, la diferencia de
   borde con un segmentador manual es de ≈3,6 µm (ILM) y ≈4,6 µm (BM); no está demostrado para este software.
+
+## 12. Actualización (2026-11-04): evidencia histórica de Topcon y segundo espesor
+
+- Evidencia nueva (TrueMap v2.12, feb. 2008: módulo de cuatro capas; TrueMap Measurement Software, ene. 2009: ILM, IS/OS, RPE y
+  membrana de Bruch; Chen 2019, PMC6488992: el espesor de Topcon se mide de la ILM al **borde anterior del RPE**) fortalece H1 pero
+  **no demuestra** el mapeo binario; el archivo es de software 3.21 y esas fuentes citan 2.12, 2.20 y 8.11.
+- `RETINA_3` se trata como **posible límite RPE / OS-RPE**, sin fijar una definición más precisa de la que se puede demostrar.
+- Se añadió el segundo mapa experimental ILM→RPE candidato (`RETINA_1→RETINA_3`): mediana 259,0 µm; disco central 240,3 µm; anillo
+  297,0 µm; diferencia con ILM→BM de 42,0 µm de mediana (correlación 0,962; profundidad foveal 55,4 contra 56,7 µm).
+- Detalle y comparación: `informe_comparativo_2026-11-04.md`.

@@ -23,6 +23,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `docker-compose.yml`: la imagen `orthancteam/orthanc:24.6.0` no existe (ahora `24.6.3`) y el healthcheck usaba `curl`, ausente en la imagen (ahora bash + `/dev/tcp`)
 - CI: `ci.yml` instala `construct`; `ruff check` y `ruff format --check` pasan (se ignoran `BLE001`/`S110`/`S112` por degradación elegante deliberada)
 
+### Added (ETDRS v2 y segundo cálculo experimental, sin conectar a salidas clínicas)
+- `transducin/etdrs.py`: ETDRS v2 con 9 regiones disjuntas (cuadrantes de 90°), µm reales por eje, orientación explícita (`Orientation`, con estado `validated`), centro con origen (`geometric` / `foveal_candidate_min_thickness` / `foveal_registered`) y cobertura por región; no se llama CMT sin centro foveal registrado y validado. La ruta legacy (`compute_etdrs`) y Revo/Cirrus no cambian
+- Topcon experimental: segundo mapa ILM→RPE candidato (`RETINA_1→RETINA_3`) y comparación con ILM→BM; mapeo versionado v0.2.0 con la evidencia de TrueMap 2.12 / 2009 y Chen 2019; `RETINA_3` = posible límite RPE / OS-RPE
+- `scripts/compare_etdrs_legacy_v2.py` y `validation/informe_comparativo_2026-11-04.md`
+- Hallazgos sin corregir (solo documentados): sectores solapados en `compute_etdrs` (Revo); semi-cuña nasal (51 %) en `cirrus_extractor._etdrs_from_map`
+
 ### Added (Topcon 3D OCT-1000 Mark II, experimental)
 - Espesor ILM→BM **experimental** (`transducin/topcon_experimental.py`, `scripts/topcon_experimental_thickness.py --experimental`, `TopconFdaAdapter(experimental=True).experimental_thickness()`): solo 3DOCT-1000MK2, usa `RETINA_1`/`RETINA_4` sin modificarlos, verifica la escala axial (3,5 µm/px), marca contornos ausentes y geometría inválida, `measurement_provenance = vendor_contour_derived`; **no** alimenta `cmt_um`, SR, DICOM cuantitativo ni Graefe
 - Mapeo `RETINA_1..4 → ILM / IS/OS / OS/RPE / BM` como **hipótesis versionada e inmutable** (`transducin/topcon_retina_map.py`), no usada por el lector ni el adapter de producción
