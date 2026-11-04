@@ -142,6 +142,12 @@ class OCTClinicalData:
     # "not_macular"   — study_type != macular (CMT no aplica)
     cmt_failure_reason: str | None = None
 
+    # Procedencia del valor medido (independiente de extraction_confidence):
+    #   "vendor_reported" | "vendor_contour_derived" | "independently_computed" | "manually_entered"
+    # "" = no declarada (adapters anteriores). Un espesor calculado por Transducin a partir
+    # de contornos del fabricante es "vendor_contour_derived", NO una medida del fabricante.
+    measurement_provenance: str = ""
+
     def add_note(self, note: str) -> None:
         self.confidence_notes.append(note)
 

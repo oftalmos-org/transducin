@@ -19,6 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
+from transducin.etdrs_policy import STRICT
 from transducin.readers import _e2e_binary as e2e_binary
 from transducin.readers._layers import (
     LayerVolume,
@@ -269,6 +270,7 @@ class E2EReader:
                 vol.sqi_mean,
                 label=self.filepath.stem,
                 require_laterality=True,
+                etdrs_policy=STRICT,
             )
             if cd is not None:
                 maps.append(thickness_map_from_clinical(cd, vol.acquisition_date))

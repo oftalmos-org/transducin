@@ -31,6 +31,21 @@ class TopconFdaAdapter(DeviceAdapter):
     retorna medidas None (degradación elegante).
     """
 
+    def __init__(self, *, experimental: bool = False) -> None:
+        # `experimental` habilita SOLO experimental_thickness() (3D OCT-1000 Mark II); no cambia extract().
+        self.experimental = experimental
+
+    def experimental_thickness(self, path: Path):
+        """Espesor ILM→BM experimental con RETINA_1/RETINA_4 (ver transducin.topcon_experimental).
+
+        Requiere TopconFdaAdapter(experimental=True). No alimenta cmt_um ni el SR.
+        """
+        if not self.experimental:
+            raise RuntimeError("espesor experimental deshabilitado: crea TopconFdaAdapter(experimental=True)")
+        from transducin.topcon_experimental import experimental_thickness_from_file
+
+        return experimental_thickness_from_file(path)
+
     @property
     def vendor(self) -> str:
         return "Topcon DRI OCT"
@@ -57,11 +72,20 @@ class TopconFdaAdapter(DeviceAdapter):
             pass
 
         meas = _measurements_from_reader(reader, laterality)
-        return OCTClinicalData(
+        cd = OCTClinicalData(
             noel_id="",  # resuelto desde filename en hot_folder_watcher
             vendor="topcon_dri_oct",
             **meas,
         )
+        if meas["extraction_confidence"] != "unknown":  # hubo alguna medición calculada
+            cd.measurement_provenance = "vendor_contour_derived"
+        unidentified = getattr(reader, "unidentified_contours", None)
+        if isinstance(unidentified, list) and unidentified and meas["cmt_um"] is None:
+            cd.add_note(
+                f"UNIDENTIFIED: contornos de segmentación presentes {unidentified} sin identidad "
+                "anatómica documentada; no se calculan espesores"
+            )
+        return cd
 
     def to_dicom(
         self,

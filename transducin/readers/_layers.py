@@ -38,6 +38,7 @@ class ThicknessMapData:
     sqi_mean: float | None = None
     study_type: str | None = None  # macular | rnfl_circle | hd_line | unknown
     scan_date: datetime | None = None
+    notes: list = field(default_factory=list)  # avisos del cálculo (p. ej. cobertura ETDRS)
 
 
 def _sectors(r) -> dict | None:
@@ -68,6 +69,8 @@ def thickness_map_from_clinical(cd, scan_date: datetime | None) -> ThicknessMapD
         sqi_mean=cd.sqi_mean,
         study_type=cd.study_type or None,
         scan_date=scan_date,
+        # Se omiten las notas «CONFIRMED: …» (el valor es derivado de contornos, no del fabricante).
+        notes=[n for n in cd.confidence_notes if not n.startswith("CONFIRMED")],
     )
 
 
