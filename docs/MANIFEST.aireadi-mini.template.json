@@ -1,0 +1,32 @@
+{
+  "_instrucciones": "Plantilla de MANIFEST.json (CLAUDE.md §2.1.1). Copiar a $TRANSDUCIN_REAL_DATA_DIR/public/aireadi-mini/MANIFEST.json (fuera de Git), completar todo lo que diga POR COMPLETAR y borrar este campo. Sin valores completos, la colección no cumple la excepción y no se lee en sesiones de desarrollo.",
+  "coleccion": "aireadi-mini",
+  "zona": "public",
+  "fuente": {
+    "nombre": "AI-READI (subconjunto 'mini')",
+    "url_o_referencia": "POR COMPLETAR",
+    "fecha_descarga": "POR COMPLETAR (YYYY-MM-DD)",
+    "metodo_descarga": "azcopy"
+  },
+  "formato_real": "DICOM (carpetas retinal_oct, retinal_octa, retinal_photography)",
+  "contenido": "POR COMPLETAR (modalidades y número aproximado de estudios)",
+  "equipos": [
+    {
+      "fabricante": "POR COMPLETAR desde aireadi_inventario.json",
+      "modelo": "POR COMPLETAR desde aireadi_inventario.json",
+      "version_conocida": "POR COMPLETAR (SoftwareVersions del inventario)"
+    }
+  ],
+  "licencia_o_condiciones_acceso": "POR COMPLETAR: acuerdo de uso de datos de AI-READI y qué permite para desarrollo de software",
+  "uso_para_desarrollo_permitido": "POR COMPLETAR: sí/no, según las condiciones anteriores (lo verifica el titular)",
+  "desidentificacion": {
+    "estado": "POR COMPLETAR (no se asume anonimato; el inventario mide PatientID, fecha de nacimiento y emisor)",
+    "referencia_inventario": "aireadi_inventario.json"
+  },
+  "sha256": {
+    "metodo": "POR COMPLETAR: hash por archivo desde file-manifest.tsv si lo incluye, o sha256 de la colección",
+    "valor": "POR COMPLETAR"
+  },
+  "estado_validacion": "sin_validar",
+  "claude_session_ok": false
+}
