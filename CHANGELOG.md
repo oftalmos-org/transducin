@@ -8,10 +8,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Identidad por alias (ADR-026, fase 1): `OCTClinicalData.device_patient_id` y propiedades `patient_id` / `patient_id_source` (`noel` | `device` | `filename` | `none`); `noel_id` queda como alias opcional
+- `E2EReader.read_patient_id()` y `FDAReader.read_patient_id()`: leen solo el campo del identificador interno del archivo (sin nombre ni fecha de nacimiento)
+- `opt_to_dicom()`, `build_dicom_oct()` y `build_dicom_enface()` aceptan `patient_id` opcional
+- Tests: `tests/test_patient_identity.py`
 - `E2EReader.read_thickness_map()` y `FDAReader.read_thickness_map()` ya calculan CMT, ETDRS, mRNFL y mGCIPL (y pRNFL en circle scans) desde la segmentación embebida; los adapters Spectralis (D1) y Topcon (D2) dejan de devolver `None` (ADR-022, enmienda)
 - `read_layer_volumes()` en ambos readers; `transducin/readers/_layers.py` (`LayerVolume`, `ThicknessMapData`)
 - `measure_e2e_volume()` / `measure_fda_volume()`: lógica de medición compartida entre extractores y readers
 - Tests con archivos sintéticos: `tests/test_readers_layers.py`, `tests/_synthetic.py`
+
+### Changed
+- `build_sr()` ya no exige `noel_id`: `PatientID = patient_id` (puede ir vacío); fecha de nacimiento y respaldo de `PatientName` solo desde datos de origen o un NOEL válido
+- Adapters Spectralis/Topcon y sus extractores conservan el identificador interno del equipo aunque no sea NOEL
+- Sin cambios en los watchers de producción
 
 ### Fixes
 - `FDAReader` fallaba con numpy ≥ 2.3 (`np.fromstring` binario eliminado)
