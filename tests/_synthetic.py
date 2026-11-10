@@ -63,6 +63,7 @@ def build_e2e(
     quality: float | None = 0.25,
     with_contours: bool = True,
     with_image: bool = False,
+    patient_id: str | None = None,  # si se da, escribe el chunk de paciente (tipo 9) con datos sintéticos
 ) -> Path:
     """Escribe un .e2e mínimo con un cubo macular sintético."""
     axial_um = axial_mm * 1000.0
@@ -77,6 +78,18 @@ def build_e2e(
     chunks: list[tuple[int, int, bytes]] = []  # (type, slice_id, bytes)
     if laterality:
         chunks.append((3, -1, _e2e_chunk(3, eb.pre_data.build({"unknown": 0, "laterality": laterality}))))
+    if patient_id is not None:
+        pat = eb.patient_id_structure.build(
+            {
+                "first_name": "SYNTHETIC",
+                "surname": "PATIENT",
+                "title": "",
+                "birthdate": 0,
+                "sex": "",
+                "patient_id": patient_id,
+            }
+        )
+        chunks.append((9, -1, _e2e_chunk(9, pat)))
 
     q_bits = struct.unpack("<I", struct.pack("<f", quality if quality is not None else 5.0))[0]
     for i in range(n_b):
@@ -203,6 +216,7 @@ def build_fda(
     layer_ids: dict[str, str] | None = None,
     model_name: str | None = None,  # si se da, escribe @HW_INFO_03 con ese modelo
     rom_ver: str = "1.10",  # renombra MULTILAYERS_n (p. ej. a RETINA_n)
+    patient_id: str | None = None,  # si se da, escribe @PATIENT_INFO_02 con datos sintéticos
 ) -> Path:
     """Escribe un .fda mínimo (sin píxeles de imagen) con segmentación sintética."""
     if thick_px is None:
@@ -221,6 +235,10 @@ def build_fda(
             for u in ("year", "month", "day", "hour", "minute"):
                 hw[f"{k}_{u}"] = 0
         out += _fda_chunk(b"@HW_INFO_03", fb.hw_info_03_header.build(hw))
+    if patient_id is not None:
+        # patient_id(32) + first_name(32) + last_name(32) + resto del encabezado en ceros
+        pat = b"".join(s.encode("ascii").ljust(32, b"\x00") for s in (patient_id, "SYNTHETIC", "PATIENT"))
+        out += _fda_chunk(b"@PATIENT_INFO_02", pat + b"\x00" * 416)
     if eye is not None:
         out += _fda_chunk(
             b"@CAPTURE_INFO_02",

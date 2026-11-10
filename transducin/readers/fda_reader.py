@@ -24,6 +24,7 @@ from transducin.readers import _fda_binary as fda_binary
 from transducin.readers._layers import (
     LayerVolume,
     ThicknessMapData,
+    clean_source_patient_id,
     sort_maps,
     thickness_map_from_clinical,
 )
@@ -49,6 +50,10 @@ class _OCTVolume:
     """Minimal OCT volume container."""
 
     laterality: str | None = None
+
+
+# Ancho del campo patient_id al inicio de patient_info_02_header.
+_FDA_PID_LEN = 32
 
 
 class FDAReader:
@@ -121,6 +126,24 @@ class FDAReader:
             except Exception:
                 pass
         return None
+
+    def read_patient_id(self) -> str:
+        """Identificador interno del paciente (@PATIENT_INFO_02), tal cual viene en el archivo.
+
+        Solo se leen los primeros 32 bytes del chunk (campo ``patient_id``); nombre y
+        fecha de nacimiento NO se leen (privacidad por diseño). @PATIENT_INFO_03 va
+        cifrado y no se interpreta. Retorna "" si no hay chunk o el campo está vacío.
+        """
+        try:
+            for loc, size in self._chunk_positions(b"@PATIENT_INFO_02")[:1]:
+                if size < _FDA_PID_LEN:
+                    continue
+                with open(self.filepath, "rb") as f:
+                    f.seek(loc)
+                    return clean_source_patient_id(f.read(_FDA_PID_LEN))
+        except Exception as exc:  # degradación elegante ante archivos parciales
+            logger.debug("FDA: no se pudo leer el identificador de paciente: %s", type(exc).__name__)
+        return ""
 
     # ── Segmentación de capas ────────────────────────────────────────────────
 

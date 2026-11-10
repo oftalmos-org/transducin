@@ -1295,6 +1295,7 @@ def build_dicom_oct(
     sqi: np.ndarray | None = None,
     traj: np.ndarray | None = None,
     params_oct: dict | None = None,
+    patient_id: str | None = None,
 ) -> Dataset:
     """Construye un Dataset DICOM OphthalmicTomographyImageStorage multi-frame.
 
@@ -1344,7 +1345,9 @@ def build_dicom_oct(
     ds.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
 
     # Patient
-    ds.PatientID = noel_id
+    # ADR-026: patient_id (si se da) es el PatientID efectivo; noel_id queda solo como
+    # alias para el respaldo de PatientName y la fecha de nacimiento.
+    ds.PatientID = noel_id if patient_id is None else patient_id
     ds.PatientName = _to_dicom_pn(patient_name) if patient_name else noel_id
     ds.PatientBirthDate = patient_dob or dob_from_noel(noel_id)
     ds.PatientSex = patient_sex or ""
@@ -1495,6 +1498,7 @@ def build_dicom_enface(
     study_description: str = "",
     source_file: str = "",
     pixel_spacing: list[float] | None = None,
+    patient_id: str | None = None,
 ) -> Dataset:
     """Construye un Dataset DICOM OphthalmicPhotography8BitImageStorage de un frame.
 
@@ -1534,7 +1538,9 @@ def build_dicom_enface(
     ds.SOPClassUID = SOP_FUNDUS_PHOTO
     ds.SOPInstanceUID = sop_uid
 
-    ds.PatientID = noel_id
+    # ADR-026: patient_id (si se da) es el PatientID efectivo; noel_id queda solo como
+    # alias para el respaldo de PatientName y la fecha de nacimiento.
+    ds.PatientID = noel_id if patient_id is None else patient_id
     ds.PatientName = _to_dicom_pn(patient_name) if patient_name else noel_id
     ds.PatientBirthDate = patient_dob or dob_from_noel(noel_id)
     ds.PatientSex = patient_sex or ""
@@ -1763,6 +1769,7 @@ def opt_to_dicom(
     study_type: str = "",
     study_description: str = "",
     study_time: str = "",
+    patient_id: str | None = None,
 ) -> list[Path]:
     """Convierte un .opt Revo a DICOM(s).
 
@@ -1782,6 +1789,10 @@ def opt_to_dicom(
         patient_name: Nombre en formato DICOM PN (opcional).
         patient_dob:  Fecha de nacimiento YYYYMMDD (opcional; se deriva de noel_id si vacío).
         study_type:   Tipo de estudio ("macular", "optic_nerve", etc.) para StudyDescription.
+        patient_id:   PatientID efectivo (ADR-026). None o "" = usar noel_id, como siempre.
+                      Si se da, se escribe tal cual, noel_id queda solo como alias para
+                      PatientName y fecha de nacimiento, y no se infiere nada del nombre
+                      de archivo.
 
     Returns:
         Lista de Paths a los .dcm generados (todos los tipos de imagen del scan).
@@ -1789,9 +1800,9 @@ def opt_to_dicom(
     filepath = Path(filepath)
     _stem_m = re.match(r"^([A-Z]{4})(\d{8})_", filepath.stem)
     if _stem_m:
-        if not noel_id:
+        if not noel_id and not patient_id:
             noel_id = _stem_m.group(1) + _stem_m.group(2)
-        if not patient_dob:
+        if not patient_dob and not patient_id:
             patient_dob = _stem_m.group(2)
 
     output_dir = Path(output_dir)
@@ -1814,6 +1825,7 @@ def opt_to_dicom(
 
     common = {
         "noel_id": noel_id,
+        "patient_id": patient_id or None,
         "study_date": study_date,
         "study_time": study_time,
         "laterality": laterality,
