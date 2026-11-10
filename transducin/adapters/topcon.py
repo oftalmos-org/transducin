@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 # Reutiliza los helpers de mapeo del adaptador Spectralis
-from transducin.adapters.spectralis import _measurements_from_reader
+from transducin.adapters.spectralis import _device_patient_id, _measurements_from_reader
 from transducin.base_adapter import DeviceAdapter
 from transducin.clinical_data import OCTClinicalData
 from transducin.readers.fda_reader import topcon_reader as _topcon_reader_factory
@@ -73,7 +73,8 @@ class TopconFdaAdapter(DeviceAdapter):
 
         meas = _measurements_from_reader(reader, laterality)
         cd = OCTClinicalData(
-            noel_id="",  # resuelto desde filename en hot_folder_watcher
+            noel_id="",  # alias NOEL: lo resuelve el llamador (p. ej. prefijo del nombre de archivo)
+            device_patient_id=_device_patient_id(reader),  # ADR-026: identificador del equipo, sin modificar
             vendor="topcon_dri_oct",
             **meas,
         )

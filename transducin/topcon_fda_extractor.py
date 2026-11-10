@@ -332,10 +332,14 @@ def extract_from_fda(
         logger.warning("FDA: sin volumen en %s", filepath.name)
         return results
 
-    # Intentar extraer NOEL ID desde patient_id del archivo
-    pid = getattr(vol, "patient_id", None) or ""
-    if not noel_id and pid and is_valid_noel(str(pid)):
-        noel_id = str(pid)
+    # Identificador interno del archivo (ADR-026): si tiene formato NOEL se usa como
+    # alias NOEL; si no, se conserva tal cual como identificador del equipo.
+    device_pid = ""
+    pid = str(getattr(vol, "patient_id", None) or "").strip()
+    if pid and is_valid_noel(pid):
+        noel_id = noel_id or pid
+    elif pid:
+        device_pid = pid
 
     # ── SQI desde PARAM_OBS_02 / image_quality ────────────────────────────
     sqi_mean: float | None = None
@@ -374,6 +378,7 @@ def extract_from_fda(
 
     cd_base = {
         "noel_id": noel_id,
+        "device_patient_id": device_pid,
         "vendor": "topcon_triton",
         "source_file": str(filepath),
         "study_date": _study_date(vol),

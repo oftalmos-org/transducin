@@ -535,12 +535,18 @@ def extract_from_e2e(
     if sqi_mean is not None:
         logger.info("E2E SQI: imgQuality_mean=%.4f (%s)", sqi_mean, filepath.name)
 
-    # Intentar extraer NOEL ID desde el patient_id del archivo si no viene del filename
+    # Identificador interno del archivo (ADR-026): si tiene formato NOEL se usa como
+    # alias NOEL; si no, se conserva tal cual como identificador del equipo.
+    device_pid = ""
     for vol in volumes:
-        pid = getattr(vol, "patient_id", None) or ""
-        if not noel_id and pid and is_valid_noel(str(pid)):
-            noel_id = str(pid)
-            break
+        pid = str(getattr(vol, "patient_id", None) or "").strip()
+        if not pid:
+            continue
+        if is_valid_noel(pid):
+            noel_id = noel_id or pid
+        else:
+            device_pid = pid
+        break
 
     # Metadata global (escalas físicas)
     try:
@@ -556,6 +562,7 @@ def extract_from_e2e(
 
         cd_base = {
             "noel_id": noel_id,
+            "device_patient_id": device_pid,
             "vendor": "heidelberg_spectralis",
             "source_file": str(filepath),
             "study_date": _study_date(vol),

@@ -85,3 +85,16 @@ def sort_maps(maps: list[ThicknessMapData]) -> list[ThicknessMapData]:
         return 2
 
     return sorted(maps, key=key)  # sorted es estable
+
+
+def clean_source_patient_id(raw: bytes) -> str:
+    """Decodifica el identificador de paciente de un campo binario de ancho fijo (ADR-026).
+
+    Corta en el primer NUL y quita espacios de relleno; el valor no se modifica de
+    ninguna otra forma. Devuelve "" si el campo está vacío, contiene caracteres no
+    imprimibles o excede los 64 caracteres de un PatientID DICOM (LO).
+    """
+    text = raw.split(b"\x00", 1)[0].decode("ascii", errors="replace").strip()
+    if not text or len(text) > 64 or not text.isprintable() or "\ufffd" in text or "\\" in text:
+        return ""
+    return text
