@@ -33,6 +33,7 @@
 from __future__ import annotations
 
 import logging
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
@@ -248,6 +249,49 @@ def _build_layer_map(
     return arr
 
 
+# Mapas candidatos de ID de contorno → capa. El orden de la lista es la prioridad
+# cuando más de uno es geométricamente válido.
+#   oct_converter_contiguous: numeración contigua de la documentación de oct-converter
+#       (ILM=0, RNFL/GCL=1, IPL/INL=3, BM=9). Es el mapa histórico de Transducin.
+#   heyex_ids: observado en archivos reales de un Spectralis (2026-11-11): volúmenes con
+#       contornos 0..6, 8, 14, 15, 16 y SIN contorno 9; el más profundo es el 1, así que
+#       ILM=0, BM=1, RNFL/GCL=2, IPL/INL=4. Es una HIPÓTESIS respaldada por geometría
+#       (orden de profundidades y ~300 µm ILM→BM), no por documentación de Heidelberg;
+#       por eso las mediciones con este mapa se marcan extraction_confidence="assumed".
+_E2E_LAYER_MAPS: tuple[tuple[str, dict[str, str]], ...] = (
+    (
+        "oct_converter_contiguous",
+        {"ilm": "contour0", "rnfl_gcl": "contour1", "ipl_inl": "contour3", "bm": "contour9"},
+    ),
+    (
+        "heyex_ids",
+        {"ilm": "contour0", "bm": "contour1", "rnfl_gcl": "contour2", "ipl_inl": "contour4"},
+    ),
+)
+
+# Orden anatómico superficial → profundo; cada capa presente debe ser más profunda
+# (en media) que la anterior.
+_E2E_LAYER_ORDER = ("ilm", "rnfl_gcl", "ipl_inl", "bm")
+
+
+def _resolve_e2e_layers(contours: dict) -> tuple[dict | None, str | None]:
+    """Elige el mapa de IDs de contorno cuya geometría es consistente.
+
+    Devuelve ({"ilm", "bm", "rnfl_gcl", "ipl_inl"} → mapas 2D | None, nombre_del_mapa),
+    o (None, None) si ningún mapa tiene ILM y BM, o si el orden de profundidades no es
+    el anatómico (ILM < RNFL/GCL < IPL/INL < BM). Nunca se mide con un mapa dudoso.
+    """
+    for name, keys in _E2E_LAYER_MAPS:
+        layers = {layer: _build_layer_map(contours, key) for layer, key in keys.items()}
+        if layers["ilm"] is None or layers["bm"] is None:
+            continue
+        depths = [float(np.nanmean(layers[layer])) for layer in _E2E_LAYER_ORDER if layers[layer] is not None]
+        if any(np.isnan(depths)) or any(a >= b for a, b in pairwise(depths)):
+            continue
+        return layers, name
+    return None, None
+
+
 def _geometry_from_metadata(metadata: dict, n_ascans: int, n_bscans: int) -> dict:
     """Extrae escalas físicas reales desde bscan_data.posX1/posX2/posY1.
 
@@ -357,14 +401,19 @@ def measure_e2e_volume(
         compute_rnfl_sectors,
     )
 
-    ilm = _build_layer_map(contours, "contour0")  # ILM
-    bm = _build_layer_map(contours, "contour9")  # BM
-    rnfl_gcl = _build_layer_map(contours, "contour1")  # RNFL/GCL boundary
-    ipl_inl = _build_layer_map(contours, "contour3")  # IPL/INL boundary
-
-    if ilm is None or bm is None:
-        logger.debug("E2E: ILM o BM no disponibles — saltando volumen")
+    layers, layer_map_name = _resolve_e2e_layers(contours)
+    if layers is None:
+        logger.debug("E2E: ILM/BM no disponibles o con geometría inconsistente — saltando volumen")
         return None
+    ilm, bm = layers["ilm"], layers["bm"]
+    rnfl_gcl, ipl_inl = layers["rnfl_gcl"], layers["ipl_inl"]
+    # El mapa histórico queda "confirmed"; el inferido por geometría, "assumed".
+    layer_confidence = "confirmed" if layer_map_name == "oct_converter_contiguous" else "assumed"
+    layer_map_note = f"Mapeo de capas E2E: {layer_map_name}" + (
+        ""
+        if layer_confidence == "confirmed"
+        else " (hipótesis validada por orden geométrico, no por documentación del fabricante)"
+    )
 
     n_b, n_a = ilm.shape
     scan_type = _detect_scan_type(n_b, n_a)
@@ -421,9 +470,10 @@ def measure_e2e_volume(
             study_type="rnfl_circle",
             rnfl=prnfl,
             sqi_mean=sqi_mean,
-            extraction_confidence="confirmed",
+            extraction_confidence=layer_confidence,
             measurement_provenance="vendor_contour_derived",
         )
+        cd.add_note(layer_map_note)
         cd.add_note(
             f"CONFIRMED: pRNFL={prnfl.global_avg:.1f}µm "
             f"S={prnfl.superior} I={prnfl.inferior} "
@@ -453,9 +503,10 @@ def measure_e2e_volume(
         gcl_ipl=gcl_ipl,
         gcl_avg_um=round(float(gcl_ipl.global_avg), 1) if (gcl_ipl and gcl_ipl.global_avg is not None) else None,
         sqi_mean=sqi_mean,
-        extraction_confidence="confirmed" if cmt_um is not None else "assumed",
+        extraction_confidence=layer_confidence if cmt_um is not None else "assumed",
         measurement_provenance="vendor_contour_derived",
     )
+    cd.add_note(layer_map_note)
 
     if cmt_um is not None:
         cd.add_note(
