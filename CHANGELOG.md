@@ -14,6 +14,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Tests con archivos sintéticos: `tests/test_readers_layers.py`, `tests/_synthetic.py`
 
 ### Fixes
+- Spectralis `.e2e`: el mapeo de IDs de contorno (BM = contorno 9) no coincidía con archivos reales de un Spectralis, que traen los contornos 0–6, 8, 14–16 y el más profundo es el 1; con ese mapa `read_thickness_map()` devolvía 0 mapas. `measure_e2e_volume` ahora elige entre dos mapas (`oct_converter_contiguous`, histórico, y `heyex_ids`: ILM=0, BM=1, RNFL/GCL=2, IPL/INL=4) validando el orden geométrico de las capas, y no mide si ninguno es consistente. Las mediciones con `heyex_ids` quedan como `extraction_confidence="assumed"` y con nota: es una hipótesis respaldada por geometría y por coincidencia entre archivo individual y consolidado, no por documentación de Heidelberg; falta compararla con el valor del reporte del equipo
 - `FDAReader` fallaba con numpy ≥ 2.3 (`np.fromstring` binario eliminado)
 - Capas FDA ausentes (valor crudo 0) ahora son NaN y no "altura de imagen"
 - Adapters D1/D2: sin lateralidad conocida no se miden sectores (antes el extractor asumía ojo derecho)
