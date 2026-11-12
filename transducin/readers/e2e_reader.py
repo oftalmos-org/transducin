@@ -15,6 +15,7 @@ import logging
 import struct
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +23,7 @@ import numpy as np
 from transducin.etdrs_policy import STRICT
 from transducin.readers import _e2e_binary as e2e_binary
 from transducin.readers._layers import (
+    BScanVolume,
     LayerVolume,
     ThicknessMapData,
     sort_maps,
@@ -29,6 +31,35 @@ from transducin.readers._layers import (
 )
 
 logger = logging.getLogger("transducin.readers.e2e")
+
+
+# ── Decodificación de píxeles (ADR-027) ───────────────────────────────────────
+# Formato (oct_converter, MIT): cada píxel OCT es un flotante propio de 16 bits sin signo,
+# 6 bits de exponente (bits 10-15) y 10 bits de mantisa (bits 0-9, orden invertido):
+#   valor = (1 + mantisa_invertida / 1024) * 2 ** (exponente - 63)
+# Luego se aplica una transformada logarítmica a [0, 1] y se cuantiza a 8 bits.
+_IMAGE_CHUNK = 1073741824
+_MAX_PIXELS = 64_000_000  # tope de cordura ante cabeceras corruptas
+
+
+@lru_cache(maxsize=1)
+def _ufloat16_lut() -> np.ndarray:
+    i = np.arange(65536, dtype=np.uint32)
+    low = i & 0x3FF
+    rev = np.zeros_like(low)
+    for b in range(10):
+        rev |= ((low >> b) & 1) << (9 - b)
+    exponent = (i >> 10).astype(np.float64)
+    return (1.0 + rev / 1024.0) * np.power(2.0, exponent - 63)
+
+
+def _decode_bscan(raw: np.ndarray, height: int, width: int) -> np.ndarray:
+    """uint16 crudo de HEYEX → uint8 [alto × ancho]."""
+    v = _ufloat16_lut()[raw].copy()
+    dark = v <= 1
+    v[dark] = (np.log(v[dark] + 2.44e-4) + 8.3) / 8.285
+    v = np.clip(v, 0.0, 1.0)
+    return (v * 255 + 0.5).astype(np.uint8).reshape(height, width)
 
 
 @dataclass
@@ -234,6 +265,100 @@ class E2EReader:
                     n_bscans=n_slices,
                     n_ascans=len(first),
                     sqi_mean=round(float(np.mean(quals)), 4) if quals else None,
+                )
+            )
+        return volumes
+
+    def read_bscans(self) -> list[BScanVolume]:
+        """Decodifica los cortes B-scan (chunk de imagen con ind=1) y el fondo de ojo (ind=0).
+
+        Solo en local (ADR-027). No se leen nombre, fecha de nacimiento ni identificadores.
+        Un volumen es la tupla (patient_db_id, study_id, series_id), igual que en
+        read_layer_volumes(). Si hay varias imágenes para el mismo corte se conserva la primera.
+        Retorna [] si el archivo no trae cortes.
+        """
+        images: dict[str, dict[int, np.ndarray]] = {}
+        fundus: dict[str, np.ndarray] = {}
+        bscan_by_vol: dict[str, list[dict]] = {}
+        lat_by_vol: dict[str, str] = {}
+
+        with open(self.filepath, "rb") as f:
+            for start, _size in self._build_chunk_stack(f):
+                f.seek(start + self.byte_skip)
+                try:
+                    chunk = e2e_binary.chunk_structure.parse(f.read(60))
+                except Exception:
+                    continue
+                vs = f"{chunk.patient_db_id}_{chunk.study_id}_{chunk.series_id}"
+
+                if chunk.type == _IMAGE_CHUNK:
+                    try:
+                        head = e2e_binary.image_structure.parse(f.read(20))
+                    except Exception:
+                        continue
+                    count = head.height * head.width
+                    if count <= 0 or count > _MAX_PIXELS:
+                        continue
+                    if chunk.ind == 1:  # corte OCT, uint16
+                        buf = f.read(count * 2)
+                        if len(buf) < count * 2:
+                            continue
+                        idx = int(chunk.slice_id / 2)
+                        if idx < 0:
+                            continue
+                        raw = np.frombuffer(buf, dtype="<u2")
+                        images.setdefault(vs, {}).setdefault(idx, _decode_bscan(raw, head.height, head.width))
+                    elif chunk.ind == 0:  # fondo de ojo, uint8
+                        buf = f.read(count)
+                        if len(buf) < count:
+                            continue
+                        fundus.setdefault(
+                            vs, np.frombuffer(buf, dtype=np.uint8).reshape(head.height, head.width).copy()
+                        )
+
+                elif chunk.type == 10004:  # metadatos de B-scan (geometría)
+                    try:
+                        m = e2e_binary.bscan_metadata.parse(f.read(104))
+                    except Exception:
+                        continue
+                    bscan_by_vol.setdefault(vs, []).append(
+                        {
+                            "scaley": float(m.scaley),
+                            "posX1": float(m.posX1),
+                            "posX2": float(m.posX2),
+                            "posY1": float(m.posY1),
+                            "posY2": float(m.posY2),
+                        }
+                    )
+
+                elif chunk.type == 3:  # lateralidad
+                    try:
+                        pre = e2e_binary.pre_data.parse(f.read(chunk.size))
+                        if pre.laterality in ("R", "L") and vs not in lat_by_vol:
+                            lat_by_vol[vs] = pre.laterality
+                    except Exception:
+                        pass
+
+        file_lats = set(lat_by_vol.values())
+        volumes: list[BScanVolume] = []
+        for vs, per_slice in images.items():
+            n_slices = max(per_slice) + 1
+            bdata = bscan_by_vol.get(vs) or [d for lst in bscan_by_vol.values() for d in lst]
+            prefix = vs.rsplit("_", 1)[0] + "_"
+            fund = fundus.get(vs)
+            if fund is None:
+                fund = next((a for k, a in fundus.items() if k.startswith(prefix)), None)
+            # Mismo marcador que read_layer_volumes(); la geometría física real sale de
+            # spectralis_extractor._geometry_from_metadata (posX/posY no están en mm de retina).
+            spacing = [0.01, bdata[0]["scaley"], 0.05] if bdata else None
+            volumes.append(
+                BScanVolume(
+                    volume_id=vs,
+                    laterality=lat_by_vol.get(vs) or (next(iter(file_lats)) if len(file_lats) == 1 else None),
+                    images=[per_slice.get(i) for i in range(n_slices)],
+                    fundus=fund,
+                    bscan_data=bdata,
+                    pixel_spacing=spacing,
                 )
             )
         return volumes
