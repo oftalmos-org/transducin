@@ -26,7 +26,7 @@ def thickness_profile(n_b: int, n_a: int, base_um: float, grad_um: float = 0.0) 
 # ── E2E ───────────────────────────────────────────────────────────────────────
 
 
-def _e2e_chunk(type_: int, payload: bytes, slice_id: int = -1, series_id: int = 1) -> bytes:
+def _e2e_chunk(type_: int, payload: bytes, slice_id: int = -1, series_id: int = 1, ind: int = 1) -> bytes:
     head = eb.chunk_structure.build(
         {
             "magic3": "CMDb",
@@ -39,7 +39,7 @@ def _e2e_chunk(type_: int, payload: bytes, slice_id: int = -1, series_id: int = 
             "study_id": 1,
             "series_id": series_id,
             "slice_id": slice_id,
-            "ind": 1,
+            "ind": ind,
             "unknown4": 0,
             "type": type_,
             "unknown5": 0,
@@ -63,6 +63,8 @@ def build_e2e(
     quality: float | None = 0.25,
     with_contours: bool = True,
     with_image: bool = False,
+    image_raw: np.ndarray | None = None,  # [n_b × h × w] uint16 crudo (formato ufloat16 de HEYEX)
+    fundus: np.ndarray | None = None,  # [h × w] uint8; chunk de imagen con ind=0
 ) -> Path:
     """Escribe un .e2e mínimo con un cubo macular sintético."""
     axial_um = axial_mm * 1000.0
@@ -120,13 +122,30 @@ def build_e2e(
                 )
                 chunks.append((10019, 2 * i, _e2e_chunk(10019, payload, slice_id=2 * i)))
 
-    if with_image:  # 1 imagen mínima por slice, para el lector completo de oct_converter
+    if with_image or image_raw is not None:  # 1 imagen por slice
         for i in range(n_b):
-            pix = np.full((4, 4), 100, dtype="<u2").tobytes()
+            if image_raw is not None:
+                arr = np.ascontiguousarray(image_raw[i], dtype="<u2")
+            else:
+                arr = np.full((4, 4), 100, dtype="<u2")
+            pix = arr.tobytes()
             payload = (
-                eb.image_structure.build({"size": len(pix), "type": 0, "unknown": 0, "height": 4, "width": 4}) + pix
+                eb.image_structure.build(
+                    {"size": len(pix), "type": 0, "unknown": 0, "height": arr.shape[0], "width": arr.shape[1]}
+                )
+                + pix
             )
             chunks.append((1073741824, 2 * i, _e2e_chunk(1073741824, payload, slice_id=2 * i)))
+
+    if fundus is not None:  # imagen de fondo (SLO/IR): uint8, ind=0
+        fpix = np.ascontiguousarray(fundus, dtype=np.uint8).tobytes()
+        fpayload = (
+            eb.image_structure.build(
+                {"size": len(fpix), "type": 0, "unknown": 0, "height": fundus.shape[0], "width": fundus.shape[1]}
+            )
+            + fpix
+        )
+        chunks.append((1073741824, -1, _e2e_chunk(1073741824, fpayload, slice_id=-1, ind=0)))
 
     dir_pos = 88
     body_start = dir_pos + 52 + 44 * len(chunks)

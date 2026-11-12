@@ -26,6 +26,18 @@ class LayerVolume:
 
 
 @dataclass
+class BScanVolume:
+    """Cortes B-scan ya decodificados a 8 bits (ADR-027). Solo se genera en local."""
+
+    volume_id: str = ""
+    laterality: str | None = None
+    images: list = field(default_factory=list)  # uint8 [alto × ancho] por corte; None si falta
+    fundus: object | None = None  # uint8 [alto × ancho] del fondo de ojo (IR/SLO) o None
+    bscan_data: list = field(default_factory=list)  # dicts scaley/posX1/posX2/posY1/posY2
+    pixel_spacing: list | None = None  # [lateral mm/A-scan, axial mm/px, entre cortes mm]
+
+
+@dataclass
 class ThicknessMapData:
     """Espesores calculados desde la segmentación embebida en el archivo."""
 
