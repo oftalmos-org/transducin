@@ -40,6 +40,7 @@ logger = logging.getLogger("transducin.readers.e2e")
 #   valor = (1 + mantisa_invertida / 1024) * 2 ** (exponente - 63)
 # Luego se aplica una transformada logarítmica a [0, 1] y se cuantiza a 8 bits.
 _IMAGE_CHUNK = 1073741824
+_NO_DATA = 0xFFFF
 _MAX_PIXELS = 64_000_000  # tope de cordura ante cabeceras corruptas
 
 
@@ -57,6 +58,9 @@ def _ufloat16_lut() -> np.ndarray:
 def _decode_bscan(raw: np.ndarray, height: int, width: int) -> np.ndarray:
     """uint16 crudo de HEYEX → uint8 [alto × ancho]."""
     v = _ufloat16_lut()[raw].copy()
+    # 0xFFFF es el centinela «sin dato» de HEYEX (franjas fuera del área escaneada en
+    # volúmenes inclinados): se muestra en negro, no como señal saturada.
+    v[raw == _NO_DATA] = 0.0
     dark = v <= 1
     v[dark] = (np.log(v[dark] + 2.44e-4) + 8.3) / 8.285
     v = np.clip(v, 0.0, 1.0)

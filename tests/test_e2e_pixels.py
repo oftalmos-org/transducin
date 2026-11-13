@@ -69,3 +69,11 @@ def test_read_bscans_fundus_is_separate_and_uint8(tmp_path):
 def test_read_bscans_empty_without_images(tmp_path):
     path = build_e2e(tmp_path / "n.e2e", n_b=3)
     assert E2EReader(path).read_bscans() == []
+
+
+def test_no_data_sentinel_renders_black(tmp_path):
+    raw = np.full((1, 4, 6), 0xC447, dtype=np.uint16)
+    raw[0, :, :2] = 0xFFFF  # franja sin dato (volumen inclinado)
+    path = build_e2e(tmp_path / "x.e2e", n_b=1, image_raw=raw)
+    img = E2EReader(path).read_bscans()[0].images[0]
+    assert (img[:, :2] == 0).all() and (img[:, 2:] > 0).all()
