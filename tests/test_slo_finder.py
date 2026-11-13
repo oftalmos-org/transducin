@@ -69,3 +69,19 @@ def test_to_dicom_embeds_finder_and_layers(tmp_path):
     ds = pydicom.dcmread(SpectralisE2EAdapter().to_dicom(src, cd, tmp_path / "o")[0])
     fd = decode_finder(ds)
     assert fd is not None and len(fd["lines"]) == 25 and fd["field_deg"] == 30.0 and fd["slo_jpeg_b64"]
+
+
+def test_gray_thickness_png_encodes_um_and_mask():
+    import base64
+    import io
+
+    from PIL import Image
+
+    fundus = np.full((64, 64), 120, dtype=np.uint8)
+    f = build_finder(fundus, _raster(), 25, np.full((25, 128), 400.0), out_px=64)
+    img = Image.open(io.BytesIO(base64.b64decode(f["thickness_gray_png_b64"])))
+    assert img.mode == "LA" and f["thickness_range_um"] == [0, 800]
+    a = np.asarray(img)
+    inside = a[..., 1] == 255
+    assert inside.any() and not inside.all()
+    assert abs(float(a[..., 0][inside].mean()) * 800 / 255 - 400) < 4  # µm recuperables
