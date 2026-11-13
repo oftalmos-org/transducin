@@ -25,6 +25,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Sin cambios en los watchers de producción
 
 ### Fixes
+- Se elimina la dependencia de `oct_converter` en Spectralis y Topcon: se retiran los extractores antiguos `extract_from_e2e` / `extract_from_fda` (no los usaba ningún adaptador y leían nombre y fecha de nacimiento del paciente) y su prueba de paridad. `boct_converter` (Bioptigen) conserva `oct_converter` como dependencia opcional con import diferido
+- Hot folder genérico (Spectralis/Topcon): el SR y el nombre estandarizado usan el PatientID efectivo (alias NOEL o identificador del equipo, ADR-026) en vez de exigir NOEL ID; `.e2e` produce DICOM de imagen + SR en el mismo estudio
 - Spectralis `.e2e`: el mapeo de IDs de contorno (BM = contorno 9) no coincidía con archivos reales de un Spectralis, que traen los contornos 0–6, 8, 14–16 y el más profundo es el 1; con ese mapa `read_thickness_map()` devolvía 0 mapas. `measure_e2e_volume` ahora elige entre dos mapas (`oct_converter_contiguous`, histórico, y `heyex_ids`: ILM=0, BM=1, RNFL/GCL=2, IPL/INL=4) validando el orden geométrico de las capas, y no mide si ninguno es consistente. Las mediciones con `heyex_ids` quedan como `extraction_confidence="assumed"` y con nota: es una hipótesis respaldada por geometría y por coincidencia entre archivo individual y consolidado, no por documentación de Heidelberg; falta compararla con el valor del reporte del equipo
 - `FDAReader` fallaba con numpy ≥ 2.3 (`np.fromstring` binario eliminado)
 - Capas FDA ausentes (valor crudo 0) ahora son NaN y no "altura de imagen"

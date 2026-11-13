@@ -245,8 +245,7 @@ class E2EReader:
                             "posY2": float(m.posY2),
                         }
                     )
-                    # imgQuality: mismo offset (byte 84) que
-                    # spectralis_extractor._extract_e2e_scan_quality, para paridad.
+                    # imgQuality: Float32 en el byte 84 del payload de 104 bytes (0.0-1.0).
                     if len(payload) >= 88:
                         q = struct.unpack_from("<f", payload, 84)[0]
                         if 0.0 <= q <= 1.0:

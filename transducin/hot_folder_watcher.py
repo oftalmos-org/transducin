@@ -257,7 +257,7 @@ def _standardized_name(
     Si NOEL ID no está disponible, usa patient_name sanitizado como prefijo.
     Si hay colisión, ts (timestamp) se agrega antes de la extensión.
     """
-    prefix = cd.noel_id
+    prefix = cd.patient_id
     if not prefix:
         # Fallback: sanitize patient name
         prefix = cd.patient_name.replace(" ", "_").replace("^", "_")
@@ -775,11 +775,12 @@ def _process_generic_oct_file(
     # 2. Extraer datos clínicos
     try:
         clinical_data = adapter.extract(path)
-        clinical_data.noel_id = filename_noel
+        if filename_noel:  # alias NOEL explícito del nombre; si no, rige el PatientID del equipo (ADR-026)
+            clinical_data.noel_id = filename_noel
         clinical_data.source_file = str(path)
         logger.info(
-            "  Extracción: noel=%s lat=%s type=%s confidence=%s",
-            clinical_data.noel_id or "(none)",
+            "  Extracción: id_source=%s lat=%s type=%s confidence=%s",
+            clinical_data.patient_id_source,
             clinical_data.laterality,
             clinical_data.study_type,
             clinical_data.extraction_confidence,
@@ -804,8 +805,8 @@ def _process_generic_oct_file(
     # 4. Generar SR
     sr_path: Path | None = None
     _study_uid: str = ""
-    if not clinical_data.noel_id:
-        logger.warning("  SR omitido: noel_id desconocido.")
+    if not clinical_data.patient_id:
+        logger.warning("  SR omitido: sin PatientID (ni alias NOEL ni identificador del equipo).")
     else:
         try:
             sr_dir = output_dir / "sr"
