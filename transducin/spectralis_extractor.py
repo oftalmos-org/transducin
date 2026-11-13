@@ -267,6 +267,35 @@ def _geometry_from_metadata(metadata: dict, n_ascans: int, n_bscans: int) -> dic
 # ── Medición reutilizable (sin dependencia de oct_converter) ─────────────────
 
 
+def _orient_to_etdrs_convention(arrays: dict, bscan_data: list, n_b: int) -> tuple[dict, str]:
+    """Reordena los arreglos [corte][A-scan] a la convención de compute_etdrs, según el SLO.
+
+    compute_etdrs (heredada de Revo) supone corte 0 = superior y, por lateralidad, ojo derecho:
+    izquierda = nasal / ojo izquierdo: izquierda = temporal. En el .e2e de Spectralis (verificado
+    con el SLO de archivos reales, ADR-027) posX/posY son grados en coordenadas de imagen
+    (x a la derecha, y hacia abajo, SLO de pie): superior = y menor; ojo derecho: temporal a la
+    izquierda; ojo izquierdo: nasal a la izquierda. Por eso se ordenan los cortes por y creciente
+    y se invierten las columnas de cada corte cuyo A-scan crece en x. Devuelve (arreglos, nota);
+    sin metadatos coherentes devuelve los arreglos sin cambios y una nota de que no se pudo.
+    """
+    if not bscan_data or len(bscan_data) != n_b:
+        return arrays, "Orientación de sectores NO verificable: faltan posX/posY por corte."
+    ys = np.array([(d["posY1"] + d["posY2"]) / 2.0 for d in bscan_data])
+    flip = np.array([d["posX2"] > d["posX1"] for d in bscan_data])
+    if not np.isfinite(ys).all():
+        return arrays, "Orientación de sectores NO verificable: posY no finita."
+    order = np.argsort(ys, kind="stable")  # superior (y menor) primero
+
+    out = {}
+    for name, arr in arrays.items():
+        if arr is None or arr.shape[0] != n_b:
+            out[name] = arr
+            continue
+        fixed = np.where(flip[:, None], arr[:, ::-1], arr)
+        out[name] = fixed[order]
+    return out, "Orientación de sectores normalizada con posX/posY del archivo (SLO)."
+
+
 def measure_e2e_volume(
     contours: dict,
     pixel_spacing: list | None,
@@ -321,6 +350,15 @@ def measure_e2e_volume(
 
     n_b, n_a = ilm.shape
     scan_type = _detect_scan_type(n_b, n_a)
+
+    orientation_note = ""
+    if scan_type != "rnfl_circle":
+        oriented, orientation_note = _orient_to_etdrs_convention(
+            {"ilm": ilm, "bm": bm, "rnfl_gcl": rnfl_gcl, "ipl_inl": ipl_inl},
+            (metadata or {}).get("bscan_data", []),
+            n_b,
+        )
+        ilm, bm, rnfl_gcl, ipl_inl = oriented["ilm"], oriented["bm"], oriented["rnfl_gcl"], oriented["ipl_inl"]
 
     # ── Geometría física ──────────────────────────────────────────────────
     ps = pixel_spacing or []
@@ -411,6 +449,8 @@ def measure_e2e_volume(
         measurement_provenance="vendor_contour_derived",
     )
     cd.add_note(layer_map_note)
+    if orientation_note:
+        cd.add_note(orientation_note)
 
     if cmt_um is not None:
         cd.add_note(

@@ -89,3 +89,34 @@ def test_measure_with_contiguous_ids_keeps_confirmed():
     assert cd is not None
     assert cd.cmt_um is not None and abs(cd.cmt_um - 304.7) < 1.0
     assert cd.extraction_confidence == "confirmed"
+
+
+def test_orientation_follows_slo_not_slice_order():
+    """Superior = y menor; columnas en x decreciente. Corte 0 inferior (y>0) pasa al final."""
+    from transducin.spectralis_extractor import _orient_to_etdrs_convention
+
+    n_b, n_a = 3, 4
+    arr = np.arange(n_b * n_a, dtype=np.float32).reshape(n_b, n_a)  # fila i = corte i
+    meta = [  # corte 0 inferior (y=+5), corte 2 superior (y=-5); A-scan crece en x
+        {"posX1": -10.0, "posX2": 10.0, "posY1": 5.0, "posY2": 5.0},
+        {"posX1": -10.0, "posX2": 10.0, "posY1": 0.0, "posY2": 0.0},
+        {"posX1": -10.0, "posX2": 10.0, "posY1": -5.0, "posY2": -5.0},
+    ]
+    out, note = _orient_to_etdrs_convention({"a": arr, "none": None}, meta, n_b)
+    assert out["none"] is None and "normalizada" in note
+    # fila 0 = el corte superior (antes 2), con columnas invertidas
+    assert np.array_equal(out["a"][0], arr[2][::-1])
+    assert np.array_equal(out["a"][2], arr[0][::-1])
+
+    # un corte con A-scan decreciente en x ya está en el orden pedido: no se invierte
+    meta[1] = {"posX1": 10.0, "posX2": -10.0, "posY1": 0.0, "posY2": 0.0}
+    out2, _ = _orient_to_etdrs_convention({"a": arr}, meta, n_b)
+    assert np.array_equal(out2["a"][1], arr[1])
+
+
+def test_orientation_without_geometry_is_not_applied_and_says_so():
+    from transducin.spectralis_extractor import _orient_to_etdrs_convention
+
+    arr = np.zeros((3, 4), dtype=np.float32)
+    out, note = _orient_to_etdrs_convention({"a": arr}, [], 3)
+    assert out["a"] is arr and "NO verificable" in note

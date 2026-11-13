@@ -76,6 +76,14 @@ _E2E_PID_OFFSET = 102
 _E2E_PID_LEN = 25
 
 
+def _sorted_by_slice(items: list[dict]) -> list[dict]:
+    """Ordena los metadatos por índice de corte si todos lo traen y son únicos; si no, deja el orden."""
+    idx = [d.get("slice", -1) for d in items]
+    if items and min(idx) >= 0 and len(set(idx)) == len(idx):
+        return sorted(items, key=lambda d: d["slice"])
+    return items
+
+
 class E2EReader:
     """Reader for Heidelberg Spectralis .e2e (HEYEX) binary format.
 
@@ -243,6 +251,7 @@ class E2EReader:
                             "posX2": float(m.posX2),
                             "posY1": float(m.posY1),
                             "posY2": float(m.posY2),
+                            "slice": int(chunk.slice_id / 2),
                         }
                     )
                     # imgQuality: Float32 en el byte 84 del payload de 104 bytes (0.0-1.0).
@@ -281,7 +290,7 @@ class E2EReader:
                 contours[name] = lst
             first = next(iter(next(iter(conts.values())).values()))
 
-            bdata = bscan_by_vol.get(vs) or all_bscan
+            bdata = _sorted_by_slice(bscan_by_vol.get(vs) or all_bscan)
             quals = qual_by_vol.get(vs) or all_qual
             # Lateralidad: la del volumen; si falta, la del archivo solo si es unívoca.
             lat = lat_by_vol.get(vs) or (next(iter(file_lats)) if len(file_lats) == 1 else None)
@@ -359,6 +368,7 @@ class E2EReader:
                             "posX2": float(m.posX2),
                             "posY1": float(m.posY1),
                             "posY2": float(m.posY2),
+                            "slice": int(chunk.slice_id / 2),
                         }
                     )
 
@@ -374,7 +384,7 @@ class E2EReader:
         volumes: list[BScanVolume] = []
         for vs, per_slice in images.items():
             n_slices = max(per_slice) + 1
-            bdata = bscan_by_vol.get(vs) or [d for lst in bscan_by_vol.values() for d in lst]
+            bdata = _sorted_by_slice(bscan_by_vol.get(vs) or [d for lst in bscan_by_vol.values() for d in lst])
             prefix = vs.rsplit("_", 1)[0] + "_"
             fund = fundus.get(vs)
             if fund is None:
