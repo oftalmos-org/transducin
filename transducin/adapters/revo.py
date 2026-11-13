@@ -5,10 +5,14 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from transducin.base_adapter import DeviceAdapter
 from transducin.clinical_data import OCTClinicalData
+
+# Mismo patrón que usa revo_opt_reader.opt_to_dicom() para el prefijo NOEL del archivo.
+_NOEL_STEM_RE = re.compile(r"^([A-Z]{4}\d{8})_")
 
 
 class RevoOptAdapter(DeviceAdapter):
@@ -29,7 +33,14 @@ class RevoOptAdapter(DeviceAdapter):
     def extract(self, path: Path) -> OCTClinicalData:
         from transducin.opt_extractor import extract_from_opt
 
-        return extract_from_opt(path)
+        cd = extract_from_opt(path)
+        if not cd.noel_id:
+            # Prefijo NOEL explícito que el parser del nombre no reconoció: es el mismo
+            # que opt_to_dicom() escribe en la imagen; así imagen y SR no divergen.
+            m = _NOEL_STEM_RE.match(path.stem)
+            if m:
+                cd.noel_id = m.group(1)
+        return cd
 
     def to_dicom(
         self,
@@ -44,6 +55,8 @@ class RevoOptAdapter(DeviceAdapter):
             filepath=path,
             output_dir=output_dir,
             noel_id=clinical_data.noel_id or "",
+            # ADR-026: PatientID efectivo (alias NOEL → identificador de la fuente → vacío).
+            patient_id=clinical_data.patient_id,
             study_date=clinical_data.study_date or "",
             laterality=clinical_data.laterality or "",
             patient_name="",

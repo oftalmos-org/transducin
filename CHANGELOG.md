@@ -10,10 +10,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 - `SpectralisE2EAdapter.to_dicom`: un DICOM OphthalmicTomographyImage por volumen B-scan del `.e2e` (mismo StudyInstanceUID; el primero coincide con la lateralidad del SR). No escribe PixelSpacing/SliceThickness (posX/posY vienen en grados, no en mm) ni el nombre del archivo; la extensión angular queda en ImageComments. Tests: `tests/test_spectralis_to_dicom.py`
 - ADR-027 (propuesto): lectura de píxeles de Spectralis `.e2e` solo en local. `E2EReader.read_bscans()` decodifica los cortes B-scan (flotante propio de 16 bits + transformada logarítmica, verificado valor por valor contra una referencia) y el fondo de ojo; `BScanVolume` en `readers/_layers.py`. `scripts/e2e_contour_viewer.py`: HTML local con cortes y contornos de capa para comprobar a simple vista el mapeo de IDs; se niega a escribir dentro del repo. Tests sintéticos: `tests/test_e2e_pixels.py`, `tests/test_e2e_contour_viewer.py`
+- Identidad por alias (ADR-026, fase 1): `OCTClinicalData.device_patient_id` y propiedades `patient_id` / `patient_id_source` (`noel` | `device` | `filename` | `none`); `noel_id` queda como alias opcional
+- `E2EReader.read_patient_id()` y `FDAReader.read_patient_id()`: leen solo el campo del identificador interno del archivo (sin nombre ni fecha de nacimiento)
+- `opt_to_dicom()`, `build_dicom_oct()` y `build_dicom_enface()` aceptan `patient_id` opcional
+- Tests: `tests/test_patient_identity.py`
 - `E2EReader.read_thickness_map()` y `FDAReader.read_thickness_map()` ya calculan CMT, ETDRS, mRNFL y mGCIPL (y pRNFL en circle scans) desde la segmentación embebida; los adapters Spectralis (D1) y Topcon (D2) dejan de devolver `None` (ADR-022, enmienda)
 - `read_layer_volumes()` en ambos readers; `transducin/readers/_layers.py` (`LayerVolume`, `ThicknessMapData`)
 - `measure_e2e_volume()` / `measure_fda_volume()`: lógica de medición compartida entre extractores y readers
 - Tests con archivos sintéticos: `tests/test_readers_layers.py`, `tests/_synthetic.py`
+
+### Changed
+- `build_sr()` ya no exige `noel_id`: `PatientID = patient_id` (puede ir vacío); fecha de nacimiento y respaldo de `PatientName` solo desde datos de origen o un NOEL válido
+- Adapters Spectralis/Topcon y sus extractores conservan el identificador interno del equipo aunque no sea NOEL
+- Sin cambios en los watchers de producción
 
 ### Fixes
 - Spectralis `.e2e`: el mapeo de IDs de contorno (BM = contorno 9) no coincidía con archivos reales de un Spectralis, que traen los contornos 0–6, 8, 14–16 y el más profundo es el 1; con ese mapa `read_thickness_map()` devolvía 0 mapas. `measure_e2e_volume` ahora elige entre dos mapas (`oct_converter_contiguous`, histórico, y `heyex_ids`: ILM=0, BM=1, RNFL/GCL=2, IPL/INL=4) validando el orden geométrico de las capas, y no mide si ninguno es consistente. Las mediciones con `heyex_ids` quedan como `extraction_confidence="assumed"` y con nota: es una hipótesis respaldada por geometría y por coincidencia entre archivo individual y consolidado, no por documentación de Heidelberg; falta compararla con el valor del reporte del equipo

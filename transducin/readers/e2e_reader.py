@@ -26,6 +26,7 @@ from transducin.readers._layers import (
     BScanVolume,
     LayerVolume,
     ThicknessMapData,
+    clean_source_patient_id,
     sort_maps,
     thickness_map_from_clinical,
 )
@@ -67,6 +68,12 @@ class _OCTVolume:
     """Minimal OCT volume container — carries only what Transducin needs."""
 
     laterality: str | None = None
+
+
+# Posición del campo patient_id dentro de patient_id_structure (chunk tipo 9):
+# first_name(31) + surname(51) + title(15) + birthdate(4) + sex(1) = 102; ancho 25.
+_E2E_PID_OFFSET = 102
+_E2E_PID_LEN = 25
 
 
 class E2EReader:
@@ -144,6 +151,31 @@ class E2EReader:
                     except Exception:
                         pass
         return None
+
+    def read_patient_id(self) -> str:
+        """Identificador interno del paciente (chunk tipo 9), tal cual viene en el archivo.
+
+        Solo se leen los 25 bytes del campo ``patient_id``; nombre, apellidos y fecha de
+        nacimiento del mismo chunk NO se leen (privacidad por diseño). Retorna "" si no
+        hay chunk de paciente o el campo está vacío.
+        """
+        try:
+            with open(self.filepath, "rb") as f:
+                for start, _size in self._build_chunk_stack(f):
+                    f.seek(start + self.byte_skip)
+                    try:
+                        chunk = e2e_binary.chunk_structure.parse(f.read(60))
+                    except Exception:
+                        continue
+                    if chunk.type != 9 or chunk.size < _E2E_PID_OFFSET + _E2E_PID_LEN:
+                        continue
+                    f.seek(_E2E_PID_OFFSET, 1)
+                    pid = clean_source_patient_id(f.read(_E2E_PID_LEN))
+                    if pid:
+                        return pid
+        except Exception as exc:  # degradación elegante ante archivos parciales
+            logger.debug("E2E: no se pudo leer el identificador de paciente: %s", type(exc).__name__)
+        return ""
 
     # ── Segmentación de capas ────────────────────────────────────────────────
 
