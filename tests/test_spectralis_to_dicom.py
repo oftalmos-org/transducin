@@ -111,3 +111,27 @@ def test_to_dicom_labels_15_degree_volume_as_optic_nerve(tmp_path):
     assert ds.ProtocolName == "optic_nerve"
     assert "Optic Nerve" in ds.StudyDescription
     assert ds.AnatomicRegionSequence[0].CodeValue == "T-AA630"
+
+
+def test_extract_all_one_measurement_per_eye_and_reference_matches_eye(tmp_path):
+    """extract_all da una medición por ojo; pick_reference elige la imagen de ese ojo."""
+    from tests._synthetic import thickness_profile
+    from transducin.sr_reference import pick_reference
+
+    raw = np.random.default_rng(6).integers(0, 65536, size=(25, 8, 256), dtype=np.uint32).astype(np.uint16)
+    src = build_e2e(
+        tmp_path / "e.e2e",
+        laterality="L",
+        thick_um=thickness_profile(25, 256, 250.0, grad_um=120.0),
+        image_raw=raw,
+        patient_id="DEV-1",
+        scan_mm=20.0,
+    )
+    adapter = SpectralisE2EAdapter()
+    cds = adapter.extract_all(src)
+    assert [c.laterality for c in cds] == ["L"]
+    assert cds[0].patient_id == "DEV-1" and cds[0].extraction_confidence == "confirmed"  # mapa contiguo documentado
+    files = adapter.to_dicom(src, cds[0], tmp_path / "o")
+    ref = pick_reference(files, "L", "macular")
+    assert ref is not None and ref.Laterality == "L"
+    assert pick_reference([], "L") is None

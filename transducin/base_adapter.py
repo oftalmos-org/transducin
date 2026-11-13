@@ -77,6 +77,14 @@ class DeviceAdapter(ABC):
             Lista de rutas a los archivos .dcm generados (puede estar vacía si falla).
         """
 
+    def extract_all(self, path: Path) -> list[OCTClinicalData]:
+        """Mediciones de TODOS los ojos/volúmenes del archivo (uno por SR).
+
+        Por defecto es ``[extract(path)]``. Los equipos cuyo archivo trae varios ojos
+        (p. ej. un .e2e consolidado) lo sobrescriben para devolver una medición por ojo.
+        """
+        return [self.extract(path)]
+
     # ── con implementación por defecto ───────────────────────────────────────
 
     def can_handle(self, path: Path) -> bool:
