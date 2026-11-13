@@ -90,7 +90,12 @@ class OCTClinicalData:
     """
 
     # Identificación
-    noel_id: str = ""  # PatientID en formato NOEL (JAHJ19870831)
+    # ADR-026: el NOEL ID es un alias opcional. El PatientID DICOM efectivo es la
+    # propiedad `patient_id` (noel_id → device_patient_id → ""); nunca se deriva del nombre.
+    noel_id: str = ""  # Alias NOEL (JAHJ19870831), opcional
+    device_patient_id: str = ""  # Identificador original de la fuente, sin modificar
+    # Procedencia de device_patient_id: "device" (interno del archivo) | "filename"
+    device_patient_id_source: str = "device"
     vendor: str = "optopol_revo"
     source_file: str = ""  # Path al .opt original (solo referencia)
 
@@ -150,6 +155,24 @@ class OCTClinicalData:
 
     def add_note(self, note: str) -> None:
         self.confidence_notes.append(note)
+
+    @property
+    def patient_id(self) -> str:
+        """PatientID DICOM efectivo (ADR-026): NOEL explícito → identificador de la fuente → vacío.
+
+        Es una propiedad derivada porque watchers y conversores asignan `noel_id`
+        después de `extract()`; así nunca queda desfasada.
+        """
+        return (self.noel_id or "").strip() or (self.device_patient_id or "").strip()
+
+    @property
+    def patient_id_source(self) -> str:
+        """Procedencia de `patient_id`: "noel" | "device" | "filename" | "none"."""
+        if (self.noel_id or "").strip():
+            return "noel"
+        if (self.device_patient_id or "").strip():
+            return "filename" if self.device_patient_id_source == "filename" else "device"
+        return "none"
 
     def has_measurements(self) -> bool:
         """True si hay al menos una medición clínica."""

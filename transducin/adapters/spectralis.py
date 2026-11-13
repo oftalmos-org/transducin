@@ -53,6 +53,18 @@ def _num(x) -> float | None:
     return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) else None
 
 
+def _device_patient_id(reader) -> str:
+    """Identificador interno del archivo tal cual (ADR-026); "" si el reader no lo expone o falla."""
+    fn = getattr(reader, "read_patient_id", None)
+    if not callable(fn):
+        return ""
+    try:
+        pid = fn()
+    except Exception:
+        return ""
+    return pid.strip() if isinstance(pid, str) else ""
+
+
 def _measurements_from_reader(reader, laterality: str | None) -> dict:
     """Llama reader.read_thickness_map() y devuelve kwargs para OCTClinicalData.
 
@@ -147,7 +159,8 @@ class SpectralisE2EAdapter(DeviceAdapter):
 
         meas = _measurements_from_reader(reader, laterality)
         cd = OCTClinicalData(
-            noel_id="",  # resuelto desde filename en hot_folder_watcher
+            noel_id="",  # alias NOEL: lo resuelve el llamador (p. ej. prefijo del nombre de archivo)
+            device_patient_id=_device_patient_id(reader),  # ADR-026: identificador del equipo, sin modificar
             vendor="heidelberg_spectralis",
             **meas,
         )
