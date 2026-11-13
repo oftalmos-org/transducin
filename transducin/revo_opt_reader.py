@@ -480,18 +480,21 @@ def _extract_layer_with_fallback(data: bytes, chunks: dict[str, dict], name: str
 
 # Orden anatómico (de interno a externo) de los contornos nombrados por el equipo; el encabezado
 # de este módulo documenta el significado de cada chunk.
-_REVO_LAYER_ORDER: tuple[tuple[str, str], ...] = (
-    ("TOP", "ILM"),
-    ("NFL", "NFL/GCL"),
-    ("GCL", "GCL/IPL"),
-    ("IPL", "IPL/INL"),
-    ("INL", "INL/OPL"),
-    ("OPL", "OPL/ONL"),
-    ("ONL", "ONL/IS"),
-    ("ELM", "ELM"),
-    ("EZOS", "IS/OS (zona elipsoide)"),
-    ("ISOS", "OS/EPR"),
-    ("BM", "Bruch (BM)"),
+_REVO_LAYER_ORDER: tuple[tuple[str, str, str], ...] = (
+    ("TOP", "ILM", "documented"),
+    ("NFL", "NFL/GCL", "documented"),
+    ("GCL", "GCL/IPL", "documented"),
+    ("IPL", "IPL/INL", "documented"),
+    ("INL", "INL/OPL", "documented"),
+    ("OPL", "OPL/ONL", "documented"),
+    # En archivos propios (Revo 21.5, 256 cortes) el contorno ELM queda por encima del ONL en el 99.9 % de
+    # las columnas: el encabezado dice "ONL/IS" para ONL, pero el orden medido lo contradice. Se ordenan
+    # según el dato y ambos se marcan como inferidos hasta confirmarlos a simple vista.
+    ("ELM", "ELM", "inferred"),
+    ("ONL", "ONL/IS", "inferred"),
+    ("EZOS", "IS/OS (zona elipsoide)", "documented"),
+    ("ISOS", "OS/EPR", "documented"),
+    ("BM", "Bruch (BM)", "documented"),
 )
 
 
@@ -501,7 +504,7 @@ def extract_all_layers(data: bytes, chunks: dict[str, dict]) -> dict[str, np.nda
     0 = sin dato (se conserva tal cual; ``layers_for_dicom`` lo convierte a NaN). BM usa BOTTOM de respaldo.
     """
     out: dict[str, np.ndarray] = {}
-    for name, _label in _REVO_LAYER_ORDER:
+    for name, _label, _status in _REVO_LAYER_ORDER:
         arr = _extract_layer_with_fallback(data, chunks, "BM", "BOTTOM") if name == "BM" else extract_layer(data, chunks, name)
         if arr is not None and arr.size and arr.any():
             out[name] = arr
@@ -521,7 +524,7 @@ def layers_for_dicom(
         return None
     contours: dict[str, list] = {}
     labels: dict[str, tuple[str, str]] = {}
-    for i, (name, label) in enumerate(_REVO_LAYER_ORDER):
+    for i, (name, label, status) in enumerate(_REVO_LAYER_ORDER):
         arr = layers.get(name)
         if arr is None:
             continue
@@ -535,7 +538,7 @@ def layers_for_dicom(
             return None
         key = f"c{i:02d}_{name}"
         contours[key] = [a[f] for f in range(n_frames)]
-        labels[key] = (label, "documented")
+        labels[key] = (label, status)
     if not contours:
         return None
     note = "Contornos de segmentación embebidos por el equipo Revo (chunks nombrados); filas en píxeles del B-scan."
