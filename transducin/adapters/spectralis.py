@@ -12,12 +12,14 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 from pydicom.uid import generate_uid
 
 from transducin.base_adapter import DeviceAdapter
 from transducin.clinical_data import ETDRSGrid, OCTClinicalData, RNFLSectors
 from transducin.layer_contours import attach_layers, encode_layers
 from transducin.readers.e2e_reader import E2EReader
+from transducin.slo_finder import attach_finder, build_finder
 
 
 def _to_rnfl_sectors(d: dict | None) -> RNFLSectors | None:
@@ -281,6 +283,18 @@ def _angular_extent(bscan_data: list[dict]) -> str:
     return f"{max(wx):.1f}° x {max(ys) - min(ys):.1f}°"
 
 
+def _thickness_um(contours: dict, bscan_data: list[dict], n_frames: int):
+    """Grosor ILM→BM en µm, [corte][A-scan] en orden de corte (para el mapa de color); ``None`` si no hay."""
+    from transducin.spectralis_extractor import _resolve_e2e_layers
+
+    layers, _name = _resolve_e2e_layers(contours)
+    if layers is None or layers["ilm"].shape[0] != n_frames:
+        return None
+    scaley = [d["scaley"] for d in bscan_data if 0.001 < d.get("scaley", 0.0) < 0.1]
+    axial_um = float(np.median(scaley)) * 1000.0 if scaley else 3.87
+    return (layers["bm"] - layers["ilm"]) * axial_um
+
+
 def _layer_labels(contours: dict) -> tuple[dict[str, tuple[str, str]], str]:
     """Etiquetas anatómicas de los contornos con su estado (documentado / inferido)."""
     from transducin.spectralis_extractor import _E2E_LAYER_MAPS, _resolve_e2e_layers
@@ -328,6 +342,10 @@ def _build_spectralis_oct(vol, cd: OCTClinicalData, study_uid: str, number: int,
     if layer_volume is not None and getattr(layer_volume, "contours", None):
         labels, note = _layer_labels(layer_volume.contours)
         attach_layers(ds, encode_layers(layer_volume.contours, len(frames), labels, note))
+    thickness = None
+    if layer_volume is not None and getattr(layer_volume, "contours", None):
+        thickness = _thickness_um(layer_volume.contours, vol.bscan_data, len(frames))
+    attach_finder(ds, build_finder(vol.fundus, vol.bscan_data, len(frames), thickness))
     if study_type == "optic_nerve":  # build_dicom_oct etiqueta todo lo no anterior como retina
         ds.AnatomicRegionSequence[0].CodeValue = "T-AA630"
         ds.AnatomicRegionSequence[0].CodeMeaning = "Optic nerve"
