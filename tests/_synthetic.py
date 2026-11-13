@@ -95,7 +95,8 @@ def build_e2e(
 
     q_bits = struct.unpack("<I", struct.pack("<f", quality if quality is not None else 5.0))[0]
     for i in range(n_b):
-        posy = scan_mm * i / max(n_b - 1, 1)
+        scan_deg = scan_mm / 0.3  # posX/posY del .e2e van en grados (0.3 mm/°)
+        posy = scan_deg * i / max(n_b - 1, 1)
         meta = eb.bscan_metadata.build(
             {
                 "unknown1": 0,
@@ -103,7 +104,7 @@ def build_e2e(
                 "imgSizeX": n_a,
                 "posX1": 0.0,
                 "posY1": posy,
-                "posX2": scan_mm,
+                "posX2": scan_deg,
                 "posY2": posy,
                 "zero1": 0,
                 "unknown2": 0.0,

@@ -205,8 +205,18 @@ def _resolve_e2e_layers(contours: dict) -> tuple[dict | None, str | None]:
     return None, None
 
 
+# posX/posY del .e2e están en GRADOS de exploración, no en mm. Equivalencia del propio reporte
+# de Spectralis ("OCT 20° (6.0 mm)" y círculos ETDRS de 1, 3 y 6 mm): 0.3 mm por grado.
+_MM_PER_DEG = 0.3
+
+
+def _fmt(v) -> str:
+    """Formatea un valor opcional (sector sin cobertura → 'n/d')."""
+    return f"{v:.1f}" if isinstance(v, (int, float)) else "n/d"
+
+
 def _geometry_from_metadata(metadata: dict, n_ascans: int, n_bscans: int) -> dict:
-    """Extrae escalas físicas reales desde bscan_data.posX1/posX2/posY1.
+    """Extrae escalas físicas desde bscan_data (posX1/posX2/posY1 en grados → mm con 0.3 mm/°).
 
     Retorna dict con axial_um, lateral_um, scan_width_mm.
     Si metadata no tiene datos útiles usa defaults Spectralis.
@@ -231,19 +241,19 @@ def _geometry_from_metadata(metadata: dict, n_ascans: int, n_bscans: int) -> dic
         px1 = bd.get("posX1", 0.0)
         px2 = bd.get("posX2", 0.0)
         w = abs(float(px2) - float(px1))
-        if 0.5 < w < 20.0:  # rango razonable mm
+        if 5.0 < w < 60.0:  # grados de exploración razonables (15°–55° típicos)
             widths_x.append(w)
         py1 = bd.get("posY1", 0.0)
         if py1 is not None:
             posY_vals.append(float(py1))
 
     if widths_x and n_ascans > 0:
-        scan_x_mm = float(np.median(widths_x))
+        scan_x_mm = float(np.median(widths_x)) * _MM_PER_DEG
         lateral_um = scan_x_mm * 1000.0 / n_ascans
 
     # Scan width Y — rango de posY
     if len(posY_vals) >= 2:
-        y_range = abs(max(posY_vals) - min(posY_vals))
+        y_range = abs(max(posY_vals) - min(posY_vals)) * _MM_PER_DEG
         if 0.5 < y_range < 20.0:
             scan_width_mm = y_range
 
@@ -411,14 +421,14 @@ def measure_e2e_volume(
     if rnfl and rnfl.global_avg is not None:
         cd.add_note(
             f"CONFIRMED: mRNFL={rnfl.global_avg:.1f}µm "
-            f"S={rnfl.superior:.1f} N={rnfl.nasal:.1f} "
-            f"I={rnfl.inferior:.1f} T={rnfl.temporal:.1f} µm"
+            f"S={_fmt(rnfl.superior)} N={_fmt(rnfl.nasal)} "
+            f"I={_fmt(rnfl.inferior)} T={_fmt(rnfl.temporal)} µm"
         )
     if gcl_ipl and gcl_ipl.global_avg is not None:
         cd.add_note(
             f"CONFIRMED: mGCIPL={gcl_ipl.global_avg:.1f}µm "
-            f"S={gcl_ipl.superior:.1f} N={gcl_ipl.nasal:.1f} "
-            f"I={gcl_ipl.inferior:.1f} T={gcl_ipl.temporal:.1f} µm"
+            f"S={_fmt(gcl_ipl.superior)} N={_fmt(gcl_ipl.nasal)} "
+            f"I={_fmt(gcl_ipl.inferior)} T={_fmt(gcl_ipl.temporal)} µm"
         )
 
     cov_note = unavailable_summary(cov_report)

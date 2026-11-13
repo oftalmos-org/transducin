@@ -23,7 +23,7 @@ def _cd(noel_id: str = "", laterality: str = "R") -> OCTClinicalData:
 
 def _e2e(tmp_path, name="JAHJ19870831_secreto.e2e"):
     raw = np.random.default_rng(3).integers(0, 65536, size=(3, 8, 16), dtype=np.uint32).astype(np.uint16)
-    return build_e2e(tmp_path / name, n_b=3, image_raw=raw, scan_mm=20.0)  # 20°: volumen macular
+    return build_e2e(tmp_path / name, n_b=3, image_raw=raw, scan_mm=6.0)  # 6.0 mm = 20°: volumen macular
 
 
 def test_to_dicom_writes_oct_with_images_inside_output_dir(tmp_path):
@@ -106,7 +106,7 @@ def test_infer_study_type_by_angular_extent():
 
 def test_to_dicom_labels_15_degree_volume_as_optic_nerve(tmp_path):
     raw = np.random.default_rng(4).integers(0, 65536, size=(3, 8, 16), dtype=np.uint32).astype(np.uint16)
-    src = build_e2e(tmp_path / "onh.e2e", n_b=3, image_raw=raw, scan_mm=15.0)
+    src = build_e2e(tmp_path / "onh.e2e", n_b=3, image_raw=raw, scan_mm=4.5)  # 4.5 mm = 15°
     ds = pydicom.dcmread(SpectralisE2EAdapter().to_dicom(src, _cd(), tmp_path / "o")[0])
     assert ds.ProtocolName == "optic_nerve"
     assert "Optic Nerve" in ds.StudyDescription
@@ -125,7 +125,7 @@ def test_extract_all_one_measurement_per_eye_and_reference_matches_eye(tmp_path)
         thick_um=thickness_profile(25, 256, 250.0, grad_um=120.0),
         image_raw=raw,
         patient_id="DEV-1",
-        scan_mm=20.0,
+        scan_mm=6.0,
     )
     adapter = SpectralisE2EAdapter()
     cds = adapter.extract_all(src)
@@ -135,3 +135,39 @@ def test_extract_all_one_measurement_per_eye_and_reference_matches_eye(tmp_path)
     ref = pick_reference(files, "L", "macular")
     assert ref is not None and ref.Laterality == "L"
     assert pick_reference([], "L") is None
+
+
+def test_layer_contours_roundtrip_and_attached_to_image(tmp_path):
+    """Los contornos embebidos viajan en el DICOM de imagen (ADR-028) y se decodifican igual."""
+    from tests._synthetic import thickness_profile
+    from transducin.layer_contours import decode_layers, encode_layers
+
+    raw = np.random.default_rng(7).integers(0, 65536, size=(25, 8, 256), dtype=np.uint32).astype(np.uint16)
+    src = build_e2e(
+        tmp_path / "e.e2e",
+        laterality="R",
+        thick_um=thickness_profile(25, 256, 250.0, grad_um=120.0),
+        image_raw=raw,
+        scan_mm=6.0,
+    )
+    ds = pydicom.dcmread(SpectralisE2EAdapter().to_dicom(src, _cd(), tmp_path / "o")[0])
+    meta, arr = decode_layers(ds)
+    assert meta["schema"] == 1 and meta["n_frames"] == 25 and arr.shape[:2] == (meta["n_layers"], 25)
+    keys = [layer["key"] for layer in meta["layers"]]
+    assert "contour0" in keys and "contour9" in keys  # ILM y BM del mapa contiguo documentado
+    by = {layer["key"]: layer for layer in meta["layers"]}
+    assert by["contour0"]["label"] == "ILM" and by["contour0"]["status"] == "documented"
+    assert np.isfinite(arr).any()
+
+    # roundtrip directo, con NaN y estado desconocido
+    enc = encode_layers({"contour3": [np.array([1.0, np.nan, 3.0], dtype=np.float32), None]}, 2)
+    from pydicom.dataset import Dataset
+
+    from transducin.layer_contours import attach_layers
+
+    d = Dataset()
+    assert attach_layers(d, enc) is True
+    m2, a2 = decode_layers(d)
+    assert a2.shape == (1, 2, 3) and np.isnan(a2[0, 0, 1]) and np.isnan(a2[0, 1]).all()
+    assert m2["layers"][0]["status"] == "unknown"
+    assert attach_layers(Dataset(), None) is False

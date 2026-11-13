@@ -48,6 +48,11 @@ _DEFAULT_SCAN_WIDTH_Y = 6.0  # mm
 _CIRCLE_ASCANS_FDA = {256, 512, 768, 1024}
 
 
+def _fmt(v) -> str:
+    """Formatea un valor opcional (sector sin cobertura → 'n/d')."""
+    return f"{v:.1f}" if isinstance(v, (int, float)) else "n/d"
+
+
 def _detect_scan_type_fda(n_bscans: int, n_ascans: int, contour_keys: set) -> str:
     """Infiere tipo de scan Topcon FDA por dimensiones y contours disponibles."""
     if n_bscans == 1 and n_ascans in _CIRCLE_ASCANS_FDA:
@@ -249,14 +254,14 @@ def measure_fda_volume(
     if rnfl and rnfl.global_avg is not None:
         cd.add_note(
             f"CONFIRMED: mRNFL={rnfl.global_avg:.1f}µm "
-            f"S={rnfl.superior:.1f} N={rnfl.nasal:.1f} "
-            f"I={rnfl.inferior:.1f} T={rnfl.temporal:.1f} µm"
+            f"S={_fmt(rnfl.superior)} N={_fmt(rnfl.nasal)} "
+            f"I={_fmt(rnfl.inferior)} T={_fmt(rnfl.temporal)} µm"
         )
     if gcl_ipl and gcl_ipl.global_avg is not None:
         cd.add_note(
             f"CONFIRMED: mGCIPL={gcl_ipl.global_avg:.1f}µm "
-            f"S={gcl_ipl.superior:.1f} N={gcl_ipl.nasal:.1f} "
-            f"I={gcl_ipl.inferior:.1f} T={gcl_ipl.temporal:.1f} µm"
+            f"S={_fmt(gcl_ipl.superior)} N={_fmt(gcl_ipl.nasal)} "
+            f"I={_fmt(gcl_ipl.inferior)} T={_fmt(gcl_ipl.temporal)} µm"
         )
 
     cov_note = unavailable_summary(cov_report)
