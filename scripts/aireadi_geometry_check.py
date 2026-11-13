@@ -117,6 +117,29 @@ def analyze(ds) -> dict | None:
     return out
 
 
+# Convención observada en los .E2E propios y en los .vol públicos (eyepydata), ambos ojos:
+# el primer corte queda en la parte inferior del SLO (y decrece hasta el último) y los cortes
+# van de izquierda a derecha (x1 < x2).
+EXPECTED = {"ref_first_y_is_larger_than_last": "True", "ref_x_dir_in_first": "x1<x2"}
+
+
+def verify(groups) -> dict:
+    """Compara los agregados con la convención esperada; sin valores por archivo."""
+    out: dict = {}
+    for key, fields in sorted(groups.items()):
+        res = {}
+        for f, exp in EXPECTED.items():
+            c = fields.get(f)
+            if not c:
+                res[f] = "sin dato (la cabecera no trae la ubicación del corte en el SLO)"
+                continue
+            tot = sum(c.values())
+            ok = c.get(exp, 0)
+            res[f] = "coincide" if ok == tot else f"difiere: {tot - ok} de {tot} archivos no son {exp}"
+        out[key] = res
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("folder", type=Path)
@@ -125,6 +148,7 @@ def main() -> int:
 
     groups: dict[str, dict[str, Counter]] = defaultdict(lambda: defaultdict(Counter))
     seen = skipped = 0
+    errors: Counter = Counter()
     for p in args.folder.rglob("*"):
         if not p.is_file():
             continue
@@ -134,7 +158,11 @@ def main() -> int:
             skipped += 1
             continue
         seen += 1
-        r = analyze(ds)
+        try:
+            r = analyze(ds)
+        except Exception as e:  # solo el tipo de error: el mensaje podría contener valores de cabecera
+            errors[type(e).__name__] += 1
+            continue
         if r is None:
             continue
         key = f"lat={r.pop('lat')}|frames={r.pop('frames')}"
@@ -148,9 +176,13 @@ def main() -> int:
         "avisos": "Solo conteos agregados. Sin identificadores, fechas, UIDs, rutas ni nombres de archivo.",
         "archivos_leidos": seen,
         "no_dicom": skipped,
+        "errores_analisis_por_tipo": dict(errors),
+        "verificacion_convencion": verify(groups),
         "grupos": {k: {f: dict(c.most_common(8)) for f, c in v.items()} for k, v in sorted(groups.items())},
     }
     args.out.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+    for key, res in result["verificacion_convencion"].items():
+        print(key, res)
     print(f"Escrito {args.out.name}: {seen} archivos leídos, {sum(g['archivos'][1] for g in groups.values())} de interés")
     return 0
 
