@@ -32,6 +32,8 @@ SCHEMA = 1
 FIELD_DEG = 30.0
 
 # Paleta de grosor (µm): negro → gris → azul → cian → verde → amarillo → naranja → rojo → magenta → blanco
+THICKNESS_MAX_UM = 800
+
 _STOPS = [
     (0, (0, 0, 0)),
     (100, (128, 128, 128)),
@@ -73,8 +75,13 @@ def _line_px(bd: dict, size: int) -> list[float]:
     ]
 
 
-def _thickness_overlay(lines: list[list[float]], thickness_um: np.ndarray, size: int) -> Image.Image | None:
-    """RGBA del grosor interpolado dentro del paralelogramo de cortes; ``None`` si no es una trama."""
+def _thickness_overlay(
+    lines: list[list[float]], thickness_um: np.ndarray, size: int
+) -> tuple[Image.Image, Image.Image] | None:
+    """(RGBA coloreado, LA en grises) del grosor interpolado en el paralelogramo de cortes; ``None`` si no es trama.
+
+    El PNG en grises (valor = µm × 255 / 800, alfa = máscara) permite a Gass aplicar cualquier escala de color.
+    """
     n_b, n_a = thickness_um.shape
     if n_b < 8 or n_a < 8 or len(lines) != n_b:
         return None
@@ -115,7 +122,10 @@ def _thickness_overlay(lines: list[list[float]], thickness_um: np.ndarray, size:
     rgba = np.zeros((size, size, 4), dtype=np.uint8)
     rgba[..., :3] = thickness_colormap(np.where(mask, val, 0))
     rgba[..., 3] = np.where(mask, 255, 0)
-    return Image.fromarray(rgba, mode="RGBA")
+    gray = np.zeros((size, size, 2), dtype=np.uint8)  # L = µm·255/800, A = máscara
+    gray[..., 0] = np.clip(np.where(mask, val, 0) * 255.0 / THICKNESS_MAX_UM + 0.5, 0, 255)
+    gray[..., 1] = np.where(mask, 255, 0)
+    return Image.fromarray(rgba, mode="RGBA"), Image.fromarray(gray, mode="LA")
 
 
 def build_finder(
@@ -145,8 +155,9 @@ def build_finder(
     if thickness_um is not None:
         overlay = _thickness_overlay(lines, thickness_um, size)
         if overlay is not None:
-            out["thickness_png_b64"] = _png_b64(overlay)
-            out["thickness_range_um"] = [0, 800]
+            out["thickness_png_b64"] = _png_b64(overlay[0])
+            out["thickness_gray_png_b64"] = _png_b64(overlay[1])
+            out["thickness_range_um"] = [0, THICKNESS_MAX_UM]
     return out
 
 

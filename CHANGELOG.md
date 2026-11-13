@@ -7,7 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Spectralis: el centinela `0xFFFF` (sin dato) de los B-scan se muestra en negro, no como franja blanca en volúmenes inclinados
+
 ### Added
+- Buscador de SLO: `thickness_gray_png_b64` (grosor en grises, LA) para que el visor aplique escalas de color y calcule mapas de cambio; se conserva el PNG coloreado por compatibilidad
 - Spectralis: contornos de capa (`transducin/layer_contours.py`) y buscador de SLO con mapa de grosor en color (`transducin/slo_finder.py`) dentro del DICOM de imagen (bloque privado, ADR-028 propuesto); un SR por ojo (`extract_all`); tipo de estudio por volumen (nervio óptico / macular) por extensión angular
 - `SpectralisE2EAdapter.to_dicom`: un DICOM OphthalmicTomographyImage por volumen B-scan del `.e2e` (mismo StudyInstanceUID; el primero coincide con la lateralidad del SR). No escribe PixelSpacing/SliceThickness (posX/posY vienen en grados, no en mm) ni el nombre del archivo; la extensión angular queda en ImageComments. Tests: `tests/test_spectralis_to_dicom.py`
 - ADR-027 (propuesto): lectura de píxeles de Spectralis `.e2e` solo en local. `E2EReader.read_bscans()` decodifica los cortes B-scan (flotante propio de 16 bits + transformada logarítmica, verificado valor por valor contra una referencia) y el fondo de ojo; `BScanVolume` en `readers/_layers.py`. `scripts/e2e_contour_viewer.py`: HTML local con cortes y contornos de capa para comprobar a simple vista el mapeo de IDs; se niega a escribir dentro del repo. Tests sintéticos: `tests/test_e2e_pixels.py`, `tests/test_e2e_contour_viewer.py`
