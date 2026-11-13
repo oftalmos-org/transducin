@@ -378,7 +378,7 @@ class E2EReader:
             logger.warning("E2E: no se pudo leer la segmentación de %s: %s", self.filepath.name, exc)
             return maps
 
-        for vol in volumes:
+        for n_vol, vol in enumerate(volumes, 1):
             cd_base = {
                 "noel_id": "",
                 "vendor": "heidelberg_spectralis",
@@ -393,7 +393,7 @@ class E2EReader:
                 vol.laterality or "",
                 cd_base,
                 vol.sqi_mean,
-                label=self.filepath.stem,
+                label=f"volumen {n_vol}",  # sin el nombre del archivo: puede llevar identificadores
                 require_laterality=True,
                 etdrs_policy=STRICT,
             )
