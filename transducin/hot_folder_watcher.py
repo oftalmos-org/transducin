@@ -774,10 +774,12 @@ def _process_generic_oct_file(
 
     # 2. Extraer datos clínicos
     try:
-        clinical_data = adapter.extract(path)
-        if filename_noel:  # alias NOEL explícito del nombre; si no, rige el PatientID del equipo (ADR-026)
-            clinical_data.noel_id = filename_noel
-        clinical_data.source_file = str(path)
+        all_cd = adapter.extract_all(path)  # uno por ojo/volumen medible (un SR cada uno)
+        for _cd in all_cd:
+            if filename_noel:  # alias NOEL explícito del nombre; si no, rige el PatientID del equipo (ADR-026)
+                _cd.noel_id = filename_noel
+            _cd.source_file = str(path)
+        clinical_data = all_cd[0]
         logger.info(
             "  Extracción: id_source=%s lat=%s type=%s confidence=%s",
             clinical_data.patient_id_source,
@@ -802,36 +804,40 @@ def _process_generic_oct_file(
         logger.warning("  to_dicom() FALLÓ: %s", e)
         success = False
 
-    # 4. Generar SR
-    sr_path: Path | None = None
+    # 4. Generar SR (uno por ojo/volumen medible, cada uno ligado a la imagen de su ojo)
+    sr_paths: list[Path] = []
     _study_uid: str = ""
     if not clinical_data.patient_id:
         logger.warning("  SR omitido: sin PatientID (ni alias NOEL ni identificador del equipo).")
     else:
-        try:
-            sr_dir = output_dir / "sr"
-            sr_dir.mkdir(parents=True, exist_ok=True)
-            stem = path.stem.replace(" ", "_")
-            sr_path = sr_dir / f"{stem}_SR.dcm"
+        from pydicom.uid import generate_uid as _gen_uid
 
-            import pydicom
-            from pydicom.uid import generate_uid as _gen_uid
+        from transducin.sr_reference import pick_reference
 
-            ref_ds = pydicom.dcmread(str(dcm_image_paths[0])) if dcm_image_paths else None
-            _fallback_uid = (ref_ds.StudyInstanceUID if ref_ds else None) or _gen_uid()
-            _study_uid = resolve_study_uid(
-                noel_id=clinical_data.noel_id,
-                study_date=clinical_data.study_date or "",
-                fallback_uid=str(_fallback_uid),
-                orthanc_base_url=_orthanc_rest_url(),
-                auth=_orthanc_auth(),
-            )
-            build_sr(clinical_data, reference_dataset=ref_ds, output_path=sr_path, study_instance_uid=_study_uid)
-            logger.info("  SR generado: %s (study_uid=…%s)", sr_path.name, _study_uid[-12:])
-        except Exception as e:
-            logger.error("  Generación SR FALLÓ: %s", e)
-            sr_path = None
-            success = False
+        sr_dir = output_dir / "sr"
+        sr_dir.mkdir(parents=True, exist_ok=True)
+        stem = path.stem.replace(" ", "_")
+        for n, cd in enumerate(all_cd, 1):
+            if len(all_cd) > 1 and not cd.has_measurements():
+                continue
+            try:
+                ref_ds = pick_reference(dcm_image_paths, cd.laterality or "", cd.study_type or "")
+                _fallback_uid = (ref_ds.StudyInstanceUID if ref_ds else None) or _gen_uid()
+                _study_uid = resolve_study_uid(
+                    noel_id=cd.noel_id,
+                    study_date=cd.study_date or "",
+                    fallback_uid=str(_fallback_uid),
+                    orthanc_base_url=_orthanc_rest_url(),
+                    auth=_orthanc_auth(),
+                )
+                suffix = "" if len(all_cd) == 1 else f"_{cd.laterality or n}"
+                sr_path = sr_dir / f"{stem}_SR{suffix}.dcm"
+                build_sr(cd, reference_dataset=ref_ds, output_path=sr_path, study_instance_uid=_study_uid)
+                sr_paths.append(sr_path)
+                logger.info("  SR generado: %s (study_uid=…%s)", sr_path.name, _study_uid[-12:])
+            except Exception as e:
+                logger.error("  Generación SR FALLÓ: %s", e)
+                success = False
 
     # 5. C-STORE
     if do_cstore:
@@ -839,9 +845,10 @@ def _process_generic_oct_file(
             if not _cstore(dcm_p):
                 logger.error("  C-STORE imagen FALLÓ: %s", Path(dcm_p).name)
                 success = False
-        if sr_path and sr_path.exists() and not _cstore(sr_path):
-            logger.error("  C-STORE SR FALLÓ: %s", sr_path.name)
-            success = False
+        for sr_path in sr_paths:
+            if sr_path.exists() and not _cstore(sr_path):
+                logger.error("  C-STORE SR FALLÓ: %s", sr_path.name)
+                success = False
     else:
         logger.info("  C-STORE omitido (do_cstore=False)")
 

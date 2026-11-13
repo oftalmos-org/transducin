@@ -65,13 +65,9 @@ def _device_patient_id(reader) -> str:
     return pid.strip() if isinstance(pid, str) else ""
 
 
-def _measurements_from_reader(reader, laterality: str | None) -> dict:
-    """Llama reader.read_thickness_map() y devuelve kwargs para OCTClinicalData.
-
-    Compartido por los adapters Spectralis y Topcon. Degrada a valores vacíos si el
-    reader no implementa read_thickness_map(), falla o no encuentra segmentación.
-    """
-    out: dict = {
+def _empty_measurements(laterality: str | None) -> dict:
+    """Valores base (vacíos) de las mediciones para OCTClinicalData."""
+    return {
         "laterality": laterality or "",
         "study_type": "macular",
         "study_date": "",
@@ -85,6 +81,15 @@ def _measurements_from_reader(reader, laterality: str | None) -> dict:
         "extraction_confidence": "unknown",
         "confidence_notes": [],
     }
+
+
+def _measurements_from_reader(reader, laterality: str | None) -> dict:
+    """Llama reader.read_thickness_map() y devuelve kwargs para OCTClinicalData.
+
+    Compartido por los adapters Spectralis y Topcon. Degrada a valores vacíos si el
+    reader no implementa read_thickness_map(), falla o no encuentra segmentación.
+    """
+    out = _empty_measurements(laterality)
     if not hasattr(reader, "read_thickness_map"):
         return out
     try:
@@ -94,7 +99,11 @@ def _measurements_from_reader(reader, laterality: str | None) -> dict:
     if not maps:
         return out
 
-    m = maps[0]  # el reader ordena macular con CMT primero
+    return _measurements_from_map(maps[0], out)  # el reader ordena macular con CMT primero
+
+
+def _measurements_from_map(m, out: dict) -> dict:
+    """Vuelca un ThicknessMapData en los kwargs de OCTClinicalData (``out`` trae los valores base)."""
     if not out["laterality"]:
         lat = getattr(m, "laterality", None) or ""
         lat = lat.upper() if isinstance(lat, str) else ""
@@ -118,7 +127,9 @@ def _measurements_from_reader(reader, laterality: str | None) -> dict:
         out["study_time"] = scan_date.strftime("%H%M%S")
     has_any = any(out[k] is not None for k in ("cmt_um", "etdrs_grid", "rnfl", "gcl_ipl"))
     if out["cmt_um"] is not None:
-        out["extraction_confidence"] = "confirmed"
+        # El mapeo de capas heyex_ids es una hipótesis validada por geometría, no documentada.
+        assumed = any("heyex_ids" in n for n in out["confidence_notes"])
+        out["extraction_confidence"] = "assumed" if assumed else "confirmed"
     elif has_any:
         out["extraction_confidence"] = "assumed"
     return out
@@ -167,6 +178,32 @@ class SpectralisE2EAdapter(DeviceAdapter):
         if meas["extraction_confidence"] != "unknown":  # hubo alguna medición calculada
             cd.measurement_provenance = "vendor_contour_derived"
         return cd
+
+    def extract_all(self, path: Path) -> list[OCTClinicalData]:
+        """Una medición por ojo: el mejor mapa (macular con CMT, el primero) de cada lateralidad.
+
+        Cada una produce su propio SR, de modo que ambos ojos se vean en Gass. Si el archivo
+        no trae mapas medibles devuelve ``[extract(path)]``.
+        """
+        reader = E2EReader(str(path))
+        try:
+            maps = reader.read_thickness_map()
+        except Exception:
+            maps = []
+        device_pid = _device_patient_id(reader)
+        result: list[OCTClinicalData] = []
+        seen: set[str] = set()
+        for m in maps:
+            lat = (getattr(m, "laterality", None) or "").upper()
+            if lat not in ("L", "R") or lat in seen:
+                continue
+            seen.add(lat)
+            base = _measurements_from_map(m, _empty_measurements(lat))
+            cd = OCTClinicalData(noel_id="", vendor="heidelberg_spectralis", device_patient_id=device_pid, **base)
+            if base["extraction_confidence"] != "unknown":
+                cd.measurement_provenance = "vendor_contour_derived"
+            result.append(cd)
+        return result or [self.extract(path)]
 
     def to_dicom(
         self,
