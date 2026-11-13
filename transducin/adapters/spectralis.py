@@ -235,7 +235,7 @@ def _build_spectralis_oct(vol, cd: OCTClinicalData, study_uid: str, number: int,
 
     ds = build_dicom_oct(
         bscans=frames,
-        noel_id=cd.noel_id or "",
+        noel_id=cd.patient_id,
         study_date=cd.study_date or "",
         laterality=lat,
         study_type=study_type,
