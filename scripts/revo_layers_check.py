@@ -40,7 +40,7 @@ from transducin.revo_opt_reader import _REVO_LAYER_ORDER, opt_to_dicom, read_opt
 def analyze(path: Path) -> dict:
     r = read_opt(path)
     bscans = [b for b in r["bscans"] if min(b.shape) > 1]
-    out: dict = {"n_bscans_validos": len(bscans)}
+    out: dict = {"n_bscans_decodificados": len(r["bscans"]), "n_bscans_validos": len(bscans)}
     if bscans:
         h, w = bscans[0].shape
         out["bscan_alto_ancho"] = [int(h), int(w)]
@@ -49,7 +49,7 @@ def analyze(path: Path) -> dict:
     out["axial_um"] = p.get("axial_um")
     layers = r.get("layers") or {}
     info = {}
-    for name, _lbl in _REVO_LAYER_ORDER:
+    for name, _lbl, _st in _REVO_LAYER_ORDER:
         a = layers.get(name)
         if a is None:
             continue
@@ -57,6 +57,8 @@ def analyze(path: Path) -> dict:
         info[name] = {
             "forma": [int(a.shape[0]), int(a.shape[1])],
             "fraccion_valida": round(float(valid.size / a.size), 3),
+            "cortes_con_datos": int((a > 0).any(axis=1).sum()),
+            "columnas_con_datos": int((a > 0).any(axis=0).sum()),
             "fila_min": round(float(valid.min()), 1) if valid.size else None,
             "fila_max": round(float(valid.max()), 1) if valid.size else None,
         }
@@ -68,7 +70,7 @@ def analyze(path: Path) -> dict:
         )
         out["cortes_coinciden_con_bscans"] = all(v["forma"][0] == len(bscans) for v in info.values())
         # orden anatómico: cada contorno debe estar por debajo (fila mayor) del anterior donde ambos existen
-        names = [n for n, _ in _REVO_LAYER_ORDER if n in layers]
+        names = [n for n, _, _s in _REVO_LAYER_ORDER if n in layers]
         viol = {}
         for a_name, b_name in itertools.pairwise(names):
             a, b = layers[a_name], layers[b_name]
@@ -98,7 +100,7 @@ def dicom_roundtrip(path: Path) -> dict:
         return {
             "dicom_oct": True,
             "bloque_de_capas": True,
-            "capas": [layer["key"].split("_", 1)[1] for layer in meta["layers"]],
+            "capas_en_dicom": [layer["key"].split("_", 1)[1] for layer in meta["layers"]],
             "forma_capa_corte_ascan": [int(x) for x in arr.shape],
             "fraccion_nan": round(float(np.isnan(arr).mean()), 3),
         }

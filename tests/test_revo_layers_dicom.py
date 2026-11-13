@@ -87,3 +87,14 @@ def test_no_layers_no_block(tmp_path):
 def test_layers_for_dicom_rejects_empty_or_zero_height():
     assert layers_for_dicom(None, 3, 100) is None
     assert layers_for_dicom({"TOP": np.ones((3, 4), np.float32)}, 3, 0) is None
+
+
+def test_elm_before_onl_and_both_marked_inferred(tmp_path):
+    base = _layers()
+    base["ELM"] = np.full((N_B, N_A), 60.0, dtype=np.float32)
+    base["ONL"] = np.full((N_B, N_A), 65.0, dtype=np.float32)  # el dato real los trae en este orden
+    meta, _ = decode_layers(_convert(tmp_path, base))
+    keys = [layer["key"] for layer in meta["layers"]]
+    assert keys.index("c06_ELM") < keys.index("c07_ONL")
+    status = {layer["key"].split("_", 1)[1]: layer["status"] for layer in meta["layers"]}
+    assert status["ELM"] == status["ONL"] == "inferred" and status["TOP"] == "documented"
