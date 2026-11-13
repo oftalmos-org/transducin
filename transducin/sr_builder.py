@@ -62,10 +62,14 @@ from pydicom.uid import generate_uid
 from transducin.clinical_data import ETDRSGrid, OCTClinicalData, RNFLSectors, study_description_label
 from transducin.dicom_config import (
     MANUFACTURER,
+    MANUFACTURER_HEIDELBERG,
     MANUFACTURER_OPTOPOL,
+    MANUFACTURER_TOPCON,
     MANUFACTURER_ZEISS,
     MODEL_CIRRUS,
     MODEL_REVO,
+    MODEL_SPECTRALIS,
+    MODEL_TOPCON,
     PRIVATE_SCHEME,
     PRIVATE_SCHEME_NAME,
     PRIVATE_SCHEME_ORG,
@@ -528,6 +532,12 @@ def build_sr(
     if data.vendor == "zeiss_cirrus":
         _manufacturer = MANUFACTURER_ZEISS
         _model = MODEL_CIRRUS
+    elif data.vendor == "heidelberg_spectralis":
+        _manufacturer = MANUFACTURER_HEIDELBERG
+        _model = MODEL_SPECTRALIS
+    elif data.vendor.startswith("topcon"):
+        _manufacturer = MANUFACTURER_TOPCON
+        _model = MODEL_TOPCON
     else:
         _manufacturer = MANUFACTURER_OPTOPOL
         _model = MODEL_REVO

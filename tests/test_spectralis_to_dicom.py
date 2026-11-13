@@ -89,3 +89,4 @@ def test_watcher_pipeline_emits_image_and_sr_with_device_patient_id(tmp_path):
     img, sr = pydicom.dcmread(imgs[0]), pydicom.dcmread(srs[0])
     assert img.PatientID == sr.PatientID == "DEV-0042"
     assert img.StudyInstanceUID == sr.StudyInstanceUID
+    assert sr.Manufacturer == "Heidelberg Engineering" and sr.ManufacturerModelName == "Spectralis"
