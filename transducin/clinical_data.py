@@ -144,6 +144,7 @@ class OCTClinicalData:
     # "sqi_low"       — SQI por debajo del umbral mínimo (imagen de baja calidad)
     # "dims_unknown"  — dimensiones del cubo no reconocidas
     # "layer_missing" — chunk BM y BOTTOM ausentes del archivo
+    # "fovea_not_centered" — escaneo ancho que incluye el disco: el centro del volumen no es la fóvea
     # "not_macular"   — study_type != macular (CMT no aplica)
     cmt_failure_reason: str | None = None
 

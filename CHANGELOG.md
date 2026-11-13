@@ -8,6 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- Revo: en escaneos anchos (≥ 9 mm) que incluyen el disco óptico (DMARKERS) ya no se calculan CMT, ETDRS ni sectores maculares, porque se medían en el centro del volumen y no en la fóvea (causa `fovea_not_centered`); falta detectar la fóvea para recuperarlos
 - Spectralis: el centinela `0xFFFF` (sin dato) de los B-scan se muestra en negro, no como franja blanca en volúmenes inclinados
 
 ### Added

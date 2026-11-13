@@ -592,6 +592,27 @@ def extract_disc_center(data: bytes, chunks: dict[str, dict], params: dict) -> t
     return b_center, a_center
 
 
+# Un escaneo ancho que incluye el disco no está centrado en la fóvea: el centro del volumen queda cerca
+# del disco. El CMT y el ETDRS se calculan en el centro del volumen, así que ahí serían falsos.
+_WIDE_SCAN_MM = 9.0
+_MIN_DISC_FRAMES = 10
+
+
+def scan_includes_disc(data: bytes, chunks: dict[str, dict]) -> bool:
+    """True si DMARKERS marca el disco óptico en al menos ``_MIN_DISC_FRAMES`` cortes."""
+    c = chunks.get("DMARKERS")
+    if not c:
+        return False
+    dec = _decompress_block(data[c["offset"] : c["offset"] + c["real_size"]])
+    if dec is None or len(dec) < 8:
+        return False
+    n = struct.unpack_from("<I", dec, 0)[0]
+    if n == 0 or len(dec) < 4 + n * 16:
+        return False
+    markers = np.frombuffer(dec[4 : 4 + n * 16], dtype="<f4").reshape(n, 4)
+    return int((~np.any(np.isnan(markers), axis=1)).sum()) >= _MIN_DISC_FRAMES
+
+
 def compute_peripapillary_rnfl(
     nfl: np.ndarray,
     top: np.ndarray,
@@ -1756,11 +1777,16 @@ def read_opt(filepath: str | Path) -> dict:
     # Métricas con filtrado SQI (laterality se aplica en opt_extractor con el valor correcto)
     # CMT y ETDRS = grosor retinal total (BM − TOP/ILM). mRNFL macular = (NFL − TOP).
     cmt_um = compute_cmt(top, bm, params, sqi=sqi)
+    off_center = (params.get("scan_width_mm") or 0) >= _WIDE_SCAN_MM and scan_includes_disc(data, chunks)
+    if off_center:
+        cmt_um = None
 
     # Diagnóstico cuando CMT es None — ayuda a distinguir patología vs bug de pipeline.
     # Valores: "layer_missing" | "bottom_zero" | "sqi_low" | "dims_unknown"
     cmt_failure_reason: str | None = None
-    if cmt_um is None:
+    if off_center:
+        cmt_failure_reason = "fovea_not_centered"
+    elif cmt_um is None:
         import numpy as _np
 
         if top is None or bm is None:
@@ -1773,9 +1799,15 @@ def read_opt(filepath: str | Path) -> dict:
             cmt_failure_reason = "dims_unknown"
         else:
             cmt_failure_reason = "bottom_zero"  # caso más frecuente si llegamos aquí
-    etdrs = compute_etdrs(top, bm, params, sqi=sqi)
-    rnfl = compute_rnfl_sectors(nfl, gcl, params, sqi=sqi)
-    gcl_ipl = compute_gcl_ipl(gcl, inl, params, sqi=sqi)
+    if off_center:
+        logger.warning(
+            "Revo: escaneo ancho con disco; CMT, ETDRS y sectores maculares no se calculan (centro != fóvea)."
+        )
+        etdrs = rnfl = gcl_ipl = None
+    else:
+        etdrs = compute_etdrs(top, bm, params, sqi=sqi)
+        rnfl = compute_rnfl_sectors(nfl, gcl, params, sqi=sqi)
+        gcl_ipl = compute_gcl_ipl(gcl, inl, params, sqi=sqi)
 
     # C/D ratio desde ILM morfología + bordes de disco DMARKERS
     cdr = compute_cup_disc_ratio(top, data, chunks, params)
