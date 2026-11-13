@@ -8,7 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
-- Revo: en escaneos anchos (≥ 9 mm) que incluyen el disco óptico (DMARKERS) ya no se calculan CMT, ETDRS ni sectores maculares, porque se medían en el centro del volumen y no en la fóvea (causa `fovea_not_centered`); falta detectar la fóvea para recuperarlos
+- Revo: en escaneos anchos (≥ 9 mm) que incluyen el disco (DMARKERS) el CMT, el ETDRS y los sectores maculares se medían en el centro del volumen, que queda cerca del disco y no en la fóvea (≈ +50 µm). Ahora se localiza la foseta (mayor depresión local del grosor ILM→ISOS, ≥ 60 µm, a 3–6 mm del disco) y se mide ahí; sin evidencia de foseta no se calcula nada (`fovea_not_centered`). Con archivos propios el CMT pasó de 338/344 a 287–290 µm, en línea con Spectralis (283/288 µm). Es una estimación geométrica, no un marcador del equipo; sigue sin reporte de Revo para confirmarla
 - Spectralis: el centinela `0xFFFF` (sin dato) de los B-scan se muestra en negro, no como franja blanca en volúmenes inclinados
 
 ### Added
