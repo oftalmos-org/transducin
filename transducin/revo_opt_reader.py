@@ -478,6 +478,70 @@ def _extract_layer_with_fallback(data: bytes, chunks: dict[str, dict], name: str
     return arr  # retorna el primario (None o zeros) si ninguno tiene datos
 
 
+# Orden anatómico (de interno a externo) de los contornos nombrados por el equipo; el encabezado
+# de este módulo documenta el significado de cada chunk.
+_REVO_LAYER_ORDER: tuple[tuple[str, str], ...] = (
+    ("TOP", "ILM"),
+    ("NFL", "NFL/GCL"),
+    ("GCL", "GCL/IPL"),
+    ("IPL", "IPL/INL"),
+    ("INL", "INL/OPL"),
+    ("OPL", "OPL/ONL"),
+    ("ONL", "ONL/IS"),
+    ("ELM", "ELM"),
+    ("EZOS", "IS/OS (zona elipsoide)"),
+    ("ISOS", "OS/EPR"),
+    ("BM", "Bruch (BM)"),
+)
+
+
+def extract_all_layers(data: bytes, chunks: dict[str, dict]) -> dict[str, np.ndarray]:
+    """Contornos crudos ``{nombre_chunk: array (n_frames, n_ascans) float32}`` presentes en el archivo.
+
+    0 = sin dato (se conserva tal cual; ``layers_for_dicom`` lo convierte a NaN). BM usa BOTTOM de respaldo.
+    """
+    out: dict[str, np.ndarray] = {}
+    for name, _label in _REVO_LAYER_ORDER:
+        arr = _extract_layer_with_fallback(data, chunks, "BM", "BOTTOM") if name == "BM" else extract_layer(data, chunks, name)
+        if arr is not None and arr.size and arr.any():
+            out[name] = arr
+    return out
+
+
+def layers_for_dicom(
+    layers: dict[str, np.ndarray] | None, n_frames: int, image_height: int
+) -> tuple[dict[str, list], dict[str, tuple[str, str]], str] | None:
+    """Prepara los contornos para ``encode_layers`` o devuelve ``None`` si no se puede garantizar fidelidad.
+
+    Condiciones (si no se cumplen no se emite el bloque): hay contornos; su número de cortes coincide con el
+    de B-scans escritos; ningún valor válido cae fuera de la imagen (las filas están en píxeles del B-scan).
+    Los ceros del equipo se vuelven NaN. Las claves llevan prefijo de orden anatómico (``c00_ILM`` …).
+    """
+    if not layers or n_frames <= 0 or image_height <= 0:
+        return None
+    contours: dict[str, list] = {}
+    labels: dict[str, tuple[str, str]] = {}
+    for i, (name, label) in enumerate(_REVO_LAYER_ORDER):
+        arr = layers.get(name)
+        if arr is None:
+            continue
+        if arr.shape[0] != n_frames:
+            return None
+        a = np.where(arr > 0, arr, np.nan).astype(np.float32)
+        finite = a[np.isfinite(a)]
+        if finite.size == 0:
+            continue
+        if float(finite.max()) > image_height:
+            return None
+        key = f"c{i:02d}_{name}"
+        contours[key] = [a[f] for f in range(n_frames)]
+        labels[key] = (label, "documented")
+    if not contours:
+        return None
+    note = "Contornos de segmentación embebidos por el equipo Revo (chunks nombrados); filas en píxeles del B-scan."
+    return contours, labels, note
+
+
 def extract_disc_center(data: bytes, chunks: dict[str, dict], params: dict) -> tuple[float, float]:
     """Extrae el centro del disco óptico desde el chunk DMARKERS.
 
@@ -1680,6 +1744,7 @@ def read_opt(filepath: str | Path) -> dict:
     inl = extract_layer(data, chunks, "INL")
     bm = _extract_layer_with_fallback(data, chunks, "BM", "BOTTOM")
     top = extract_layer(data, chunks, "TOP")  # ILM — necesaria para C/D
+    all_layers = extract_all_layers(data, chunks)
 
     # Métricas con filtrado SQI (laterality se aplica en opt_extractor con el valor correcto)
     # CMT y ETDRS = grosor retinal total (BM − TOP/ILM). mRNFL macular = (NFL − TOP).
@@ -1754,7 +1819,23 @@ def read_opt(filepath: str | Path) -> dict:
         "fndsreco": fndsrec,
         "angprv": angprv,
         "octa_enface": octa_ef,  # float16 log-MIP en-face OCTA (solo ANGIO)
+        "layers": all_layers,  # contornos crudos {chunk: (n_frames, n_ascans)}; ver layers_for_dicom
     }
+
+
+def _attach_revo_layers(ds, result: dict, n_written: int, n_decoded: int) -> bool:
+    """Añade el bloque de capas (ADR-028) al DICOM OCT de Revo si es coherente con los B-scans escritos."""
+    from transducin.layer_contours import attach_layers, encode_layers
+
+    if n_written != n_decoded:  # se descartaron cuadros degenerados: los cortes ya no corresponden
+        return False
+    prepared = layers_for_dicom(result.get("layers"), n_written, int(ds.Rows))
+    if prepared is None:
+        if result.get("layers"):
+            logger.warning("Revo: contornos de capa no coherentes con los B-scans; no se incluyen en el DICOM.")
+        return False
+    contours, labels, note = prepared
+    return attach_layers(ds, encode_layers(contours, n_written, labels, note))
 
 
 def opt_to_dicom(
@@ -1851,6 +1932,7 @@ def opt_to_dicom(
             params_oct=result.get("params"),
             **common,
         )
+        _attach_revo_layers(ds, result, len(valid_bscans), len(result["bscans"]))
         out = output_dir / f"{stem}_OCT.dcm"
         ds.save_as(str(out), write_like_original=False)
         h, w = valid_bscans[0].shape
