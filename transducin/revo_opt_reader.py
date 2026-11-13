@@ -613,6 +613,83 @@ def scan_includes_disc(data: bytes, chunks: dict[str, dict]) -> bool:
     return int((~np.any(np.isnan(markers), axis=1)).sum()) >= _MIN_DISC_FRAMES
 
 
+_FOVEA_MIN_DEPTH_UM = 60.0
+_FOVEA_DISC_DIST_MM = (3.0, 6.0)  # distancia disco–fóvea plausible (≈ 4.5 mm)
+_FOVEA_DISC_MAX_VERT_MM = 2.5
+
+
+def _nan_box_sum(a: np.ndarray, ky: int, kx: int) -> tuple[np.ndarray, np.ndarray]:
+    """Suma y cuenta de valores finitos en una caja ky×kx (cumsum, sin scipy)."""
+    ky |= 1
+    kx |= 1
+    v = np.isfinite(a).astype(float)
+    a0 = np.where(np.isfinite(a), a, 0.0)
+
+    def box(x: np.ndarray) -> np.ndarray:
+        p = np.pad(x, ((ky // 2, ky // 2), (kx // 2, kx // 2)), mode="constant")
+        c = p.cumsum(0)
+        c = np.vstack([np.zeros((1, c.shape[1])), c])
+        w = c[ky:] - c[:-ky]
+        c = w.cumsum(1)
+        c = np.hstack([np.zeros((c.shape[0], 1)), c])
+        return c[:, kx:] - c[:, :-kx]
+
+    return box(a0), box(v)
+
+
+def detect_fovea(
+    top: np.ndarray | None,
+    isos: np.ndarray | None,
+    params: dict,
+    disc_center: tuple[float, float],
+) -> dict | None:
+    """Localiza la foseta foveal en un escaneo ancho que incluye el disco; ``None`` si no hay evidencia.
+
+    Busca la mayor depresión local del grosor ILM→ISOS (anillo de 0.8–1.6 mm menos centro de 0.3 mm),
+    lejos del disco y del borde. Se acepta solo si la depresión es ≥ 60 µm, está a 3–6 mm del disco y a
+    ≤ 2.5 mm de él en vertical (la fóvea queda ~4.5 mm temporal y algo por debajo del disco). Es una
+    estimación geométrica, no un marcador del equipo: quien la use debe decirlo.
+
+    Devuelve ``{"b": índice_b, "a": índice_a, "depth_um", "disc_dist_mm"}`` (índices flotantes de matriz).
+    """
+    if top is None or isos is None or top.shape != isos.shape:
+        return None
+    n_b, n_a = top.shape
+    bs = params["scan_width_mm"] * 1000.0 / n_b
+    la = params["lateral_um"]
+    ok = (isos > 0) & (top > 0)
+    t = np.where(ok, (isos - top) * params["axial_um"], np.nan)
+    t[(t <= 0) | (t > 700)] = np.nan
+    if np.isfinite(t).mean() < 0.5:
+        return None
+    B, A = np.meshgrid((np.arange(n_b) - n_b / 2) * bs, (np.arange(n_a) - n_a / 2) * la, indexing="ij")
+    db_um = (disc_center[0] - n_b / 2) * bs
+    da_um = (disc_center[1] - n_a / 2) * la
+
+    s_in, n_in = _nan_box_sum(t, int(1600 / bs), int(1600 / la))
+    s_out, n_out = _nan_box_sum(t, int(3200 / bs), int(3200 / la))
+    s_c, n_c = _nan_box_sum(t, int(300 / bs), int(300 / la))
+    ring = (s_out - s_in) / np.maximum(n_out - n_in, 1)
+    cen = s_c / np.maximum(n_c, 1)
+    depth = ring - cen
+
+    dist = np.hypot(B - db_um, A - da_um)
+    inside = (np.abs(B) < n_b * bs / 2 - 1700) & (np.abs(A) < n_a * la / 2 - 1700)
+    complete = (n_c > 0.5 * n_c.max()) & ((n_out - n_in) > 0.7 * (n_out - n_in).max())
+    score = np.where((dist > 2200) & inside & complete, depth, -np.inf)
+    j = np.unravel_index(np.argmax(score), score.shape)
+    d_mm = float(dist[j] / 1000.0)
+    vert_mm = float(abs(B[j] - db_um) / 1000.0)
+    if not (
+        np.isfinite(score[j])
+        and score[j] >= _FOVEA_MIN_DEPTH_UM
+        and _FOVEA_DISC_DIST_MM[0] <= d_mm <= _FOVEA_DISC_DIST_MM[1]
+        and vert_mm <= _FOVEA_DISC_MAX_VERT_MM
+    ):
+        return None
+    return {"b": float(j[0]), "a": float(j[1]), "depth_um": float(score[j]), "disc_dist_mm": d_mm}
+
+
 def compute_peripapillary_rnfl(
     nfl: np.ndarray,
     top: np.ndarray,
@@ -733,6 +810,7 @@ def compute_cmt(
     bm: np.ndarray,
     params: dict,
     sqi: np.ndarray | None = None,
+    center: tuple[float, float] | None = None,
 ) -> float | None:
     """Calcula CMT (Central Macular Thickness) en µm.
 
@@ -761,7 +839,7 @@ def compute_cmt(
 
     thickness_um = _apply_sqi_mask((bm - top) * axial_um, sqi)
 
-    b0, a0 = n_b // 2, n_a // 2
+    b0, a0 = center if center is not None else (n_b // 2, n_a // 2)
     db = (np.arange(n_b) - b0) * bscan_um
     da = (np.arange(n_a) - a0) * lateral_um
     B, A = np.meshgrid(db, da, indexing="ij")
@@ -781,6 +859,7 @@ def _sector_means(
     r_inner_um: float,
     r_outer_um: float,
     sqi: np.ndarray | None = None,
+    center: tuple[float, float] | None = None,
 ) -> dict:
     """Retorna medias por sector S/I/N/T + global en un anillo radial."""
     lateral_um = params["lateral_um"]
@@ -789,7 +868,7 @@ def _sector_means(
 
     thickness = _apply_sqi_mask(thickness, sqi)
     valid = (thickness > 0) & (thickness < 800)
-    b0, a0 = n_b // 2, n_a // 2
+    b0, a0 = center if center is not None else (n_b // 2, n_a // 2)
     db = (np.arange(n_b) - b0) * bscan_um
     da = (np.arange(n_a) - a0) * lateral_um
     B, A = np.meshgrid(db, da, indexing="ij")
@@ -822,6 +901,7 @@ def compute_rnfl_sectors(
     params: dict,
     laterality: str = "L",
     sqi: np.ndarray | None = None,
+    center: tuple[float, float] | None = None,
 ) -> object | None:
     """Calcula RNFL macular (GCL − NFL) en sectores S/I/N/T dentro de anillo 1–6mm.
 
@@ -837,7 +917,7 @@ def compute_rnfl_sectors(
         return None
 
     thickness = (gcl - nfl) * params["axial_um"]
-    s = _sector_means(thickness, params, laterality, r_inner_um=500, r_outer_um=3000, sqi=sqi)
+    s = _sector_means(thickness, params, laterality, r_inner_um=500, r_outer_um=3000, sqi=sqi, center=center)
     if s["global"] is None:
         return None
     return RNFLSectors(
@@ -855,6 +935,7 @@ def compute_gcl_ipl(
     params: dict,
     laterality: str = "L",
     sqi: np.ndarray | None = None,
+    center: tuple[float, float] | None = None,
 ) -> object | None:
     """Calcula mGCIPL (GCL + IPL) en sectores S/I/N/T en anillo 1–6mm.
 
@@ -871,7 +952,7 @@ def compute_gcl_ipl(
         return None
 
     thickness = (inl - gcl) * params["axial_um"]
-    s = _sector_means(thickness, params, laterality, r_inner_um=500, r_outer_um=3000, sqi=sqi)
+    s = _sector_means(thickness, params, laterality, r_inner_um=500, r_outer_um=3000, sqi=sqi, center=center)
     if s["global"] is None:
         return None
     return RNFLSectors(
@@ -889,6 +970,7 @@ def compute_etdrs(
     params: dict,
     laterality: str = "L",
     sqi: np.ndarray | None = None,
+    center: tuple[float, float] | None = None,
 ) -> object | None:
     """Calcula ETDRS 9 sectores del grosor retinal (BM − TOP/ILM).
 
@@ -923,9 +1005,9 @@ def compute_etdrs(
     thickness = _apply_sqi_mask((bm - top) * axial_um, sqi)  # (n_b, n_a) en µm
     valid = (thickness > 0) & (thickness < 800)
 
-    b0, a0 = n_b // 2, n_a // 2
+    b0, a0 = center if center is not None else (n_b // 2, n_a // 2)
 
-    # Distancias en µm respecto al centro del volumen
+    # Distancias en µm respecto al centro (del volumen, o la fóvea si se da ``center``)
     db = (np.arange(n_b) - b0) * bscan_um  # positivo = inferior
     da = (np.arange(n_a) - a0) * lateral_um  # positivo = derecha de la imagen
     B, A = np.meshgrid(db, da, indexing="ij")  # (n_b, n_a)
@@ -1776,10 +1858,17 @@ def read_opt(filepath: str | Path) -> dict:
 
     # Métricas con filtrado SQI (laterality se aplica en opt_extractor con el valor correcto)
     # CMT y ETDRS = grosor retinal total (BM − TOP/ILM). mRNFL macular = (NFL − TOP).
-    cmt_um = compute_cmt(top, bm, params, sqi=sqi)
-    off_center = (params.get("scan_width_mm") or 0) >= _WIDE_SCAN_MM and scan_includes_disc(data, chunks)
-    if off_center:
-        cmt_um = None
+    # Escaneo ancho con disco: el centro del volumen no es la fóvea. Se busca la foseta; sin evidencia
+    # de ella no se calcula nada (ni CMT ni sectores) en vez de medir en un sitio equivocado.
+    wide_with_disc = (params.get("scan_width_mm") or 0) >= _WIDE_SCAN_MM and scan_includes_disc(data, chunks)
+    fovea = None
+    if wide_with_disc:
+        fovea = detect_fovea(
+            top, extract_layer(data, chunks, "ISOS"), params, extract_disc_center(data, chunks, params)
+        )
+    off_center = wide_with_disc and fovea is None
+    center = (fovea["b"], fovea["a"]) if fovea else None
+    cmt_um = None if off_center else compute_cmt(top, bm, params, sqi=sqi, center=center)
 
     # Diagnóstico cuando CMT es None — ayuda a distinguir patología vs bug de pipeline.
     # Valores: "layer_missing" | "bottom_zero" | "sqi_low" | "dims_unknown"
@@ -1805,9 +1894,9 @@ def read_opt(filepath: str | Path) -> dict:
         )
         etdrs = rnfl = gcl_ipl = None
     else:
-        etdrs = compute_etdrs(top, bm, params, sqi=sqi)
-        rnfl = compute_rnfl_sectors(nfl, gcl, params, sqi=sqi)
-        gcl_ipl = compute_gcl_ipl(gcl, inl, params, sqi=sqi)
+        etdrs = compute_etdrs(top, bm, params, sqi=sqi, center=center)
+        rnfl = compute_rnfl_sectors(nfl, gcl, params, sqi=sqi, center=center)
+        gcl_ipl = compute_gcl_ipl(gcl, inl, params, sqi=sqi, center=center)
 
     # C/D ratio desde ILM morfología + bordes de disco DMARKERS
     cdr = compute_cup_disc_ratio(top, data, chunks, params)
@@ -1858,6 +1947,7 @@ def read_opt(filepath: str | Path) -> dict:
         "fndsreco": fndsrec,
         "angprv": angprv,
         "octa_enface": octa_ef,  # float16 log-MIP en-face OCTA (solo ANGIO)
+        "fovea": fovea,  # estimación geométrica en escaneos anchos con disco (o None)
         "layers": all_layers,  # contornos crudos {chunk: (n_frames, n_ascans)}; ver layers_for_dicom
     }
 
