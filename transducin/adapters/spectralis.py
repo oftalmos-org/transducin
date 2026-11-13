@@ -210,6 +210,21 @@ class SpectralisE2EAdapter(DeviceAdapter):
         return out
 
 
+# Extensión angular máxima (grados) de un volumen de nervio óptico: el protocolo estándar
+# de Spectralis es 15° x 15°; los volúmenes maculares son de 20° o más. Es una inferencia
+# por geometría (ADR-027), no un campo declarado en el archivo.
+_ONH_MAX_WIDTH_DEG = 16.0
+
+
+def infer_study_type(bscan_data: list[dict]) -> str:
+    """'optic_nerve' | 'macular' | '' (no se puede inferir) a partir de la extensión angular."""
+    widths = [abs(d["posX2"] - d["posX1"]) for d in bscan_data or []]
+    widest = max(widths, default=0.0)
+    if widest <= 0:
+        return ""
+    return "optic_nerve" if widest <= _ONH_MAX_WIDTH_DEG else "macular"
+
+
 def _angular_extent(bscan_data: list[dict]) -> str:
     """'a° × b°' desde posX/posY del archivo (grados de exploración), o '' si no es utilizable."""
     if not bscan_data:
@@ -231,7 +246,8 @@ def _build_spectralis_oct(vol, cd: OCTClinicalData, study_uid: str, number: int,
     shape = frames[0].shape
     frames = [f for f in frames if f.shape == shape]
     lat = vol.laterality if vol.laterality in ("R", "L") else ""
-    study_type = cd.study_type if (primary and cd.study_type) else ""
+    # El tipo se infiere por volumen (extensión angular); el volumen principal conserva el del SR.
+    study_type = infer_study_type(vol.bscan_data) or (cd.study_type if primary else "")
 
     ds = build_dicom_oct(
         bscans=frames,
@@ -249,6 +265,9 @@ def _build_spectralis_oct(vol, cd: OCTClinicalData, study_uid: str, number: int,
     ds.SeriesDescription = f"Spectralis OCT{eye} (volumen {number}, {len(frames)} cortes)"
     ds.SeriesNumber = number
     ds.InstanceNumber = 1
+    if study_type == "optic_nerve":  # build_dicom_oct etiqueta todo lo no anterior como retina
+        ds.AnatomicRegionSequence[0].CodeValue = "T-AA630"
+        ds.AnatomicRegionSequence[0].CodeMeaning = "Optic nerve"
     if not lat:
         for tag in ("Laterality", "ImageLaterality"):
             if tag in ds:

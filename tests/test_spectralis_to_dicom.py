@@ -23,7 +23,7 @@ def _cd(noel_id: str = "", laterality: str = "R") -> OCTClinicalData:
 
 def _e2e(tmp_path, name="JAHJ19870831_secreto.e2e"):
     raw = np.random.default_rng(3).integers(0, 65536, size=(3, 8, 16), dtype=np.uint32).astype(np.uint16)
-    return build_e2e(tmp_path / name, n_b=3, image_raw=raw)
+    return build_e2e(tmp_path / name, n_b=3, image_raw=raw, scan_mm=20.0)  # 20°: volumen macular
 
 
 def test_to_dicom_writes_oct_with_images_inside_output_dir(tmp_path):
@@ -90,3 +90,24 @@ def test_watcher_pipeline_emits_image_and_sr_with_device_patient_id(tmp_path):
     assert img.PatientID == sr.PatientID == "DEV-0042"
     assert img.StudyInstanceUID == sr.StudyInstanceUID
     assert sr.Manufacturer == "Heidelberg Engineering" and sr.ManufacturerModelName == "Spectralis"
+
+
+def test_infer_study_type_by_angular_extent():
+    from transducin.adapters.spectralis import infer_study_type
+
+    onh = [{"posX1": 0.0, "posX2": 14.97}] * 3  # 15° x 15°: nervio óptico
+    macula = [{"posX1": 0.0, "posX2": 20.0}] * 3
+    wide = [{"posX1": 0.0, "posX2": 29.7}] * 3
+    assert infer_study_type(onh) == "optic_nerve"
+    assert infer_study_type(macula) == "macular"
+    assert infer_study_type(wide) == "macular"
+    assert infer_study_type([]) == ""
+
+
+def test_to_dicom_labels_15_degree_volume_as_optic_nerve(tmp_path):
+    raw = np.random.default_rng(4).integers(0, 65536, size=(3, 8, 16), dtype=np.uint32).astype(np.uint16)
+    src = build_e2e(tmp_path / "onh.e2e", n_b=3, image_raw=raw, scan_mm=15.0)
+    ds = pydicom.dcmread(SpectralisE2EAdapter().to_dicom(src, _cd(), tmp_path / "o")[0])
+    assert ds.ProtocolName == "optic_nerve"
+    assert "Optic Nerve" in ds.StudyDescription
+    assert ds.AnatomicRegionSequence[0].CodeValue == "T-AA630"
