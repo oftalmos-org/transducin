@@ -51,8 +51,9 @@ def _layers(top_row=20.0, step=10.0, frames=N_B) -> dict[str, np.ndarray]:
 
 def _convert(tmp_path, layers, n_t=N_B):
     src = _build(tmp_path / "SYNTH_OCT.opt", layers, n_t)
-    files = opt_to_dicom(src, tmp_path / "out", noel_id="", patient_id="X1", study_date="20261113",
-                         laterality="R", study_type="macular")
+    files = opt_to_dicom(
+        src, tmp_path / "out", noel_id="", patient_id="X1", study_date="20261113", laterality="R", study_type="macular"
+    )
     oct_file = next(f for f in files if f.name.endswith("_OCT.dcm"))
     return pydicom.dcmread(oct_file)
 

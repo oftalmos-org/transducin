@@ -505,7 +505,11 @@ def extract_all_layers(data: bytes, chunks: dict[str, dict]) -> dict[str, np.nda
     """
     out: dict[str, np.ndarray] = {}
     for name, _label, _status in _REVO_LAYER_ORDER:
-        arr = _extract_layer_with_fallback(data, chunks, "BM", "BOTTOM") if name == "BM" else extract_layer(data, chunks, name)
+        arr = (
+            _extract_layer_with_fallback(data, chunks, "BM", "BOTTOM")
+            if name == "BM"
+            else extract_layer(data, chunks, name)
+        )
         if arr is not None and arr.size and arr.any():
             out[name] = arr
     return out
