@@ -3,7 +3,7 @@
 #
 # Extractor de mediciones clínicas OCT para Topcon (.fda).
 #
-# Usa oct-converter (FDA reader) para leer el volumen + contours de capas,
+# Medición de capas del .fda (lector propio en transducin/readers/, sin oct-converter)
 # y reutiliza las funciones de cómputo de revo_opt_reader:
 #   compute_etdrs()       → CMT + ETDRS 9 sectores
 #   compute_rnfl_sectors()→ mRNFL S/I/N/T (macular)
@@ -32,12 +32,10 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import numpy as np
 
 from transducin.clinical_data import OCTClinicalData
-from transducin.noel_id import is_valid_noel
 
 logger = logging.getLogger("transducin.topcon_fda")
 
@@ -48,6 +46,11 @@ _DEFAULT_SCAN_WIDTH_Y = 6.0  # mm
 
 # Circle scans pRNFL: 1 B-scan, A-scans típicos Topcon
 _CIRCLE_ASCANS_FDA = {256, 512, 768, 1024}
+
+
+def _fmt(v) -> str:
+    """Formatea un valor opcional (sector sin cobertura → 'n/d')."""
+    return f"{v:.1f}" if isinstance(v, (int, float)) else "n/d"
 
 
 def _detect_scan_type_fda(n_bscans: int, n_ascans: int, contour_keys: set) -> str:
@@ -110,25 +113,6 @@ def _geometry_from_pixel_spacing(ps: list, n_b: int) -> dict:
     }
 
 
-def _patient_name(vol) -> str:
-    parts = []
-    if getattr(vol, "surname", None):
-        parts.append(str(vol.surname).upper())
-    if getattr(vol, "first_name", None):
-        parts.append(str(vol.first_name).upper())
-    return "^".join(parts) if parts else ""
-
-
-def _study_date(vol) -> str:
-    dt = getattr(vol, "acquisition_date", None)
-    if dt is None:
-        return ""
-    try:
-        return dt.strftime("%Y%m%d")
-    except Exception:
-        return str(dt)[:8].replace("-", "")
-
-
 # ── Medición reutilizable (sin dependencia de oct_converter) ─────────────────
 
 
@@ -142,6 +126,7 @@ def measure_fda_volume(
     sqi_mean: float | None = None,
     label: str = "",
     require_laterality: bool = False,
+    etdrs_policy=None,
 ) -> OCTClinicalData | None:
     """Calcula mediciones clínicas de un volumen FDA a partir de sus contornos.
 
@@ -155,11 +140,13 @@ def measure_fda_volume(
         pixel_spacing: [x_mm/A-scan, y_mm/B-scan, z_mm/px] o None.
         laterality:    "R" | "L" | otro.
         cd_base:       kwargs de OCTClinicalData SIN ``laterality``.
+        etdrs_policy:       EtdrsCoveragePolicy | None. None = comportamiento histórico (sin comprobar cobertura);
+                            los adaptadores nuevos pasan una política (transducin.etdrs_policy).
         require_laterality: si True y la lateralidad no es R/L, no mide
                        (retorna None) en vez de asumir "R" como el extractor legado.
     """
+    from transducin.etdrs_policy import compute_etdrs_with_policy, unavailable_summary
     from transducin.revo_opt_reader import (
-        compute_etdrs,
         compute_gcl_ipl,
         compute_rnfl_sectors,
     )
@@ -218,6 +205,7 @@ def measure_fda_volume(
             rnfl=prnfl,
             sqi_mean=sqi_mean,
             extraction_confidence="confirmed",
+            measurement_provenance="vendor_contour_derived",
         )
         cd.add_note(
             f"CONFIRMED: pRNFL={prnfl.global_avg:.1f}µm "
@@ -233,7 +221,7 @@ def measure_fda_volume(
         logger.debug("FDA: BM no disponible en %s — saltando", label)
         return None
 
-    etdrs = compute_etdrs(ilm, bm, params, laterality=lat)
+    etdrs, cov_report = compute_etdrs_with_policy(ilm, bm, params, laterality=lat, policy=etdrs_policy)
     cmt_um = round(float(etdrs.C), 1) if (etdrs and etdrs.C is not None) else None
 
     rnfl = None
@@ -254,6 +242,7 @@ def measure_fda_volume(
         gcl_avg_um=round(float(gcl_ipl.global_avg), 1) if (gcl_ipl and gcl_ipl.global_avg is not None) else None,
         sqi_mean=sqi_mean,
         extraction_confidence="confirmed" if cmt_um is not None else "assumed",
+        measurement_provenance="vendor_contour_derived",
     )
 
     if cmt_um is not None:
@@ -265,15 +254,19 @@ def measure_fda_volume(
     if rnfl and rnfl.global_avg is not None:
         cd.add_note(
             f"CONFIRMED: mRNFL={rnfl.global_avg:.1f}µm "
-            f"S={rnfl.superior:.1f} N={rnfl.nasal:.1f} "
-            f"I={rnfl.inferior:.1f} T={rnfl.temporal:.1f} µm"
+            f"S={_fmt(rnfl.superior)} N={_fmt(rnfl.nasal)} "
+            f"I={_fmt(rnfl.inferior)} T={_fmt(rnfl.temporal)} µm"
         )
     if gcl_ipl and gcl_ipl.global_avg is not None:
         cd.add_note(
             f"CONFIRMED: mGCIPL={gcl_ipl.global_avg:.1f}µm "
-            f"S={gcl_ipl.superior:.1f} N={gcl_ipl.nasal:.1f} "
-            f"I={gcl_ipl.inferior:.1f} T={gcl_ipl.temporal:.1f} µm"
+            f"S={_fmt(gcl_ipl.superior)} N={_fmt(gcl_ipl.nasal)} "
+            f"I={_fmt(gcl_ipl.inferior)} T={_fmt(gcl_ipl.temporal)} µm"
         )
+
+    cov_note = unavailable_summary(cov_report)
+    if cov_note:
+        cd.add_note(cov_note)
 
     if not cd.has_measurements():
         logger.warning("  Sin mediciones para %s", label)
@@ -285,103 +278,3 @@ def measure_fda_volume(
         f"{gcl_ipl.global_avg:.1f}µm" if gcl_ipl else "N/A",
     )
     return cd
-
-
-# ── Extractor principal ──────────────────────────────────────────────────────
-
-
-def extract_from_fda(
-    filepath: Path,
-    noel_id: str = "",
-) -> list[OCTClinicalData]:
-    """Extrae OCTClinicalData desde un archivo .fda Topcon.
-
-    Calcula CMT, ETDRS 9 sectores, mRNFL S/I/N/T y mGCIPL S/I/N/T
-    cuando el archivo contiene el chunk @CONTOUR_INFO con segmentación.
-
-    Args:
-        filepath: ruta al archivo .fda
-        noel_id:  NOEL ID del paciente (si disponible desde filename)
-
-    Returns:
-        Lista de OCTClinicalData. Vacía si el archivo no tiene segmentación
-        utilizable o no tiene mediciones válidas.
-    """
-    from oct_converter.readers.fda import FDA
-
-    filepath = Path(filepath)
-    results: list[OCTClinicalData] = []
-
-    try:
-        reader = FDA(str(filepath))
-        vol = reader.read_oct_volume()
-    except Exception as exc:
-        logger.error("FDA: no se pudo leer %s: %s", filepath.name, exc)
-        return results
-
-    if vol is None:
-        logger.warning("FDA: sin volumen en %s", filepath.name)
-        return results
-
-    # Intentar extraer NOEL ID desde patient_id del archivo
-    pid = getattr(vol, "patient_id", None) or ""
-    if not noel_id and pid and is_valid_noel(str(pid)):
-        noel_id = str(pid)
-
-    # ── SQI desde PARAM_OBS_02 / image_quality ────────────────────────────
-    sqi_mean: float | None = None
-    try:
-        meta = getattr(vol, "metadata", None) or {}
-        param_obs = meta.get("param_obs_02") or {}
-        iq_raw = param_obs.get("image_quality", "")
-        iq_str = str(iq_raw).strip().strip("\x00").strip()
-        if iq_str:
-            iq_val = float(iq_str)
-            if iq_val > 1.0:
-                sqi_mean = round(iq_val / 100.0, 4)  # escala 0–100 → 0–1
-            elif 0.0 <= iq_val <= 1.0:
-                sqi_mean = round(iq_val, 4)
-            logger.info("FDA SQI: image_quality=%s → sqi=%.4f (%s)", iq_str, sqi_mean or 0, filepath.name)
-    except Exception:
-        pass
-
-    # ── Contours ──────────────────────────────────────────────────────────
-    contours = getattr(vol, "contours", None)
-    if not contours:
-        logger.debug("FDA: %s sin @CONTOUR_INFO — solo imagen", filepath.name)
-        return results
-
-    # Dimensiones desde el volumen de B-scans
-    bscans = getattr(vol, "volume", None) or []
-    if not bscans:
-        logger.warning("FDA: %s sin B-scans", filepath.name)
-        return results
-
-    n_b = len(bscans)
-    n_a = bscans[0].shape[1] if hasattr(bscans[0], "shape") else 0
-    if n_b < 1 or n_a < 10:
-        logger.warning("FDA: %s dimensiones insuficientes (%d B-scans, %d A-scans)", filepath.name, n_b, n_a)
-        return results
-
-    cd_base = {
-        "noel_id": noel_id,
-        "vendor": "topcon_triton",
-        "source_file": str(filepath),
-        "study_date": _study_date(vol),
-        "study_time": "",
-        "patient_name": _patient_name(vol),
-        "patient_dob": str(getattr(vol, "patient_dob", "") or ""),
-    }
-    cd = measure_fda_volume(
-        contours,
-        n_b,
-        n_a,
-        getattr(vol, "pixel_spacing", None),
-        getattr(vol, "laterality", ""),
-        cd_base,
-        sqi_mean,
-        label=filepath.stem,
-    )
-    if cd is not None:
-        results.append(cd)
-    return results

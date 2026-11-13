@@ -62,10 +62,14 @@ from pydicom.uid import generate_uid
 from transducin.clinical_data import ETDRSGrid, OCTClinicalData, RNFLSectors, study_description_label
 from transducin.dicom_config import (
     MANUFACTURER,
+    MANUFACTURER_HEIDELBERG,
     MANUFACTURER_OPTOPOL,
+    MANUFACTURER_TOPCON,
     MANUFACTURER_ZEISS,
     MODEL_CIRRUS,
     MODEL_REVO,
+    MODEL_SPECTRALIS,
+    MODEL_TOPCON,
     PRIVATE_SCHEME,
     PRIVATE_SCHEME_NAME,
     PRIVATE_SCHEME_ORG,
@@ -506,10 +510,16 @@ def build_sr(
     Returns:
         Dataset pydicom del SR (ComprehensiveSR TID 1500).
     """
-    if not data.noel_id:
-        raise ValueError("OCTClinicalData.noel_id es requerido para generar SR.")
-    if not is_valid_noel(data.noel_id):
-        logger.warning("noel_id '%s' no cumple formato NOEL — SR generado de todas formas.", data.noel_id)
+    from transducin.shadow_log import record_emission  # solo lectura; nunca lanza; no-op si está desactivado
+
+    record_emission(data, "sr", study_instance_uid)
+    # ADR-026: el NOEL ID ya no es obligatorio. PatientID = data.patient_id
+    # (alias NOEL → identificador original de la fuente → vacío; DICOM Tipo 2).
+    patient_id = data.patient_id
+    if data.noel_id and not is_valid_noel(data.noel_id):
+        logger.warning("noel_id no cumple formato NOEL — SR generado de todas formas.")
+    elif not patient_id:
+        logger.info("SR sin PatientID: el estudio queda identificado solo por su StudyInstanceUID.")
 
     ref_ds = reference_dataset if reference_dataset is not None else _minimal_reference(data)
 
@@ -522,6 +532,12 @@ def build_sr(
     if data.vendor == "zeiss_cirrus":
         _manufacturer = MANUFACTURER_ZEISS
         _model = MODEL_CIRRUS
+    elif data.vendor == "heidelberg_spectralis":
+        _manufacturer = MANUFACTURER_HEIDELBERG
+        _model = MODEL_SPECTRALIS
+    elif data.vendor.startswith("topcon"):
+        _manufacturer = MANUFACTURER_TOPCON
+        _model = MODEL_TOPCON
     else:
         _manufacturer = MANUFACTURER_OPTOPOL
         _model = MODEL_REVO
@@ -596,8 +612,10 @@ def build_sr(
 
     sr.ManufacturerModelName = _model
     sr.DeviceSerialNumber = data.device_serial or ""
-    sr.PatientID = data.noel_id
+    sr.PatientID = patient_id
+    # El nombre cae al alias NOEL (como antes), nunca al identificador de la fuente.
     sr.PatientName = _to_dicom_pn(data.patient_name) or data.noel_id
+    # Fecha de nacimiento: solo de datos de origen o de un NOEL válido (ADR-026).
     sr.PatientBirthDate = data.patient_dob or dob_from_noel(data.noel_id)
     sr.StudyDate = data.study_date or now.strftime("%Y%m%d")
     sr.StudyDescription = study_description_label(data.study_type, data.laterality)
@@ -614,7 +632,9 @@ def build_sr(
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         sr.save_as(str(output_path), write_like_original=False)
-        logger.info("SR guardado: %s (PatientID=%s, groups=%d)", output_path, data.noel_id, len(groups))
+        logger.info(
+            "SR guardado: %s (patient_id_source=%s, groups=%d)", output_path, data.patient_id_source, len(groups)
+        )
 
     return sr
 
@@ -636,7 +656,7 @@ def _minimal_reference(data: OCTClinicalData) -> Dataset:
     ds.SOPInstanceUID = generate_uid()
     ds.StudyInstanceUID = generate_uid()
     ds.SeriesInstanceUID = generate_uid()
-    ds.PatientID = data.noel_id
+    ds.PatientID = data.patient_id
     ds.PatientName = _to_dicom_pn(data.patient_name) or data.noel_id
     ds.PatientBirthDate = data.patient_dob or dob_from_noel(data.noel_id)
     ds.PatientSex = ""

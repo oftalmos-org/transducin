@@ -53,6 +53,14 @@ MANUFACTURER = "RetinaOS-Transducin"
 MANUFACTURER_OPTOPOL = "Optopol Technology"
 MODEL_REVO = "Revo FC130"
 
+# Heidelberg Engineering Spectralis
+MANUFACTURER_HEIDELBERG = "Heidelberg Engineering"
+MODEL_SPECTRALIS = "Spectralis"
+
+# Topcon (el modelo exacto varía; no se inventa)
+MANUFACTURER_TOPCON = "Topcon Corporation"
+MODEL_TOPCON = "OCT"
+
 # Carl Zeiss Meditec Cirrus HD-OCT
 MANUFACTURER_ZEISS = "Carl Zeiss Meditec"
 MODEL_CIRRUS = "CIRRUS HD-OCT"

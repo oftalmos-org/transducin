@@ -478,6 +478,77 @@ def _extract_layer_with_fallback(data: bytes, chunks: dict[str, dict], name: str
     return arr  # retorna el primario (None o zeros) si ninguno tiene datos
 
 
+# Orden anatómico (de interno a externo) de los contornos nombrados por el equipo; el encabezado
+# de este módulo documenta el significado de cada chunk.
+_REVO_LAYER_ORDER: tuple[tuple[str, str, str], ...] = (
+    ("TOP", "ILM", "documented"),
+    ("NFL", "NFL/GCL", "documented"),
+    ("GCL", "GCL/IPL", "documented"),
+    ("IPL", "IPL/INL", "documented"),
+    ("INL", "INL/OPL", "documented"),
+    ("OPL", "OPL/ONL", "documented"),
+    # En archivos propios (Revo 21.5, 256 cortes) el contorno ELM queda por encima del ONL en el 99.9 % de
+    # las columnas: el encabezado dice "ONL/IS" para ONL, pero el orden medido lo contradice. Se ordenan
+    # según el dato y ambos se marcan como inferidos hasta confirmarlos a simple vista.
+    ("ELM", "ELM", "inferred"),
+    ("ONL", "ONL/IS", "inferred"),
+    ("EZOS", "IS/OS (zona elipsoide)", "documented"),
+    ("ISOS", "OS/EPR", "documented"),
+    ("BM", "Bruch (BM)", "documented"),
+)
+
+
+def extract_all_layers(data: bytes, chunks: dict[str, dict]) -> dict[str, np.ndarray]:
+    """Contornos crudos ``{nombre_chunk: array (n_frames, n_ascans) float32}`` presentes en el archivo.
+
+    0 = sin dato (se conserva tal cual; ``layers_for_dicom`` lo convierte a NaN). BM usa BOTTOM de respaldo.
+    """
+    out: dict[str, np.ndarray] = {}
+    for name, _label, _status in _REVO_LAYER_ORDER:
+        arr = (
+            _extract_layer_with_fallback(data, chunks, "BM", "BOTTOM")
+            if name == "BM"
+            else extract_layer(data, chunks, name)
+        )
+        if arr is not None and arr.size and arr.any():
+            out[name] = arr
+    return out
+
+
+def layers_for_dicom(
+    layers: dict[str, np.ndarray] | None, n_frames: int, image_height: int
+) -> tuple[dict[str, list], dict[str, tuple[str, str]], str] | None:
+    """Prepara los contornos para ``encode_layers`` o devuelve ``None`` si no se puede garantizar fidelidad.
+
+    Condiciones (si no se cumplen no se emite el bloque): hay contornos; su número de cortes coincide con el
+    de B-scans escritos; ningún valor válido cae fuera de la imagen (las filas están en píxeles del B-scan).
+    Los ceros del equipo se vuelven NaN. Las claves llevan prefijo de orden anatómico (``c00_ILM`` …).
+    """
+    if not layers or n_frames <= 0 or image_height <= 0:
+        return None
+    contours: dict[str, list] = {}
+    labels: dict[str, tuple[str, str]] = {}
+    for i, (name, label, status) in enumerate(_REVO_LAYER_ORDER):
+        arr = layers.get(name)
+        if arr is None:
+            continue
+        if arr.shape[0] != n_frames:
+            return None
+        a = np.where(arr > 0, arr, np.nan).astype(np.float32)
+        finite = a[np.isfinite(a)]
+        if finite.size == 0:
+            continue
+        if float(finite.max()) > image_height:
+            return None
+        key = f"c{i:02d}_{name}"
+        contours[key] = [a[f] for f in range(n_frames)]
+        labels[key] = (label, status)
+    if not contours:
+        return None
+    note = "Contornos de segmentación embebidos por el equipo Revo (chunks nombrados); filas en píxeles del B-scan."
+    return contours, labels, note
+
+
 def extract_disc_center(data: bytes, chunks: dict[str, dict], params: dict) -> tuple[float, float]:
     """Extrae el centro del disco óptico desde el chunk DMARKERS.
 
@@ -519,6 +590,104 @@ def extract_disc_center(data: bytes, chunks: dict[str, dict], params: dict) -> t
     a_center = float(np.nanmean(a_centers))
 
     return b_center, a_center
+
+
+# Un escaneo ancho que incluye el disco no está centrado en la fóvea: el centro del volumen queda cerca
+# del disco. El CMT y el ETDRS se calculan en el centro del volumen, así que ahí serían falsos.
+_WIDE_SCAN_MM = 9.0
+_MIN_DISC_FRAMES = 10
+
+
+def scan_includes_disc(data: bytes, chunks: dict[str, dict]) -> bool:
+    """True si DMARKERS marca el disco óptico en al menos ``_MIN_DISC_FRAMES`` cortes."""
+    c = chunks.get("DMARKERS")
+    if not c:
+        return False
+    dec = _decompress_block(data[c["offset"] : c["offset"] + c["real_size"]])
+    if dec is None or len(dec) < 8:
+        return False
+    n = struct.unpack_from("<I", dec, 0)[0]
+    if n == 0 or len(dec) < 4 + n * 16:
+        return False
+    markers = np.frombuffer(dec[4 : 4 + n * 16], dtype="<f4").reshape(n, 4)
+    return int((~np.any(np.isnan(markers), axis=1)).sum()) >= _MIN_DISC_FRAMES
+
+
+_FOVEA_MIN_DEPTH_UM = 60.0
+_FOVEA_DISC_DIST_MM = (3.0, 6.0)  # distancia disco–fóvea plausible (≈ 4.5 mm)
+_FOVEA_DISC_MAX_VERT_MM = 2.5
+
+
+def _nan_box_sum(a: np.ndarray, ky: int, kx: int) -> tuple[np.ndarray, np.ndarray]:
+    """Suma y cuenta de valores finitos en una caja ky×kx (cumsum, sin scipy)."""
+    ky |= 1
+    kx |= 1
+    v = np.isfinite(a).astype(float)
+    a0 = np.where(np.isfinite(a), a, 0.0)
+
+    def box(x: np.ndarray) -> np.ndarray:
+        p = np.pad(x, ((ky // 2, ky // 2), (kx // 2, kx // 2)), mode="constant")
+        c = p.cumsum(0)
+        c = np.vstack([np.zeros((1, c.shape[1])), c])
+        w = c[ky:] - c[:-ky]
+        c = w.cumsum(1)
+        c = np.hstack([np.zeros((c.shape[0], 1)), c])
+        return c[:, kx:] - c[:, :-kx]
+
+    return box(a0), box(v)
+
+
+def detect_fovea(
+    top: np.ndarray | None,
+    isos: np.ndarray | None,
+    params: dict,
+    disc_center: tuple[float, float],
+) -> dict | None:
+    """Localiza la foseta foveal en un escaneo ancho que incluye el disco; ``None`` si no hay evidencia.
+
+    Busca la mayor depresión local del grosor ILM→ISOS (anillo de 0.8–1.6 mm menos centro de 0.3 mm),
+    lejos del disco y del borde. Se acepta solo si la depresión es ≥ 60 µm, está a 3–6 mm del disco y a
+    ≤ 2.5 mm de él en vertical (la fóvea queda ~4.5 mm temporal y algo por debajo del disco). Es una
+    estimación geométrica, no un marcador del equipo: quien la use debe decirlo.
+
+    Devuelve ``{"b": índice_b, "a": índice_a, "depth_um", "disc_dist_mm"}`` (índices flotantes de matriz).
+    """
+    if top is None or isos is None or top.shape != isos.shape:
+        return None
+    n_b, n_a = top.shape
+    bs = params["scan_width_mm"] * 1000.0 / n_b
+    la = params["lateral_um"]
+    ok = (isos > 0) & (top > 0)
+    t = np.where(ok, (isos - top) * params["axial_um"], np.nan)
+    t[(t <= 0) | (t > 700)] = np.nan
+    if np.isfinite(t).mean() < 0.5:
+        return None
+    B, A = np.meshgrid((np.arange(n_b) - n_b / 2) * bs, (np.arange(n_a) - n_a / 2) * la, indexing="ij")
+    db_um = (disc_center[0] - n_b / 2) * bs
+    da_um = (disc_center[1] - n_a / 2) * la
+
+    s_in, n_in = _nan_box_sum(t, int(1600 / bs), int(1600 / la))
+    s_out, n_out = _nan_box_sum(t, int(3200 / bs), int(3200 / la))
+    s_c, n_c = _nan_box_sum(t, int(300 / bs), int(300 / la))
+    ring = (s_out - s_in) / np.maximum(n_out - n_in, 1)
+    cen = s_c / np.maximum(n_c, 1)
+    depth = ring - cen
+
+    dist = np.hypot(B - db_um, A - da_um)
+    inside = (np.abs(B) < n_b * bs / 2 - 1700) & (np.abs(A) < n_a * la / 2 - 1700)
+    complete = (n_c > 0.5 * n_c.max()) & ((n_out - n_in) > 0.7 * (n_out - n_in).max())
+    score = np.where((dist > 2200) & inside & complete, depth, -np.inf)
+    j = np.unravel_index(np.argmax(score), score.shape)
+    d_mm = float(dist[j] / 1000.0)
+    vert_mm = float(abs(B[j] - db_um) / 1000.0)
+    if not (
+        np.isfinite(score[j])
+        and score[j] >= _FOVEA_MIN_DEPTH_UM
+        and _FOVEA_DISC_DIST_MM[0] <= d_mm <= _FOVEA_DISC_DIST_MM[1]
+        and vert_mm <= _FOVEA_DISC_MAX_VERT_MM
+    ):
+        return None
+    return {"b": float(j[0]), "a": float(j[1]), "depth_um": float(score[j]), "disc_dist_mm": d_mm}
 
 
 def compute_peripapillary_rnfl(
@@ -641,6 +810,7 @@ def compute_cmt(
     bm: np.ndarray,
     params: dict,
     sqi: np.ndarray | None = None,
+    center: tuple[float, float] | None = None,
 ) -> float | None:
     """Calcula CMT (Central Macular Thickness) en µm.
 
@@ -669,7 +839,7 @@ def compute_cmt(
 
     thickness_um = _apply_sqi_mask((bm - top) * axial_um, sqi)
 
-    b0, a0 = n_b // 2, n_a // 2
+    b0, a0 = center if center is not None else (n_b // 2, n_a // 2)
     db = (np.arange(n_b) - b0) * bscan_um
     da = (np.arange(n_a) - a0) * lateral_um
     B, A = np.meshgrid(db, da, indexing="ij")
@@ -689,6 +859,7 @@ def _sector_means(
     r_inner_um: float,
     r_outer_um: float,
     sqi: np.ndarray | None = None,
+    center: tuple[float, float] | None = None,
 ) -> dict:
     """Retorna medias por sector S/I/N/T + global en un anillo radial."""
     lateral_um = params["lateral_um"]
@@ -697,7 +868,7 @@ def _sector_means(
 
     thickness = _apply_sqi_mask(thickness, sqi)
     valid = (thickness > 0) & (thickness < 800)
-    b0, a0 = n_b // 2, n_a // 2
+    b0, a0 = center if center is not None else (n_b // 2, n_a // 2)
     db = (np.arange(n_b) - b0) * bscan_um
     da = (np.arange(n_a) - a0) * lateral_um
     B, A = np.meshgrid(db, da, indexing="ij")
@@ -730,6 +901,7 @@ def compute_rnfl_sectors(
     params: dict,
     laterality: str = "L",
     sqi: np.ndarray | None = None,
+    center: tuple[float, float] | None = None,
 ) -> object | None:
     """Calcula RNFL macular (GCL − NFL) en sectores S/I/N/T dentro de anillo 1–6mm.
 
@@ -745,7 +917,7 @@ def compute_rnfl_sectors(
         return None
 
     thickness = (gcl - nfl) * params["axial_um"]
-    s = _sector_means(thickness, params, laterality, r_inner_um=500, r_outer_um=3000, sqi=sqi)
+    s = _sector_means(thickness, params, laterality, r_inner_um=500, r_outer_um=3000, sqi=sqi, center=center)
     if s["global"] is None:
         return None
     return RNFLSectors(
@@ -763,6 +935,7 @@ def compute_gcl_ipl(
     params: dict,
     laterality: str = "L",
     sqi: np.ndarray | None = None,
+    center: tuple[float, float] | None = None,
 ) -> object | None:
     """Calcula mGCIPL (GCL + IPL) en sectores S/I/N/T en anillo 1–6mm.
 
@@ -779,7 +952,7 @@ def compute_gcl_ipl(
         return None
 
     thickness = (inl - gcl) * params["axial_um"]
-    s = _sector_means(thickness, params, laterality, r_inner_um=500, r_outer_um=3000, sqi=sqi)
+    s = _sector_means(thickness, params, laterality, r_inner_um=500, r_outer_um=3000, sqi=sqi, center=center)
     if s["global"] is None:
         return None
     return RNFLSectors(
@@ -797,6 +970,7 @@ def compute_etdrs(
     params: dict,
     laterality: str = "L",
     sqi: np.ndarray | None = None,
+    center: tuple[float, float] | None = None,
 ) -> object | None:
     """Calcula ETDRS 9 sectores del grosor retinal (BM − TOP/ILM).
 
@@ -831,9 +1005,9 @@ def compute_etdrs(
     thickness = _apply_sqi_mask((bm - top) * axial_um, sqi)  # (n_b, n_a) en µm
     valid = (thickness > 0) & (thickness < 800)
 
-    b0, a0 = n_b // 2, n_a // 2
+    b0, a0 = center if center is not None else (n_b // 2, n_a // 2)
 
-    # Distancias en µm respecto al centro del volumen
+    # Distancias en µm respecto al centro (del volumen, o la fóvea si se da ``center``)
     db = (np.arange(n_b) - b0) * bscan_um  # positivo = inferior
     da = (np.arange(n_a) - a0) * lateral_um  # positivo = derecha de la imagen
     B, A = np.meshgrid(db, da, indexing="ij")  # (n_b, n_a)
@@ -1295,6 +1469,7 @@ def build_dicom_oct(
     sqi: np.ndarray | None = None,
     traj: np.ndarray | None = None,
     params_oct: dict | None = None,
+    patient_id: str | None = None,
 ) -> Dataset:
     """Construye un Dataset DICOM OphthalmicTomographyImageStorage multi-frame.
 
@@ -1344,7 +1519,9 @@ def build_dicom_oct(
     ds.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
 
     # Patient
-    ds.PatientID = noel_id
+    # ADR-026: patient_id (si se da) es el PatientID efectivo; noel_id queda solo como
+    # alias para el respaldo de PatientName y la fecha de nacimiento.
+    ds.PatientID = noel_id if patient_id is None else patient_id
     ds.PatientName = _to_dicom_pn(patient_name) if patient_name else noel_id
     ds.PatientBirthDate = patient_dob or dob_from_noel(noel_id)
     ds.PatientSex = patient_sex or ""
@@ -1495,6 +1672,7 @@ def build_dicom_enface(
     study_description: str = "",
     source_file: str = "",
     pixel_spacing: list[float] | None = None,
+    patient_id: str | None = None,
 ) -> Dataset:
     """Construye un Dataset DICOM OphthalmicPhotography8BitImageStorage de un frame.
 
@@ -1534,7 +1712,9 @@ def build_dicom_enface(
     ds.SOPClassUID = SOP_FUNDUS_PHOTO
     ds.SOPInstanceUID = sop_uid
 
-    ds.PatientID = noel_id
+    # ADR-026: patient_id (si se da) es el PatientID efectivo; noel_id queda solo como
+    # alias para el respaldo de PatientName y la fecha de nacimiento.
+    ds.PatientID = noel_id if patient_id is None else patient_id
     ds.PatientName = _to_dicom_pn(patient_name) if patient_name else noel_id
     ds.PatientBirthDate = patient_dob or dob_from_noel(noel_id)
     ds.PatientSex = patient_sex or ""
@@ -1674,15 +1854,28 @@ def read_opt(filepath: str | Path) -> dict:
     inl = extract_layer(data, chunks, "INL")
     bm = _extract_layer_with_fallback(data, chunks, "BM", "BOTTOM")
     top = extract_layer(data, chunks, "TOP")  # ILM — necesaria para C/D
+    all_layers = extract_all_layers(data, chunks)
 
     # Métricas con filtrado SQI (laterality se aplica en opt_extractor con el valor correcto)
     # CMT y ETDRS = grosor retinal total (BM − TOP/ILM). mRNFL macular = (NFL − TOP).
-    cmt_um = compute_cmt(top, bm, params, sqi=sqi)
+    # Escaneo ancho con disco: el centro del volumen no es la fóvea. Se busca la foseta; sin evidencia
+    # de ella no se calcula nada (ni CMT ni sectores) en vez de medir en un sitio equivocado.
+    wide_with_disc = (params.get("scan_width_mm") or 0) >= _WIDE_SCAN_MM and scan_includes_disc(data, chunks)
+    fovea = None
+    if wide_with_disc:
+        fovea = detect_fovea(
+            top, extract_layer(data, chunks, "ISOS"), params, extract_disc_center(data, chunks, params)
+        )
+    off_center = wide_with_disc and fovea is None
+    center = (fovea["b"], fovea["a"]) if fovea else None
+    cmt_um = None if off_center else compute_cmt(top, bm, params, sqi=sqi, center=center)
 
     # Diagnóstico cuando CMT es None — ayuda a distinguir patología vs bug de pipeline.
     # Valores: "layer_missing" | "bottom_zero" | "sqi_low" | "dims_unknown"
     cmt_failure_reason: str | None = None
-    if cmt_um is None:
+    if off_center:
+        cmt_failure_reason = "fovea_not_centered"
+    elif cmt_um is None:
         import numpy as _np
 
         if top is None or bm is None:
@@ -1695,9 +1888,15 @@ def read_opt(filepath: str | Path) -> dict:
             cmt_failure_reason = "dims_unknown"
         else:
             cmt_failure_reason = "bottom_zero"  # caso más frecuente si llegamos aquí
-    etdrs = compute_etdrs(top, bm, params, sqi=sqi)
-    rnfl = compute_rnfl_sectors(nfl, gcl, params, sqi=sqi)
-    gcl_ipl = compute_gcl_ipl(gcl, inl, params, sqi=sqi)
+    if off_center:
+        logger.warning(
+            "Revo: escaneo ancho con disco; CMT, ETDRS y sectores maculares no se calculan (centro != fóvea)."
+        )
+        etdrs = rnfl = gcl_ipl = None
+    else:
+        etdrs = compute_etdrs(top, bm, params, sqi=sqi, center=center)
+        rnfl = compute_rnfl_sectors(nfl, gcl, params, sqi=sqi, center=center)
+        gcl_ipl = compute_gcl_ipl(gcl, inl, params, sqi=sqi, center=center)
 
     # C/D ratio desde ILM morfología + bordes de disco DMARKERS
     cdr = compute_cup_disc_ratio(top, data, chunks, params)
@@ -1748,7 +1947,24 @@ def read_opt(filepath: str | Path) -> dict:
         "fndsreco": fndsrec,
         "angprv": angprv,
         "octa_enface": octa_ef,  # float16 log-MIP en-face OCTA (solo ANGIO)
+        "fovea": fovea,  # estimación geométrica en escaneos anchos con disco (o None)
+        "layers": all_layers,  # contornos crudos {chunk: (n_frames, n_ascans)}; ver layers_for_dicom
     }
+
+
+def _attach_revo_layers(ds, result: dict, n_written: int, n_decoded: int) -> bool:
+    """Añade el bloque de capas (ADR-028) al DICOM OCT de Revo si es coherente con los B-scans escritos."""
+    from transducin.layer_contours import attach_layers, encode_layers
+
+    if n_written != n_decoded:  # se descartaron cuadros degenerados: los cortes ya no corresponden
+        return False
+    prepared = layers_for_dicom(result.get("layers"), n_written, int(ds.Rows))
+    if prepared is None:
+        if result.get("layers"):
+            logger.warning("Revo: contornos de capa no coherentes con los B-scans; no se incluyen en el DICOM.")
+        return False
+    contours, labels, note = prepared
+    return attach_layers(ds, encode_layers(contours, n_written, labels, note))
 
 
 def opt_to_dicom(
@@ -1763,6 +1979,7 @@ def opt_to_dicom(
     study_type: str = "",
     study_description: str = "",
     study_time: str = "",
+    patient_id: str | None = None,
 ) -> list[Path]:
     """Convierte un .opt Revo a DICOM(s).
 
@@ -1782,6 +1999,10 @@ def opt_to_dicom(
         patient_name: Nombre en formato DICOM PN (opcional).
         patient_dob:  Fecha de nacimiento YYYYMMDD (opcional; se deriva de noel_id si vacío).
         study_type:   Tipo de estudio ("macular", "optic_nerve", etc.) para StudyDescription.
+        patient_id:   PatientID efectivo (ADR-026). None o "" = usar noel_id, como siempre.
+                      Si se da, se escribe tal cual, noel_id queda solo como alias para
+                      PatientName y fecha de nacimiento, y no se infiere nada del nombre
+                      de archivo.
 
     Returns:
         Lista de Paths a los .dcm generados (todos los tipos de imagen del scan).
@@ -1789,9 +2010,9 @@ def opt_to_dicom(
     filepath = Path(filepath)
     _stem_m = re.match(r"^([A-Z]{4})(\d{8})_", filepath.stem)
     if _stem_m:
-        if not noel_id:
+        if not noel_id and not patient_id:
             noel_id = _stem_m.group(1) + _stem_m.group(2)
-        if not patient_dob:
+        if not patient_dob and not patient_id:
             patient_dob = _stem_m.group(2)
 
     output_dir = Path(output_dir)
@@ -1814,6 +2035,7 @@ def opt_to_dicom(
 
     common = {
         "noel_id": noel_id,
+        "patient_id": patient_id or None,
         "study_date": study_date,
         "study_time": study_time,
         "laterality": laterality,
@@ -1839,6 +2061,7 @@ def opt_to_dicom(
             params_oct=result.get("params"),
             **common,
         )
+        _attach_revo_layers(ds, result, len(valid_bscans), len(result["bscans"]))
         out = output_dir / f"{stem}_OCT.dcm"
         ds.save_as(str(out), write_like_original=False)
         h, w = valid_bscans[0].shape

@@ -3,7 +3,7 @@
 #
 # Extractor de mediciones clínicas OCT para Heidelberg Spectralis (.e2e).
 #
-# Usa oct-converter (E2E reader) para leer el volumen + contours de capas,
+# Medición de capas del .e2e (lector propio en transducin/readers/, sin oct-converter)
 # y reutiliza las funciones de cómputo de revo_opt_reader:
 #   compute_etdrs()       → CMT + ETDRS 9 sectores
 #   compute_rnfl_sectors()→ mRNFL S/I/N/T (macular)
@@ -33,99 +33,13 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+from itertools import pairwise
 
 import numpy as np
 
 from transducin.clinical_data import OCTClinicalData, RNFLSectors
-from transducin.noel_id import is_valid_noel
 
 logger = logging.getLogger("transducin.spectralis")
-
-
-def _extract_e2e_scan_quality(filepath: Path, byte_skip: int) -> float | None:
-    """Extrae el imgQuality medio de todos los B-scans en un archivo .e2e.
-
-    El chunk type 10004 (bscan_metadata) contiene imgQuality como Float32l
-    en posición byte 84 dentro del payload de 104 bytes (estructura conocida).
-    Rango esperado: 0.0–1.0 (Spectralis; valores típicos 0.15–0.35 en escala interna).
-
-    Returns:
-        Media de imgQuality sobre todos los B-scans encontrados, o None si no
-        se pudo leer ningún valor válido.
-    """
-    import struct as _struct
-
-    try:
-        with open(filepath, "rb") as f:
-            # Leer header principal (36 bytes) + main_directory (52 bytes)
-            f.seek(byte_skip)
-            header_raw = f.read(36)
-            if len(header_raw) < 36:
-                return None
-            f.seek(byte_skip + 36)
-            main_dir_raw = f.read(52)
-            if len(main_dir_raw) < 52:
-                return None
-
-            # Parsear current y prev del main_directory (offsets 12+4*10=52 → current=int32 @44)
-            # main_directory_structure: magic2(12) + version(4) + unknown(20) + num_entries(4) + current(4) + prev(4)
-            current = _struct.unpack_from("<I", main_dir_raw, 44)[0]
-
-            # Construir directory_stack (linked list de directorios)
-            directory_stack = []
-            visited = set()
-            while current != 0 and current not in visited:
-                directory_stack.append(current)
-                visited.add(current)
-                f.seek(current + byte_skip)
-                raw = f.read(52)
-                if len(raw) < 52:
-                    break
-                current = _struct.unpack_from("<I", raw, 44)[0]  # prev
-
-            # Construir chunk_stack desde los sub_directory entries
-            # sub_directory_structure: pos(4)+start(4)+size(4)+unknown(4)+pid(4)+sid(4)+serid(4)+slid(4)+u2(2)+u3(2)+type(4)+u4(4) = 44 bytes
-            chunk_stack = []
-            for pos in directory_stack:
-                f.seek(pos + byte_skip)
-                raw = f.read(52)
-                if len(raw) < 52:
-                    continue
-                num_entries = _struct.unpack_from("<I", raw, 40)[0]
-                for _ in range(num_entries):
-                    entry_raw = f.read(44)
-                    if len(entry_raw) < 44:
-                        break
-                    entry_pos = _struct.unpack_from("<I", entry_raw, 0)[0]
-                    entry_start = _struct.unpack_from("<I", entry_raw, 4)[0]
-                    entry_size = _struct.unpack_from("<I", entry_raw, 8)[0]
-                    if entry_start > entry_pos:
-                        chunk_stack.append((entry_start, entry_size))
-
-            # Extraer imgQuality de chunks tipo 10004
-            # chunk_structure: magic3(12)+unknown(4)+unknown2(4)+pos(4)+size(4)+unknown3(4)+pid(4)+sid(4)+serid(4)+slid(4)+ind(2)+unknown4(2)+type(4)+unknown5(4) = 60 bytes
-            # bscan_metadata: payload de 104 bytes; imgQuality = Float32l @ byte 84
-            qualities: list[float] = []
-            for start, _size in chunk_stack:
-                f.seek(start + byte_skip)
-                chunk_hdr = f.read(60)
-                if len(chunk_hdr) < 60:
-                    continue
-                chunk_type = _struct.unpack_from("<I", chunk_hdr, 52)[0]
-                if chunk_type == 10004:
-                    payload = f.read(104)
-                    if len(payload) >= 88:
-                        q = _struct.unpack_from("<f", payload, 84)[0]
-                        if 0.0 <= q <= 1.0:
-                            qualities.append(q)
-
-            if not qualities:
-                return None
-            return round(float(np.mean(qualities)), 4)
-    except Exception as exc:
-        logger.debug("E2E: no se pudo extraer imgQuality de %s: %s", filepath.name, exc)
-        return None
 
 
 # Valores por defecto Spectralis si no hay metadata de geometría
@@ -248,8 +162,61 @@ def _build_layer_map(
     return arr
 
 
+# Mapas candidatos de ID de contorno → capa. El orden de la lista es la prioridad
+# cuando más de uno es geométricamente válido.
+#   oct_converter_contiguous: numeración contigua de la documentación de oct-converter
+#       (ILM=0, RNFL/GCL=1, IPL/INL=3, BM=9). Es el mapa histórico de Transducin.
+#   heyex_ids: observado en archivos reales de un Spectralis (2026-11-11): volúmenes con
+#       contornos 0..6, 8, 14, 15, 16 y SIN contorno 9; el más profundo es el 1, así que
+#       ILM=0, BM=1, RNFL/GCL=2, IPL/INL=4. Es una HIPÓTESIS respaldada por geometría
+#       (orden de profundidades y ~300 µm ILM→BM), no por documentación de Heidelberg;
+#       por eso las mediciones con este mapa se marcan extraction_confidence="assumed".
+_E2E_LAYER_MAPS: tuple[tuple[str, dict[str, str]], ...] = (
+    (
+        "oct_converter_contiguous",
+        {"ilm": "contour0", "rnfl_gcl": "contour1", "ipl_inl": "contour3", "bm": "contour9"},
+    ),
+    (
+        "heyex_ids",
+        {"ilm": "contour0", "bm": "contour1", "rnfl_gcl": "contour2", "ipl_inl": "contour4"},
+    ),
+)
+
+# Orden anatómico superficial → profundo; cada capa presente debe ser más profunda
+# (en media) que la anterior.
+_E2E_LAYER_ORDER = ("ilm", "rnfl_gcl", "ipl_inl", "bm")
+
+
+def _resolve_e2e_layers(contours: dict) -> tuple[dict | None, str | None]:
+    """Elige el mapa de IDs de contorno cuya geometría es consistente.
+
+    Devuelve ({"ilm", "bm", "rnfl_gcl", "ipl_inl"} → mapas 2D | None, nombre_del_mapa),
+    o (None, None) si ningún mapa tiene ILM y BM, o si el orden de profundidades no es
+    el anatómico (ILM < RNFL/GCL < IPL/INL < BM). Nunca se mide con un mapa dudoso.
+    """
+    for name, keys in _E2E_LAYER_MAPS:
+        layers = {layer: _build_layer_map(contours, key) for layer, key in keys.items()}
+        if layers["ilm"] is None or layers["bm"] is None:
+            continue
+        depths = [float(np.nanmean(layers[layer])) for layer in _E2E_LAYER_ORDER if layers[layer] is not None]
+        if any(np.isnan(depths)) or any(a >= b for a, b in pairwise(depths)):
+            continue
+        return layers, name
+    return None, None
+
+
+# posX/posY del .e2e están en GRADOS de exploración, no en mm. Equivalencia del propio reporte
+# de Spectralis ("OCT 20° (6.0 mm)" y círculos ETDRS de 1, 3 y 6 mm): 0.3 mm por grado.
+_MM_PER_DEG = 0.3
+
+
+def _fmt(v) -> str:
+    """Formatea un valor opcional (sector sin cobertura → 'n/d')."""
+    return f"{v:.1f}" if isinstance(v, (int, float)) else "n/d"
+
+
 def _geometry_from_metadata(metadata: dict, n_ascans: int, n_bscans: int) -> dict:
-    """Extrae escalas físicas reales desde bscan_data.posX1/posX2/posY1.
+    """Extrae escalas físicas desde bscan_data (posX1/posX2/posY1 en grados → mm con 0.3 mm/°).
 
     Retorna dict con axial_um, lateral_um, scan_width_mm.
     Si metadata no tiene datos útiles usa defaults Spectralis.
@@ -274,19 +241,19 @@ def _geometry_from_metadata(metadata: dict, n_ascans: int, n_bscans: int) -> dic
         px1 = bd.get("posX1", 0.0)
         px2 = bd.get("posX2", 0.0)
         w = abs(float(px2) - float(px1))
-        if 0.5 < w < 20.0:  # rango razonable mm
+        if 5.0 < w < 60.0:  # grados de exploración razonables (15°–55° típicos)
             widths_x.append(w)
         py1 = bd.get("posY1", 0.0)
         if py1 is not None:
             posY_vals.append(float(py1))
 
     if widths_x and n_ascans > 0:
-        scan_x_mm = float(np.median(widths_x))
+        scan_x_mm = float(np.median(widths_x)) * _MM_PER_DEG
         lateral_um = scan_x_mm * 1000.0 / n_ascans
 
     # Scan width Y — rango de posY
     if len(posY_vals) >= 2:
-        y_range = abs(max(posY_vals) - min(posY_vals))
+        y_range = abs(max(posY_vals) - min(posY_vals)) * _MM_PER_DEG
         if 0.5 < y_range < 20.0:
             scan_width_mm = y_range
 
@@ -297,26 +264,36 @@ def _geometry_from_metadata(metadata: dict, n_ascans: int, n_bscans: int) -> dic
     }
 
 
-def _patient_name(vol) -> str:
-    parts = []
-    if getattr(vol, "surname", None):
-        parts.append(str(vol.surname).upper())
-    if getattr(vol, "first_name", None):
-        parts.append(str(vol.first_name).upper())
-    return "^".join(parts) if parts else ""
-
-
-def _study_date(vol) -> str:
-    dt = getattr(vol, "acquisition_date", None)
-    if dt is None:
-        return ""
-    try:
-        return dt.strftime("%Y%m%d")
-    except Exception:
-        return str(dt)[:8].replace("-", "")
-
-
 # ── Medición reutilizable (sin dependencia de oct_converter) ─────────────────
+
+
+def _orient_to_etdrs_convention(arrays: dict, bscan_data: list, n_b: int) -> tuple[dict, str]:
+    """Reordena los arreglos [corte][A-scan] a la convención de compute_etdrs, según el SLO.
+
+    compute_etdrs (heredada de Revo) supone corte 0 = superior y, por lateralidad, ojo derecho:
+    izquierda = nasal / ojo izquierdo: izquierda = temporal. En el .e2e de Spectralis (verificado
+    con el SLO de archivos reales, ADR-027) posX/posY son grados en coordenadas de imagen
+    (x a la derecha, y hacia abajo, SLO de pie): superior = y menor; ojo derecho: temporal a la
+    izquierda; ojo izquierdo: nasal a la izquierda. Por eso se ordenan los cortes por y creciente
+    y se invierten las columnas de cada corte cuyo A-scan crece en x. Devuelve (arreglos, nota);
+    sin metadatos coherentes devuelve los arreglos sin cambios y una nota de que no se pudo.
+    """
+    if not bscan_data or len(bscan_data) != n_b:
+        return arrays, "Orientación de sectores NO verificable: faltan posX/posY por corte."
+    ys = np.array([(d["posY1"] + d["posY2"]) / 2.0 for d in bscan_data])
+    flip = np.array([d["posX2"] > d["posX1"] for d in bscan_data])
+    if not np.isfinite(ys).all():
+        return arrays, "Orientación de sectores NO verificable: posY no finita."
+    order = np.argsort(ys, kind="stable")  # superior (y menor) primero
+
+    out = {}
+    for name, arr in arrays.items():
+        if arr is None or arr.shape[0] != n_b:
+            out[name] = arr
+            continue
+        fixed = np.where(flip[:, None], arr[:, ::-1], arr)
+        out[name] = fixed[order]
+    return out, "Orientación de sectores normalizada con posX/posY del archivo (SLO)."
 
 
 def measure_e2e_volume(
@@ -328,6 +305,7 @@ def measure_e2e_volume(
     sqi_mean: float | None = None,
     label: str = "",
     require_laterality: bool = False,
+    etdrs_policy=None,
 ) -> OCTClinicalData | None:
     """Calcula mediciones clínicas de UN volumen E2E a partir de sus contornos.
 
@@ -341,6 +319,8 @@ def measure_e2e_volume(
         metadata:           dict con "bscan_data" (lista de dicts posX1/posX2/scaley).
         laterality:         "R" | "L" | otro.
         cd_base:            kwargs de OCTClinicalData SIN ``laterality``.
+        etdrs_policy:       EtdrsCoveragePolicy | None. None = comportamiento histórico (sin comprobar cobertura);
+                            los adaptadores nuevos pasan una política (transducin.etdrs_policy).
         require_laterality: si True y la lateralidad no es R/L, no mide (retorna
                             None) en lugar de asumir "R". El extractor legado
                             conserva el comportamiento histórico (asume "R").
@@ -348,23 +328,37 @@ def measure_e2e_volume(
     Returns:
         OCTClinicalData con mediciones, o None si no hay nada medible.
     """
+    from transducin.etdrs_policy import compute_etdrs_with_policy, unavailable_summary
     from transducin.revo_opt_reader import (
-        compute_etdrs,
         compute_gcl_ipl,
         compute_rnfl_sectors,
     )
 
-    ilm = _build_layer_map(contours, "contour0")  # ILM
-    bm = _build_layer_map(contours, "contour9")  # BM
-    rnfl_gcl = _build_layer_map(contours, "contour1")  # RNFL/GCL boundary
-    ipl_inl = _build_layer_map(contours, "contour3")  # IPL/INL boundary
-
-    if ilm is None or bm is None:
-        logger.debug("E2E: ILM o BM no disponibles — saltando volumen")
+    layers, layer_map_name = _resolve_e2e_layers(contours)
+    if layers is None:
+        logger.debug("E2E: ILM/BM no disponibles o con geometría inconsistente — saltando volumen")
         return None
+    ilm, bm = layers["ilm"], layers["bm"]
+    rnfl_gcl, ipl_inl = layers["rnfl_gcl"], layers["ipl_inl"]
+    # El mapa histórico queda "confirmed"; el inferido por geometría, "assumed".
+    layer_confidence = "confirmed" if layer_map_name == "oct_converter_contiguous" else "assumed"
+    layer_map_note = f"Mapeo de capas E2E: {layer_map_name}" + (
+        ""
+        if layer_confidence == "confirmed"
+        else " (hipótesis validada por orden geométrico, no por documentación del fabricante)"
+    )
 
     n_b, n_a = ilm.shape
     scan_type = _detect_scan_type(n_b, n_a)
+
+    orientation_note = ""
+    if scan_type != "rnfl_circle":
+        oriented, orientation_note = _orient_to_etdrs_convention(
+            {"ilm": ilm, "bm": bm, "rnfl_gcl": rnfl_gcl, "ipl_inl": ipl_inl},
+            (metadata or {}).get("bscan_data", []),
+            n_b,
+        )
+        ilm, bm, rnfl_gcl, ipl_inl = oriented["ilm"], oriented["bm"], oriented["rnfl_gcl"], oriented["ipl_inl"]
 
     # ── Geometría física ──────────────────────────────────────────────────
     ps = pixel_spacing or []
@@ -418,8 +412,10 @@ def measure_e2e_volume(
             study_type="rnfl_circle",
             rnfl=prnfl,
             sqi_mean=sqi_mean,
-            extraction_confidence="confirmed",
+            extraction_confidence=layer_confidence,
+            measurement_provenance="vendor_contour_derived",
         )
+        cd.add_note(layer_map_note)
         cd.add_note(
             f"CONFIRMED: pRNFL={prnfl.global_avg:.1f}µm "
             f"S={prnfl.superior} I={prnfl.inferior} "
@@ -429,7 +425,7 @@ def measure_e2e_volume(
         return cd if cd.has_measurements() else None
 
     # ── Macular / ONH cube → CMT + ETDRS + mRNFL + mGCIPL ────────────────
-    etdrs = compute_etdrs(ilm, bm, params, laterality=lat)
+    etdrs, cov_report = compute_etdrs_with_policy(ilm, bm, params, laterality=lat, policy=etdrs_policy)
     cmt_um = round(float(etdrs.C), 1) if (etdrs and etdrs.C is not None) else None
 
     rnfl = None
@@ -449,8 +445,12 @@ def measure_e2e_volume(
         gcl_ipl=gcl_ipl,
         gcl_avg_um=round(float(gcl_ipl.global_avg), 1) if (gcl_ipl and gcl_ipl.global_avg is not None) else None,
         sqi_mean=sqi_mean,
-        extraction_confidence="confirmed" if cmt_um is not None else "assumed",
+        extraction_confidence=layer_confidence if cmt_um is not None else "assumed",
+        measurement_provenance="vendor_contour_derived",
     )
+    cd.add_note(layer_map_note)
+    if orientation_note:
+        cd.add_note(orientation_note)
 
     if cmt_um is not None:
         cd.add_note(
@@ -461,15 +461,19 @@ def measure_e2e_volume(
     if rnfl and rnfl.global_avg is not None:
         cd.add_note(
             f"CONFIRMED: mRNFL={rnfl.global_avg:.1f}µm "
-            f"S={rnfl.superior:.1f} N={rnfl.nasal:.1f} "
-            f"I={rnfl.inferior:.1f} T={rnfl.temporal:.1f} µm"
+            f"S={_fmt(rnfl.superior)} N={_fmt(rnfl.nasal)} "
+            f"I={_fmt(rnfl.inferior)} T={_fmt(rnfl.temporal)} µm"
         )
     if gcl_ipl and gcl_ipl.global_avg is not None:
         cd.add_note(
             f"CONFIRMED: mGCIPL={gcl_ipl.global_avg:.1f}µm "
-            f"S={gcl_ipl.superior:.1f} N={gcl_ipl.nasal:.1f} "
-            f"I={gcl_ipl.inferior:.1f} T={gcl_ipl.temporal:.1f} µm"
+            f"S={_fmt(gcl_ipl.superior)} N={_fmt(gcl_ipl.nasal)} "
+            f"I={_fmt(gcl_ipl.inferior)} T={_fmt(gcl_ipl.temporal)} µm"
         )
+
+    cov_note = unavailable_summary(cov_report)
+    if cov_note:
+        cd.add_note(cov_note)
 
     if not cd.has_measurements():
         logger.warning("  Sin mediciones para volumen en %s", label)
@@ -481,89 +485,3 @@ def measure_e2e_volume(
         f"{gcl_ipl.global_avg:.1f}µm" if gcl_ipl else "N/A",
     )
     return cd
-
-
-# ── Extractor principal ──────────────────────────────────────────────────────
-
-
-def extract_from_e2e(
-    filepath: Path,
-    noel_id: str = "",
-) -> list[OCTClinicalData]:
-    """Extrae OCTClinicalData desde un archivo .e2e Spectralis.
-
-    Para cada volumen OCT con contours de capas (macular cube) calcula:
-      - CMT (espesor central macular)
-      - ETDRS 9 sectores
-      - mRNFL S/I/N/T (RNFL macular)
-      - mGCIPL S/I/N/T (GCL+IPL macular)
-
-    Args:
-        filepath:  ruta al archivo .e2e
-        noel_id:   NOEL ID del paciente (si disponible desde filename)
-
-    Returns:
-        Lista de OCTClinicalData, uno por volumen macular con mediciones.
-    """
-    from oct_converter.readers.e2e import E2E
-
-    filepath = Path(filepath)
-    results: list[OCTClinicalData] = []
-
-    try:
-        reader = E2E(str(filepath))
-        volumes = reader.read_oct_volume()
-    except Exception as exc:
-        logger.error("E2E: no se pudo leer %s: %s", filepath.name, exc)
-        return results
-
-    if not volumes:
-        logger.warning("E2E: sin volúmenes en %s", filepath.name)
-        return results
-
-    # SQI: extraer imgQuality medio del archivo una sola vez
-    sqi_mean = _extract_e2e_scan_quality(filepath, reader.byte_skip)
-    if sqi_mean is not None:
-        logger.info("E2E SQI: imgQuality_mean=%.4f (%s)", sqi_mean, filepath.name)
-
-    # Intentar extraer NOEL ID desde el patient_id del archivo si no viene del filename
-    for vol in volumes:
-        pid = getattr(vol, "patient_id", None) or ""
-        if not noel_id and pid and is_valid_noel(str(pid)):
-            noel_id = str(pid)
-            break
-
-    # Metadata global (escalas físicas)
-    try:
-        metadata = reader.read_all_metadata()
-    except Exception:
-        metadata = {}
-
-    for vol in volumes:
-        contours = getattr(vol, "contours", None)
-        if not contours:
-            logger.debug("E2E: volumen sin contours — saltando")
-            continue
-
-        cd_base = {
-            "noel_id": noel_id,
-            "vendor": "heidelberg_spectralis",
-            "source_file": str(filepath),
-            "study_date": _study_date(vol),
-            "study_time": "",
-            "patient_name": _patient_name(vol),
-            "patient_dob": str(getattr(vol, "patient_dob", "") or ""),
-        }
-        cd = measure_e2e_volume(
-            contours,
-            getattr(vol, "pixel_spacing", None),
-            metadata,
-            getattr(vol, "laterality", ""),
-            cd_base,
-            sqi_mean,
-            label=filepath.stem,
-        )
-        if cd is not None:
-            results.append(cd)
-
-    return results

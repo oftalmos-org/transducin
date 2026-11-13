@@ -28,7 +28,7 @@ https://github.com/oftalmos-org/transducin/raw/main/docs/demo/Transducin_in_OHIF
 
 ### v1.2 — Pendiente
 
-- [ ] Heidelberg Spectralis `.e2e`, Topcon `.fds`/`.fda`, Bioptigen `.OCT` via oct-converter
+- [x] Heidelberg Spectralis `.e2e` y Topcon `.fda` con lectores propios (sin oct-converter); Bioptigen `.OCT` vía oct-converter opcional
 - [ ] SR campo visual TID 6002 (Supplement 247 — esperando highdicom [#406](https://github.com/ImagingDataCommons/highdicom/issues/406))
 - [ ] Migración SR OCT a DICOM Supplement 247 TID 6001–6007
 - [ ] Desencriptado PATIENT.DAT Revo FC130 (requiere key del vendor o ingeniería inversa)
@@ -77,9 +77,9 @@ input/REVO/*.opt                input/CIRRUS/*.EX.DCM
 |---|---|---|---|
 | Optopol | Revo FC130 | `.opt` | B-scans + SLO/ENFACE/ANGPRV + ETDRS + mRNFL + mGCIPL + biometría MYOPI |
 | Carl Zeiss Meditec | Cirrus HD-OCT | `.ex.dcm` | CMT/RNFL/GCL desde tags privados `(0073,xxxx)` + SR TID 1500 |
-| Bioptigen / Leica | varios | `.OCT` | Planned v1.2 via oct-converter |
-| Topcon | DRI OCT Triton/Atlantis | `.fds`, `.fda` | Planned v1.2 via oct-converter |
-| Heidelberg Engineering | Spectralis | `.e2e` | Planned v1.2 via oct-converter |
+| Bioptigen / Leica | varios | `.OCT` | Optional: requires oct-converter (not installed by default) |
+| Topcon | DRI OCT Triton/Atlantis | `.fds`, `.fda` | `.fda` supported (own reader, no oct-converter) |
+| Heidelberg Engineering | Spectralis | `.e2e` | Supported: measurements + DICOM images (own reader, no oct-converter) |
 
 ## Tipos de scan soportados (Revo FC130)
 
