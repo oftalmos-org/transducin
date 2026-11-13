@@ -16,6 +16,7 @@ from pydicom.uid import generate_uid
 
 from transducin.base_adapter import DeviceAdapter
 from transducin.clinical_data import ETDRSGrid, OCTClinicalData, RNFLSectors
+from transducin.layer_contours import attach_layers, encode_layers
 from transducin.readers.e2e_reader import E2EReader
 
 
@@ -224,9 +225,14 @@ class SpectralisE2EAdapter(DeviceAdapter):
         no trae cortes decodificables.
         """
         try:
-            volumes = [v for v in E2EReader(str(path)).read_bscans() if any(i is not None for i in v.images)]
+            reader = E2EReader(str(path))
+            volumes = [v for v in reader.read_bscans() if any(i is not None for i in v.images)]
         except Exception:
             return []
+        try:  # contornos de capa embebidos; si fallan, la imagen se emite igual
+            layer_volumes = {lv.volume_id: lv for lv in reader.read_layer_volumes()}
+        except Exception:
+            layer_volumes = {}
         if not volumes:
             return []
 
@@ -238,7 +244,9 @@ class SpectralisE2EAdapter(DeviceAdapter):
         study_uid = generate_uid()
         out: list[Path] = []
         for n, vol in enumerate(volumes, 1):
-            ds = _build_spectralis_oct(vol, clinical_data, study_uid, n, primary=(n == 1))
+            ds = _build_spectralis_oct(
+                vol, clinical_data, study_uid, n, primary=(n == 1), layer_volume=layer_volumes.get(vol.volume_id)
+            )
             if ds is None:
                 continue
             dest = output_dir / f"spectralis_vol{n:02d}_OCT.dcm"
@@ -273,7 +281,22 @@ def _angular_extent(bscan_data: list[dict]) -> str:
     return f"{max(wx):.1f}° x {max(ys) - min(ys):.1f}°"
 
 
-def _build_spectralis_oct(vol, cd: OCTClinicalData, study_uid: str, number: int, primary: bool):
+def _layer_labels(contours: dict) -> tuple[dict[str, tuple[str, str]], str]:
+    """Etiquetas anatómicas de los contornos con su estado (documentado / inferido)."""
+    from transducin.spectralis_extractor import _E2E_LAYER_MAPS, _resolve_e2e_layers
+
+    _layers, name = _resolve_e2e_layers(contours)
+    if name is None:
+        return {}, "Sin mapa de capas consistente: contornos sin etiqueta anatómica."
+    status = "documented" if name == "oct_converter_contiguous" else "inferred"
+    names = {"ilm": "ILM", "bm": "Bruch (BM)", "rnfl_gcl": "RNFL/GCL", "ipl_inl": "IPL/INL"}
+    mapping = dict(_E2E_LAYER_MAPS)[name]
+    labels = {key: (names[layer], status) for layer, key in mapping.items()}
+    note = f"Mapeo de IDs de capa: {name} ({status})."
+    return labels, note
+
+
+def _build_spectralis_oct(vol, cd: OCTClinicalData, study_uid: str, number: int, primary: bool, layer_volume=None):
     """Dataset OPT de un volumen Spectralis; ``None`` si no hay cortes del mismo tamaño."""
     from transducin.revo_opt_reader import build_dicom_oct
 
@@ -302,6 +325,9 @@ def _build_spectralis_oct(vol, cd: OCTClinicalData, study_uid: str, number: int,
     ds.SeriesDescription = f"Spectralis OCT{eye} (volumen {number}, {len(frames)} cortes)"
     ds.SeriesNumber = number
     ds.InstanceNumber = 1
+    if layer_volume is not None and getattr(layer_volume, "contours", None):
+        labels, note = _layer_labels(layer_volume.contours)
+        attach_layers(ds, encode_layers(layer_volume.contours, len(frames), labels, note))
     if study_type == "optic_nerve":  # build_dicom_oct etiqueta todo lo no anterior como retina
         ds.AnatomicRegionSequence[0].CodeValue = "T-AA630"
         ds.AnatomicRegionSequence[0].CodeMeaning = "Optic nerve"
