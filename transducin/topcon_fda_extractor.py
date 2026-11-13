@@ -3,7 +3,7 @@
 #
 # Extractor de mediciones clínicas OCT para Topcon (.fda).
 #
-# Usa oct-converter (FDA reader) para leer el volumen + contours de capas,
+# Medición de capas del .fda (lector propio en transducin/readers/, sin oct-converter)
 # y reutiliza las funciones de cómputo de revo_opt_reader:
 #   compute_etdrs()       → CMT + ETDRS 9 sectores
 #   compute_rnfl_sectors()→ mRNFL S/I/N/T (macular)
@@ -32,12 +32,10 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import numpy as np
 
 from transducin.clinical_data import OCTClinicalData
-from transducin.noel_id import is_valid_noel
 
 logger = logging.getLogger("transducin.topcon_fda")
 
@@ -108,25 +106,6 @@ def _geometry_from_pixel_spacing(ps: list, n_b: int) -> dict:
         "lateral_um": max(lateral_um, 1.0),
         "scan_width_mm": max(scan_width_mm, 1.0),
     }
-
-
-def _patient_name(vol) -> str:
-    parts = []
-    if getattr(vol, "surname", None):
-        parts.append(str(vol.surname).upper())
-    if getattr(vol, "first_name", None):
-        parts.append(str(vol.first_name).upper())
-    return "^".join(parts) if parts else ""
-
-
-def _study_date(vol) -> str:
-    dt = getattr(vol, "acquisition_date", None)
-    if dt is None:
-        return ""
-    try:
-        return dt.strftime("%Y%m%d")
-    except Exception:
-        return str(dt)[:8].replace("-", "")
 
 
 # ── Medición reutilizable (sin dependencia de oct_converter) ─────────────────
@@ -294,108 +273,3 @@ def measure_fda_volume(
         f"{gcl_ipl.global_avg:.1f}µm" if gcl_ipl else "N/A",
     )
     return cd
-
-
-# ── Extractor principal ──────────────────────────────────────────────────────
-
-
-def extract_from_fda(
-    filepath: Path,
-    noel_id: str = "",
-) -> list[OCTClinicalData]:
-    """Extrae OCTClinicalData desde un archivo .fda Topcon.
-
-    Calcula CMT, ETDRS 9 sectores, mRNFL S/I/N/T y mGCIPL S/I/N/T
-    cuando el archivo contiene el chunk @CONTOUR_INFO con segmentación.
-
-    Args:
-        filepath: ruta al archivo .fda
-        noel_id:  NOEL ID del paciente (si disponible desde filename)
-
-    Returns:
-        Lista de OCTClinicalData. Vacía si el archivo no tiene segmentación
-        utilizable o no tiene mediciones válidas.
-    """
-    from oct_converter.readers.fda import FDA
-
-    filepath = Path(filepath)
-    results: list[OCTClinicalData] = []
-
-    try:
-        reader = FDA(str(filepath))
-        vol = reader.read_oct_volume()
-    except Exception as exc:
-        logger.error("FDA: no se pudo leer %s: %s", filepath.name, exc)
-        return results
-
-    if vol is None:
-        logger.warning("FDA: sin volumen en %s", filepath.name)
-        return results
-
-    # Identificador interno del archivo (ADR-026): si tiene formato NOEL se usa como
-    # alias NOEL; si no, se conserva tal cual como identificador del equipo.
-    device_pid = ""
-    pid = str(getattr(vol, "patient_id", None) or "").strip()
-    if pid and is_valid_noel(pid):
-        noel_id = noel_id or pid
-    elif pid:
-        device_pid = pid
-
-    # ── SQI desde PARAM_OBS_02 / image_quality ────────────────────────────
-    sqi_mean: float | None = None
-    try:
-        meta = getattr(vol, "metadata", None) or {}
-        param_obs = meta.get("param_obs_02") or {}
-        iq_raw = param_obs.get("image_quality", "")
-        iq_str = str(iq_raw).strip().strip("\x00").strip()
-        if iq_str:
-            iq_val = float(iq_str)
-            if iq_val > 1.0:
-                sqi_mean = round(iq_val / 100.0, 4)  # escala 0–100 → 0–1
-            elif 0.0 <= iq_val <= 1.0:
-                sqi_mean = round(iq_val, 4)
-            logger.info("FDA SQI: image_quality=%s → sqi=%.4f (%s)", iq_str, sqi_mean or 0, filepath.name)
-    except Exception:
-        pass
-
-    # ── Contours ──────────────────────────────────────────────────────────
-    contours = getattr(vol, "contours", None)
-    if not contours:
-        logger.debug("FDA: %s sin @CONTOUR_INFO — solo imagen", filepath.name)
-        return results
-
-    # Dimensiones desde el volumen de B-scans
-    bscans = getattr(vol, "volume", None) or []
-    if not bscans:
-        logger.warning("FDA: %s sin B-scans", filepath.name)
-        return results
-
-    n_b = len(bscans)
-    n_a = bscans[0].shape[1] if hasattr(bscans[0], "shape") else 0
-    if n_b < 1 or n_a < 10:
-        logger.warning("FDA: %s dimensiones insuficientes (%d B-scans, %d A-scans)", filepath.name, n_b, n_a)
-        return results
-
-    cd_base = {
-        "noel_id": noel_id,
-        "device_patient_id": device_pid,
-        "vendor": "topcon_triton",
-        "source_file": str(filepath),
-        "study_date": _study_date(vol),
-        "study_time": "",
-        "patient_name": _patient_name(vol),
-        "patient_dob": str(getattr(vol, "patient_dob", "") or ""),
-    }
-    cd = measure_fda_volume(
-        contours,
-        n_b,
-        n_a,
-        getattr(vol, "pixel_spacing", None),
-        getattr(vol, "laterality", ""),
-        cd_base,
-        sqi_mean,
-        label=filepath.stem,
-    )
-    if cd is not None:
-        results.append(cd)
-    return results

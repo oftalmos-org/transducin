@@ -1,7 +1,8 @@
 # transducin/boct_converter.py
 # SPDX-License-Identifier: Apache-2.0
 #
-# Conversor de volúmenes OCT Bioptigen (.OCT) a DICOM usando oct-converter.
+# Conversor de volúmenes OCT Bioptigen (.OCT) a DICOM. Usa oct-converter, que es una
+# dependencia OPCIONAL (import diferido): el resto de Transducin no la necesita.
 #
 # Flujo previsto para Zeiss Cirrus:
 #   1. Exportar desde Zeiss Cirrus → ZeissOCTConverter.app → produce .OCT (Bioptigen)
@@ -20,7 +21,6 @@ import re
 from pathlib import Path
 
 import pydicom
-from oct_converter.dicom.dicom import create_dicom_from_boct
 
 # Correcciones propias sobre la salida de oct-converter (sin modificar la librería):
 #  1. Lateralidad: BOCT la deduce con re.search(r"O[D|S]", nombre), que acepta "OD"/"OS" dentro de
@@ -118,6 +118,14 @@ def convert_directory(
         print(f"No se encontraron archivos con los patrones: {patterns}")
         print("Revisa la ruta y/o ajusta --glob")
         return 0, 0
+
+    try:  # dependencia OPCIONAL: solo este script de Bioptigen la usa (Spectralis/Topcon no)
+        from oct_converter.dicom.dicom import create_dicom_from_boct
+    except ImportError as exc:
+        raise SystemExit(
+            "Convertir Bioptigen .OCT requiere el paquete opcional oct-converter (pip install oct-converter). "
+            "Spectralis .e2e y Topcon .fda no lo necesitan."
+        ) from exc
 
     ok, fail = 0, 0
     for src in found:

@@ -88,28 +88,6 @@ def test_e2e_without_contours_degrades(tmp_path):
     assert cd.extraction_confidence == "unknown"
 
 
-def test_e2e_parity_with_legacy_extractor(tmp_path):
-    """Mismo resultado que spectralis_extractor (oct_converter completo)."""
-    pytest.importorskip("oct_converter")
-    from transducin.spectralis_extractor import extract_from_e2e
-
-    prof = thickness_profile(25, 256, 250.0, grad_um=120.0)
-    p = build_e2e(tmp_path / "s.e2e", laterality="L", thick_um=prof, with_image=True)
-    try:
-        legacy = extract_from_e2e(p)
-    except Exception as exc:  # pragma: no cover
-        pytest.skip(f"oct_converter no pudo leer el archivo sintético: {exc}")
-    if not legacy:
-        pytest.skip("oct_converter no produjo volúmenes con el archivo sintético mínimo")
-    new = SpectralisE2EAdapter().extract(p)
-    ref = legacy[0]
-    assert new.cmt_um == pytest.approx(ref.cmt_um, abs=0.05)
-    assert new.etdrs_grid == ref.etdrs_grid
-    assert new.rnfl == ref.rnfl
-    assert new.gcl_ipl == ref.gcl_ipl
-    assert new.laterality == ref.laterality
-
-
 # ── FDA ───────────────────────────────────────────────────────────────────────
 
 

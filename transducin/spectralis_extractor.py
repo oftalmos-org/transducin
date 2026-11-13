@@ -3,7 +3,7 @@
 #
 # Extractor de mediciones clínicas OCT para Heidelberg Spectralis (.e2e).
 #
-# Usa oct-converter (E2E reader) para leer el volumen + contours de capas,
+# Medición de capas del .e2e (lector propio en transducin/readers/, sin oct-converter)
 # y reutiliza las funciones de cómputo de revo_opt_reader:
 #   compute_etdrs()       → CMT + ETDRS 9 sectores
 #   compute_rnfl_sectors()→ mRNFL S/I/N/T (macular)
@@ -34,99 +34,12 @@ from __future__ import annotations
 
 import logging
 from itertools import pairwise
-from pathlib import Path
 
 import numpy as np
 
 from transducin.clinical_data import OCTClinicalData, RNFLSectors
-from transducin.noel_id import is_valid_noel
 
 logger = logging.getLogger("transducin.spectralis")
-
-
-def _extract_e2e_scan_quality(filepath: Path, byte_skip: int) -> float | None:
-    """Extrae el imgQuality medio de todos los B-scans en un archivo .e2e.
-
-    El chunk type 10004 (bscan_metadata) contiene imgQuality como Float32l
-    en posición byte 84 dentro del payload de 104 bytes (estructura conocida).
-    Rango esperado: 0.0–1.0 (Spectralis; valores típicos 0.15–0.35 en escala interna).
-
-    Returns:
-        Media de imgQuality sobre todos los B-scans encontrados, o None si no
-        se pudo leer ningún valor válido.
-    """
-    import struct as _struct
-
-    try:
-        with open(filepath, "rb") as f:
-            # Leer header principal (36 bytes) + main_directory (52 bytes)
-            f.seek(byte_skip)
-            header_raw = f.read(36)
-            if len(header_raw) < 36:
-                return None
-            f.seek(byte_skip + 36)
-            main_dir_raw = f.read(52)
-            if len(main_dir_raw) < 52:
-                return None
-
-            # Parsear current y prev del main_directory (offsets 12+4*10=52 → current=int32 @44)
-            # main_directory_structure: magic2(12) + version(4) + unknown(20) + num_entries(4) + current(4) + prev(4)
-            current = _struct.unpack_from("<I", main_dir_raw, 44)[0]
-
-            # Construir directory_stack (linked list de directorios)
-            directory_stack = []
-            visited = set()
-            while current != 0 and current not in visited:
-                directory_stack.append(current)
-                visited.add(current)
-                f.seek(current + byte_skip)
-                raw = f.read(52)
-                if len(raw) < 52:
-                    break
-                current = _struct.unpack_from("<I", raw, 44)[0]  # prev
-
-            # Construir chunk_stack desde los sub_directory entries
-            # sub_directory_structure: pos(4)+start(4)+size(4)+unknown(4)+pid(4)+sid(4)+serid(4)+slid(4)+u2(2)+u3(2)+type(4)+u4(4) = 44 bytes
-            chunk_stack = []
-            for pos in directory_stack:
-                f.seek(pos + byte_skip)
-                raw = f.read(52)
-                if len(raw) < 52:
-                    continue
-                num_entries = _struct.unpack_from("<I", raw, 40)[0]
-                for _ in range(num_entries):
-                    entry_raw = f.read(44)
-                    if len(entry_raw) < 44:
-                        break
-                    entry_pos = _struct.unpack_from("<I", entry_raw, 0)[0]
-                    entry_start = _struct.unpack_from("<I", entry_raw, 4)[0]
-                    entry_size = _struct.unpack_from("<I", entry_raw, 8)[0]
-                    if entry_start > entry_pos:
-                        chunk_stack.append((entry_start, entry_size))
-
-            # Extraer imgQuality de chunks tipo 10004
-            # chunk_structure: magic3(12)+unknown(4)+unknown2(4)+pos(4)+size(4)+unknown3(4)+pid(4)+sid(4)+serid(4)+slid(4)+ind(2)+unknown4(2)+type(4)+unknown5(4) = 60 bytes
-            # bscan_metadata: payload de 104 bytes; imgQuality = Float32l @ byte 84
-            qualities: list[float] = []
-            for start, _size in chunk_stack:
-                f.seek(start + byte_skip)
-                chunk_hdr = f.read(60)
-                if len(chunk_hdr) < 60:
-                    continue
-                chunk_type = _struct.unpack_from("<I", chunk_hdr, 52)[0]
-                if chunk_type == 10004:
-                    payload = f.read(104)
-                    if len(payload) >= 88:
-                        q = _struct.unpack_from("<f", payload, 84)[0]
-                        if 0.0 <= q <= 1.0:
-                            qualities.append(q)
-
-            if not qualities:
-                return None
-            return round(float(np.mean(qualities)), 4)
-    except Exception as exc:
-        logger.debug("E2E: no se pudo extraer imgQuality de %s: %s", filepath.name, exc)
-        return None
 
 
 # Valores por defecto Spectralis si no hay metadata de geometría
@@ -341,25 +254,6 @@ def _geometry_from_metadata(metadata: dict, n_ascans: int, n_bscans: int) -> dic
     }
 
 
-def _patient_name(vol) -> str:
-    parts = []
-    if getattr(vol, "surname", None):
-        parts.append(str(vol.surname).upper())
-    if getattr(vol, "first_name", None):
-        parts.append(str(vol.first_name).upper())
-    return "^".join(parts) if parts else ""
-
-
-def _study_date(vol) -> str:
-    dt = getattr(vol, "acquisition_date", None)
-    if dt is None:
-        return ""
-    try:
-        return dt.strftime("%Y%m%d")
-    except Exception:
-        return str(dt)[:8].replace("-", "")
-
-
 # ── Medición reutilizable (sin dependencia de oct_converter) ─────────────────
 
 
@@ -541,96 +435,3 @@ def measure_e2e_volume(
         f"{gcl_ipl.global_avg:.1f}µm" if gcl_ipl else "N/A",
     )
     return cd
-
-
-# ── Extractor principal ──────────────────────────────────────────────────────
-
-
-def extract_from_e2e(
-    filepath: Path,
-    noel_id: str = "",
-) -> list[OCTClinicalData]:
-    """Extrae OCTClinicalData desde un archivo .e2e Spectralis.
-
-    Para cada volumen OCT con contours de capas (macular cube) calcula:
-      - CMT (espesor central macular)
-      - ETDRS 9 sectores
-      - mRNFL S/I/N/T (RNFL macular)
-      - mGCIPL S/I/N/T (GCL+IPL macular)
-
-    Args:
-        filepath:  ruta al archivo .e2e
-        noel_id:   NOEL ID del paciente (si disponible desde filename)
-
-    Returns:
-        Lista de OCTClinicalData, uno por volumen macular con mediciones.
-    """
-    from oct_converter.readers.e2e import E2E
-
-    filepath = Path(filepath)
-    results: list[OCTClinicalData] = []
-
-    try:
-        reader = E2E(str(filepath))
-        volumes = reader.read_oct_volume()
-    except Exception as exc:
-        logger.error("E2E: no se pudo leer %s: %s", filepath.name, exc)
-        return results
-
-    if not volumes:
-        logger.warning("E2E: sin volúmenes en %s", filepath.name)
-        return results
-
-    # SQI: extraer imgQuality medio del archivo una sola vez
-    sqi_mean = _extract_e2e_scan_quality(filepath, reader.byte_skip)
-    if sqi_mean is not None:
-        logger.info("E2E SQI: imgQuality_mean=%.4f (%s)", sqi_mean, filepath.name)
-
-    # Identificador interno del archivo (ADR-026): si tiene formato NOEL se usa como
-    # alias NOEL; si no, se conserva tal cual como identificador del equipo.
-    device_pid = ""
-    for vol in volumes:
-        pid = str(getattr(vol, "patient_id", None) or "").strip()
-        if not pid:
-            continue
-        if is_valid_noel(pid):
-            noel_id = noel_id or pid
-        else:
-            device_pid = pid
-        break
-
-    # Metadata global (escalas físicas)
-    try:
-        metadata = reader.read_all_metadata()
-    except Exception:
-        metadata = {}
-
-    for vol in volumes:
-        contours = getattr(vol, "contours", None)
-        if not contours:
-            logger.debug("E2E: volumen sin contours — saltando")
-            continue
-
-        cd_base = {
-            "noel_id": noel_id,
-            "device_patient_id": device_pid,
-            "vendor": "heidelberg_spectralis",
-            "source_file": str(filepath),
-            "study_date": _study_date(vol),
-            "study_time": "",
-            "patient_name": _patient_name(vol),
-            "patient_dob": str(getattr(vol, "patient_dob", "") or ""),
-        }
-        cd = measure_e2e_volume(
-            contours,
-            getattr(vol, "pixel_spacing", None),
-            metadata,
-            getattr(vol, "laterality", ""),
-            cd_base,
-            sqi_mean,
-            label=filepath.stem,
-        )
-        if cd is not None:
-            results.append(cd)
-
-    return results
