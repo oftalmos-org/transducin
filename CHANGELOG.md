@@ -8,6 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- `SpectralisE2EAdapter.to_dicom`: un DICOM OphthalmicTomographyImage por volumen B-scan del `.e2e` (mismo StudyInstanceUID; el primero coincide con la lateralidad del SR). No escribe PixelSpacing/SliceThickness (posX/posY vienen en grados, no en mm) ni el nombre del archivo; la extensión angular queda en ImageComments. Tests: `tests/test_spectralis_to_dicom.py`
 - ADR-027 (propuesto): lectura de píxeles de Spectralis `.e2e` solo en local. `E2EReader.read_bscans()` decodifica los cortes B-scan (flotante propio de 16 bits + transformada logarítmica, verificado valor por valor contra una referencia) y el fondo de ojo; `BScanVolume` en `readers/_layers.py`. `scripts/e2e_contour_viewer.py`: HTML local con cortes y contornos de capa para comprobar a simple vista el mapeo de IDs; se niega a escribir dentro del repo. Tests sintéticos: `tests/test_e2e_pixels.py`, `tests/test_e2e_contour_viewer.py`
 - `E2EReader.read_thickness_map()` y `FDAReader.read_thickness_map()` ya calculan CMT, ETDRS, mRNFL y mGCIPL (y pRNFL en circle scans) desde la segmentación embebida; los adapters Spectralis (D1) y Topcon (D2) dejan de devolver `None` (ADR-022, enmienda)
 - `read_layer_volumes()` en ambos readers; `transducin/readers/_layers.py` (`LayerVolume`, `ThicknessMapData`)

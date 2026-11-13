@@ -12,6 +12,8 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from pydicom.uid import generate_uid
+
 from transducin.base_adapter import DeviceAdapter
 from transducin.clinical_data import ETDRSGrid, OCTClinicalData, RNFLSectors
 from transducin.readers.e2e_reader import E2EReader
@@ -159,9 +161,90 @@ class SpectralisE2EAdapter(DeviceAdapter):
         clinical_data: OCTClinicalData,
         output_dir: Path,
     ) -> list[Path]:
-        """Convierte volumen OCT .e2e a archivos DICOM OphthalmicTomographyImage.
+        """Convierte cada volumen B-scan del .e2e a un DICOM OphthalmicTomographyImage (ADR-027).
 
-        TODO: implementación pendiente de archivos .e2e de muestra para validación.
-        Retorna lista vacía — el SR se genera igual desde clinical_data.
+        Un archivo por volumen, todos con el mismo StudyInstanceUID. El primero es el que
+        coincide con la lateralidad de ``clinical_data`` y tiene más cortes: es el que el SR
+        toma como referencia. Solo en local: los píxeles son identificables.
+
+        Fidelidad (ADR-027, regla 4): no se escribe PixelSpacing ni SliceThickness porque los
+        posX/posY del archivo vienen en grados de exploración, no en mm de retina; solo consta
+        la escala axial. La extensión angular se deja en ImageComments. El nombre del archivo
+        de origen no se incrusta (puede contener identificadores). Retorna [] si el archivo
+        no trae cortes decodificables.
         """
-        return []
+        try:
+            volumes = [v for v in E2EReader(str(path)).read_bscans() if any(i is not None for i in v.images)]
+        except Exception:
+            return []
+        if not volumes:
+            return []
+
+        lat = (clinical_data.laterality or "").upper()
+        volumes.sort(key=lambda v: (0 if (v.laterality or "") == lat else 1, -len(v.images)))
+
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        study_uid = generate_uid()
+        out: list[Path] = []
+        for n, vol in enumerate(volumes, 1):
+            ds = _build_spectralis_oct(vol, clinical_data, study_uid, n, primary=(n == 1))
+            if ds is None:
+                continue
+            dest = output_dir / f"spectralis_vol{n:02d}_OCT.dcm"
+            ds.save_as(str(dest), write_like_original=False)
+            out.append(dest)
+        return out
+
+
+def _angular_extent(bscan_data: list[dict]) -> str:
+    """'a° × b°' desde posX/posY del archivo (grados de exploración), o '' si no es utilizable."""
+    if not bscan_data:
+        return ""
+    wx = [abs(d["posX2"] - d["posX1"]) for d in bscan_data]
+    ys = [d["posY1"] for d in bscan_data]
+    if not wx or not ys or max(wx) <= 0:
+        return ""
+    return f"{max(wx):.1f}° x {max(ys) - min(ys):.1f}°"
+
+
+def _build_spectralis_oct(vol, cd: OCTClinicalData, study_uid: str, number: int, primary: bool):
+    """Dataset OPT de un volumen Spectralis; ``None`` si no hay cortes del mismo tamaño."""
+    from transducin.revo_opt_reader import build_dicom_oct
+
+    frames = [i for i in vol.images if i is not None]
+    if not frames:
+        return None
+    shape = frames[0].shape
+    frames = [f for f in frames if f.shape == shape]
+    lat = vol.laterality if vol.laterality in ("R", "L") else ""
+    study_type = cd.study_type if (primary and cd.study_type) else ""
+
+    ds = build_dicom_oct(
+        bscans=frames,
+        noel_id=cd.noel_id or "",
+        study_date=cd.study_date or "",
+        laterality=lat,
+        study_type=study_type,
+        study_time=cd.study_time or "",
+        study_instance_uid=study_uid,
+        source_file="",
+    )
+    eye = {"R": " ojo derecho", "L": " ojo izquierdo"}.get(lat, "")
+    ds.Manufacturer = "Heidelberg Engineering"
+    ds.ManufacturerModelName = "Spectralis"
+    ds.SeriesDescription = f"Spectralis OCT{eye} (volumen {number}, {len(frames)} cortes)"
+    ds.SeriesNumber = number
+    ds.InstanceNumber = 1
+    if not lat:
+        for tag in ("Laterality", "ImageLaterality"):
+            if tag in ds:
+                del ds[tag]
+    comments = ["Derivado de .E2E por Transducin (ADR-027); el original no se modifica."]
+    extent = _angular_extent(vol.bscan_data)
+    if extent:
+        comments.append(f"Extension de exploracion {extent} (grados); sin PixelSpacing en mm.")
+    if len(frames) != len(vol.images):
+        comments.append(f"Faltan {len(vol.images) - len(frames)} de {len(vol.images)} cortes.")
+    ds.ImageComments = " ".join(comments)[:10240]
+    return ds
