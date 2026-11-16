@@ -1737,7 +1737,7 @@ def build_dicom_enface(
         "SLO": f"Revo FC130 {'Anterior ' if study_type in ('anterior', 'anterior_segment') else ''}SLO {lat_str}",
         "FNDSRECO": f"Revo FC130 OCT En-Face Projection {lat_str}",
         "ANGPRV": f"Revo FC130 OCTA En-Face Preview {lat_str}",
-        "FNDSIR": f"Revo FC130 SLO integrado (FNDSIR) {lat_str}",
+        "FNDSIR": f"Revo FC130 SLO integrado (FNDSIR, escala aprox.) {lat_str}",
     }
     ds.SeriesInstanceUID = generate_uid()
     ds.SeriesNumber = 2
@@ -2123,7 +2123,11 @@ def opt_to_dicom(
 
     # ── SLO integrado (FNDSIR): 632×632, círculo; solo si trae contenido ────────
     if result.get("fndsir") is not None:
-        ds_sir = build_dicom_enface(image=result["fndsir"], image_type="FNDSIR", **common)
+        # Escala APROXIMADA: se supone que el campo de FNDSIR es el ancho del escaneo (≲ 0.3 mm de desfase del disco
+        # en dos archivos). No está validado contra el equipo; la descripción lo dice.
+        scan_mm = (result.get("params") or {}).get("scan_width_mm")
+        sir_ps = [scan_mm / result["fndsir"].shape[0]] * 2 if scan_mm else None
+        ds_sir = build_dicom_enface(image=result["fndsir"], image_type="FNDSIR", pixel_spacing=sir_ps, **common)
         attach_acquisition_id(ds_sir, acquisition_id)
         out_sir = output_dir / f"{stem}_FNDSIR.dcm"
         ds_sir.save_as(str(out_sir), write_like_original=False)
