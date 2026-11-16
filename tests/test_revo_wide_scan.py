@@ -95,3 +95,24 @@ def test_wide_scan_locates_fovea_and_measures_there(tmp_path):
 def test_wide_scan_pit_too_close_to_disc_is_rejected(tmp_path):
     r = read_opt(_file_with_pit(tmp_path, pit_a=52))  # a ~1.1 mm del disco: no es una fóvea plausible
     assert r["fovea"] is None and r["cmt_um"] is None and r["cmt_failure_reason"] == "fovea_not_centered"
+
+
+def test_fovea_position_is_stored_in_the_oct_dicom(tmp_path):
+    import pydicom
+
+    from transducin.layer_contours import read_fovea
+    from transducin.revo_opt_reader import opt_to_dicom
+
+    files = opt_to_dicom(
+        _file_with_pit(tmp_path, pit_a=88),
+        tmp_path / "out",
+        noel_id="",
+        patient_id="X",
+        study_date="",
+        laterality="R",
+        study_type="macular",
+    )
+    oct_file = next(f for f in files if f.name.endswith("_OCT.dcm"))
+    f = read_fovea(pydicom.dcmread(oct_file, stop_before_pixels=True))
+    assert f is not None and f["method"] == "geometric_estimate"
+    assert abs(f["col_frac"] - 88.5 / N_A) < 0.03 and abs(f["row_frac"] - 32.5 / N_B) < 0.05

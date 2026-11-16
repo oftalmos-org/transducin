@@ -25,6 +25,7 @@ from transducin.dicom_config import MANUFACTURER
 TAG_CREATOR = (0x0009, 0x0010)
 TAG_BLOB = (0x0009, 0x1020)
 TAG_META = (0x0009, 0x1021)
+TAG_FOVEA = (0x0009, 0x1023)
 SCHEMA = 1
 _MAX_BLOB_BYTES = 48 * 1024 * 1024
 
@@ -98,3 +99,37 @@ def _order(key: str) -> tuple[int, str]:
 
 def _has_data(slices: list) -> bool:
     return any(a is not None and np.isfinite(np.asarray(a, dtype=float)).any() for a in slices)
+
+
+def attach_fovea(ds: Dataset, row_frac: float, col_frac: float, method: str, depth_um: float | None = None) -> None:
+    """Añade la posición de la fóvea usada para medir (0009,1023, JSON).
+
+    ``row_frac``/``col_frac`` ∈ [0, 1] son fracciones del volumen (índice de corte / n cortes y
+    A-scan / n A-scans), es decir, de la imagen en-face. ``method`` dice cómo se obtuvo
+    (p. ej. ``geometric_estimate``): no es un marcador del equipo.
+    """
+    import json
+
+    if TAG_CREATOR not in ds:
+        ds.add_new(TAG_CREATOR, "LO", MANUFACTURER)
+    payload = {
+        "schema": 1,
+        "row_frac": round(float(row_frac), 4),
+        "col_frac": round(float(col_frac), 4),
+        "method": method,
+    }
+    if depth_um is not None:
+        payload["depth_um"] = round(float(depth_um), 1)
+    ds.add_new(TAG_FOVEA, "UT", json.dumps(payload, separators=(",", ":")))
+
+
+def read_fovea(ds: Dataset) -> dict | None:
+    """Inversa de ``attach_fovea``; ``None`` si no hay."""
+    import json
+
+    if TAG_FOVEA not in ds:
+        return None
+    try:
+        return json.loads(str(ds[TAG_FOVEA].value))
+    except ValueError:
+        return None

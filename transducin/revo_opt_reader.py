@@ -1967,6 +1967,25 @@ def _attach_revo_layers(ds, result: dict, n_written: int, n_decoded: int) -> boo
     return attach_layers(ds, encode_layers(contours, n_written, labels, note))
 
 
+def _attach_revo_fovea(ds, result: dict, n_written: int, n_decoded: int) -> bool:
+    """Guarda en el DICOM OCT dónde se midió el CMT/ETDRS cuando no fue el centro del volumen."""
+    from transducin.layer_contours import attach_fovea
+
+    fovea = result.get("fovea")
+    params = result.get("params") or {}
+    n_b, n_a = params.get("n_bscans"), params.get("n_ascans")
+    if not fovea or not n_b or not n_a or n_written != n_decoded:
+        return False
+    attach_fovea(
+        ds,
+        (fovea["b"] + 0.5) / n_b,
+        (fovea["a"] + 0.5) / n_a,
+        "geometric_estimate",
+        fovea.get("depth_um"),
+    )
+    return True
+
+
 def opt_to_dicom(
     filepath: str | Path,
     output_dir: str | Path,
@@ -2062,6 +2081,7 @@ def opt_to_dicom(
             **common,
         )
         _attach_revo_layers(ds, result, len(valid_bscans), len(result["bscans"]))
+        _attach_revo_fovea(ds, result, len(valid_bscans), len(result["bscans"]))
         out = output_dir / f"{stem}_OCT.dcm"
         ds.save_as(str(out), write_like_original=False)
         h, w = valid_bscans[0].shape
