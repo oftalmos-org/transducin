@@ -60,7 +60,7 @@ Medir lo mismo en el equipo y en Gass (mismo corte, misma columna) y anotar:
 - [ ] ¿El equipo da otras medidas del segmento anterior (profundidad de cámara, ángulo, queratometría)?
       Esas serían candidatas a SR. Hoy **no se genera SR** del segmento anterior.
 - [ ] Un B-scan de los 32 no se decodifica (31 en un archivo): ¿qué corte falta?
-- [ ] ¿Los contornos `TOP` y `BM` de estos volúmenes son epitelio y endotelio? Mostrarlo en pantalla.
+- [ ] ¿Los contornos `TOP` y `BM` de estos volúmenes son epitelio y endotelio? Mostrarlo en pantalla. Con tus archivos propios, en los dos volúmenes de segmento anterior `TOP`, `NFL` y `BM` solo tienen datos en el 22–25 % de las posiciones y `TOP` y `BM` no coinciden en ninguna (parecen salida de la segmentación retiniana sobre una córnea), así que de ahí no se puede derivar paquimetría. La paquimetría de Revo vive en `RESULTS`, que está cifrado: hace falta su reporte.
 
 ## 4. Capas y contornos
 En un B-scan con las capas visibles, anotar el nombre que el equipo da a cada línea y compararlo con Gass:
