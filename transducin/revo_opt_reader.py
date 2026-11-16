@@ -1729,7 +1729,7 @@ def build_dicom_enface(
 
     lat_str = "OD" if laterality == "R" else "OS"
     desc_map = {
-        "SLO": f"Revo FC130 SLO {lat_str}",
+        "SLO": f"Revo FC130 {'Anterior ' if study_type in ('anterior', 'anterior_segment') else ''}SLO {lat_str}",
         "FNDSRECO": f"Revo FC130 OCT En-Face Projection {lat_str}",
         "ANGPRV": f"Revo FC130 OCTA En-Face Preview {lat_str}",
     }
