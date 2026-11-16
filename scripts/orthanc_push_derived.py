@@ -54,6 +54,15 @@ def _orthanc(path: str, body: bytes | None = None, ctype: str = "application/jso
         return json.loads(resp.read() or b"null")
 
 
+def _demographics(patient_id: str) -> dict[str, str]:
+    """Nombre, nacimiento y sexo que Orthanc ya tiene para ese PatientID (para no crear un registro incoherente)."""
+    found = _orthanc("/tools/find", json.dumps({"Level": "Patient", "Query": {"PatientID": patient_id}}).encode())
+    if not found:
+        return {}
+    tags = _orthanc(f"/patients/{found[0]}")["MainDicomTags"]
+    return {k: tags[k] for k in ("PatientName", "PatientBirthDate", "PatientSex") if tags.get(k)}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--patient-id", required=True)
@@ -64,6 +73,8 @@ def main() -> int:
     import gass_converter as gc  # el mismo conversor que usa Gass
     import pydicom
 
+    demo = _demographics(args.patient_id)
+    print(f"Datos demográficos tomados de Orthanc: {'sí' if demo else 'no hay registro previo'}")
     sources = sorted(p for p in args.source.rglob("*") if p.is_file() and p.suffix.lower() in EXTENSIONS)
     print(f"Archivos de equipo: {len(sources)}")
     to_send: list[bytes] = []
@@ -80,6 +91,8 @@ def main() -> int:
             for path in sorted(job.rglob("*.dcm")):
                 ds = pydicom.dcmread(path)
                 ds.PatientID = args.patient_id
+                for k, v in demo.items():
+                    setattr(ds, k, v)
                 already = _orthanc("/tools/lookup", str(ds.SOPInstanceUID).encode(), "text/plain")
                 if already:
                     skipped += 1
