@@ -372,6 +372,7 @@ def measure_e2e_volume(
     n_b, n_a = ilm.shape
     scan_type = _detect_scan_type(n_b, n_a)
 
+    ilm_raw, nfl_raw = ilm, rnfl_gcl  # sin reorientar: los índices de corte deben coincidir con bscan_data
     orientation_note = ""
     if scan_type != "rnfl_circle":
         oriented, orientation_note = _orient_to_etdrs_convention(
@@ -447,9 +448,9 @@ def measure_e2e_volume(
 
     # ── Volumen de nervio óptico con B-scans circulares → pRNFL ──────────────
     if scan_type == "macular" and rnfl_gcl is not None:
-        ci = _find_circle_bscan(ilm, rnfl_gcl, (metadata or {}).get("bscan_data"))
+        ci = _find_circle_bscan(ilm_raw, nfl_raw, (metadata or {}).get("bscan_data"))
         if ci is not None:
-            prnfl = _compute_prnfl_circle(ilm[ci : ci + 1], rnfl_gcl[ci : ci + 1], params["axial_um"], lat)
+            prnfl = _compute_prnfl_circle(ilm_raw[ci : ci + 1], nfl_raw[ci : ci + 1], params["axial_um"], lat)
             if prnfl is not None and prnfl.global_avg is not None:
                 cd = OCTClinicalData(
                     **cd_base,

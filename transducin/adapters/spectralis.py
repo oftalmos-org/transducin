@@ -183,7 +183,7 @@ class SpectralisE2EAdapter(DeviceAdapter):
         return cd
 
     def extract_all(self, path: Path) -> list[OCTClinicalData]:
-        """Una medición por ojo: el mejor mapa (macular con CMT, el primero) de cada lateralidad.
+        """Una medición por ojo y tipo: el mejor mapa macular (con CMT, el primero) y el pRNFL del círculo de disco.
 
         Cada una produce su propio SR, de modo que ambos ojos se vean en Gass. Si el archivo
         no trae mapas medibles devuelve ``[extract(path)]``.
@@ -195,12 +195,15 @@ class SpectralisE2EAdapter(DeviceAdapter):
             maps = []
         device_pid = _device_patient_id(reader)
         result: list[OCTClinicalData] = []
-        seen: set[str] = set()
+        seen: set[tuple[str, str]] = set()
         for m in maps:
             lat = (getattr(m, "laterality", None) or "").upper()
-            if lat not in ("L", "R") or lat in seen:
+            # Un conjunto por ojo y tipo: el macular (el primero) y el de disco (pRNFL del círculo), que viven
+            # en el mismo archivo y antes se pisaban.
+            kind = "disc" if getattr(m, "study_type", "") == "rnfl_circle" else "macular"
+            if lat not in ("L", "R") or (lat, kind) in seen:
                 continue
-            seen.add(lat)
+            seen.add((lat, kind))
             base = _measurements_from_map(m, _empty_measurements(lat))
             cd = OCTClinicalData(noel_id="", vendor="heidelberg_spectralis", device_patient_id=device_pid, **base)
             if base["extraction_confidence"] != "unknown":
