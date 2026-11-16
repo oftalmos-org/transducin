@@ -91,6 +91,12 @@ En un B-scan con las capas visibles, anotar el nombre que el equipo da a cada l�
 - [ ] ¿La proyección en-face del equipo coincide en orientación con la de Gass (disco a la derecha en ojo derecho)?
 - [ ] Espaciado real entre B-scans (mm) en el volumen de 256 cortes.
 
+- [ ] **Registro con el SLO de Revo (`FNDSIR`)**: con tus dos macular de 12 mm, el disco queda a ≲ 0.3 mm del
+      de la proyección en-face si se reescala a 632 px (≈ 52.7 px/mm); un ajuste por imagen (ECC) da traslaciones de
+      2–15 px y escala ≈ 1, con correlación baja (0.16–0.21) porque `FNDSIR` es borrosa. **No validado.** En el equipo:
+      anotar sobre su SLO dónde cae la línea del B-scan central y los extremos del cubo, y el campo de visión (mm) de `FNDSIR`.
+- [ ] ¿La foto externa (`EYE`) tiene un corte horizontal en el equipo o solo en nuestra lectura? Comparar con su pantalla.
+
 ## 6. Capas internas y mapas que muestra el equipo
 - [ ] RNFL y GCL+IPL por sectores (valores del reporte) para compararlos con los de Gass.
 - [ ] Mapa de significancia y de desviación (−50…+50 %): anotar **los umbrales y colores** y contra qué base normativa

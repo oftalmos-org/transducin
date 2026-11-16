@@ -56,17 +56,22 @@
 #   Header: bytes[0:2] = b'I8', bytes[2:6] = uint32 LE width,
 #           bytes[6:10] = uint32 LE height, bytes[10:] = width×height uint8 pixels.
 #
-#   EYE      — Imagen SLO del segmento posterior (~504×378 px uint8 grayscale).
+#   EYE      — (Verificado a ojo 2026-11-15: es la FOTO EXTERNA del ojo, pupila y párpados, no un SLO
+#              retiniano; en un archivo tiene un corte horizontal con las mitades desplazadas.) Imagen SLO del segmento posterior (~504×378 px uint8 grayscale).
 #              Imagen de referencia de la región escaneada; alta resolución.
 #   SLO      — Versión reducida del EYE (192×128 px uint8).
 #              Thumbnail para localización del escaneo OCT en UI.
 #   PRV      — Preview estructural 320×240 px uint8.
-#              Proyección en-face del cubo escaneado (no es mapa de grosor).
+#              Verificado a ojo (2026-11-15, macular de 12 mm): es un B-scan de vista previa, NO una
+#              proyección en-face ni un mapa de grosor.
 #   FNDSRECO — Proyección en-face reconstruida del cubo OCT.
 #              Dimensiones = n_ascans × n_bscans (ej. 1024×168 macular,
 #              640×192 ONH, 320×320 OCTA). Orientada igual que el cubo escaneado.
-#   FNDSIR   — Imagen SLO integrada de alta resolución (632×632 px).
-#              Solo válida si se capturó foto externa; si no, todo ceros.
+#   FNDSIR   — Imagen infrarroja retiniana de la cámara de fondo del FC130 (632×632 px, recorte circular).
+#              Verificado a ojo (2026-11-15): con disco óptico, vasos (borrosos) y un reflejo brillante de
+#              fijación en el centro; es el SLO retiniano real. Si no hay imagen, viene en ceros o plana.
+#              Con el en-face de 12 mm reescalado a 632 px el disco cae a ≲ 0.3 mm de la posición del
+#              disco en FNDSIR (dos archivos): registro aproximado, sin validar contra el equipo.
 #   ANGPRV   — Preview OCTA compuesta 320×320 px uint8. Solo en scans ANGIO.
 #              Proyección en-face de la señal de flujo (superficial + profunda).
 #
