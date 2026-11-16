@@ -133,6 +133,28 @@ def _compute_prnfl_circle(
 # ── Helpers internos ─────────────────────────────────────────────────────────
 
 
+def _find_circle_bscan(ilm: np.ndarray, nfl: np.ndarray, bscan_data: list | None) -> int | None:
+    """Índice del B-scan circular de pRNFL dentro de un volumen de nervio óptico, o None.
+
+    Los volúmenes de disco de Spectralis traen la frontera RNFL/GCL solo en los B-scans circulares (en tus
+    archivos: 3 de 27, con diámetros crecientes); el resto de cortes no la tienen. Si hay entre 1 y 4 cortes con
+    ILM y RNFL/GCL completos y son una minoría, el de menor |posX| es el círculo interno (3.5 mm en el reporte;
+    verificado contra el reporte de un examen propio: promedio, temporal y superior dentro de ±1 µm).
+    """
+    if ilm is None or nfl is None or ilm.shape != nfl.shape or ilm.ndim != 2:
+        return None
+    n_b = ilm.shape[0]
+    full = [i for i in range(n_b) if np.isfinite(ilm[i]).mean() >= 0.95 and np.isfinite(nfl[i]).mean() >= 0.95]
+    if not 1 <= len(full) <= 4 or len(full) > 0.25 * n_b:
+        return None
+    if bscan_data and len(bscan_data) == n_b:
+        try:
+            return min(full, key=lambda i: abs(float(bscan_data[i]["posX1"])))
+        except (KeyError, TypeError, ValueError):
+            pass
+    return full[0]
+
+
 def _build_layer_map(
     contours: dict,
     key: str,
@@ -422,6 +444,27 @@ def measure_e2e_volume(
             f"(circle scan {n_a} A-scans, axial={params['axial_um']:.2f}µm/px)"
         )
         return cd if cd.has_measurements() else None
+
+    # ── Volumen de nervio óptico con B-scans circulares → pRNFL ──────────────
+    if scan_type == "macular" and rnfl_gcl is not None:
+        ci = _find_circle_bscan(ilm, rnfl_gcl, (metadata or {}).get("bscan_data"))
+        if ci is not None:
+            prnfl = _compute_prnfl_circle(ilm[ci : ci + 1], rnfl_gcl[ci : ci + 1], params["axial_um"], lat)
+            if prnfl is not None and prnfl.global_avg is not None:
+                cd = OCTClinicalData(
+                    **cd_base,
+                    study_type="rnfl_circle",
+                    rnfl=prnfl,
+                    sqi_mean=sqi_mean,
+                    extraction_confidence=layer_confidence,
+                    measurement_provenance="vendor_contour_derived",
+                )
+                cd.add_note(layer_map_note)
+                cd.add_note(
+                    f"CONFIRMED: pRNFL={prnfl.global_avg:.1f}µm S={prnfl.superior} I={prnfl.inferior} "
+                    f"N={prnfl.nasal} T={prnfl.temporal}µm (B-scan circular {ci} del volumen de nervio óptico)"
+                )
+                return cd if cd.has_measurements() else None
 
     # ── Macular / ONH cube → CMT + ETDRS + mRNFL + mGCIPL ────────────────
     etdrs, cov_report = compute_etdrs_with_policy(ilm, bm, params, laterality=lat, policy=etdrs_policy)

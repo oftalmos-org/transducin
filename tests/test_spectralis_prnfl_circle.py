@@ -29,3 +29,23 @@ def test_quadrants_are_exact_and_inferior_is_reported():
 def test_same_sectors_for_both_eyes():
     ilm, nfl = _circle(768, {"T": 82.0, "S": 143.0, "N": 83.0, "I": 151.0})
     assert _compute_prnfl_circle(ilm, nfl, 3.87, "L").nasal == _compute_prnfl_circle(ilm, nfl, 3.87, "R").nasal == 83.0
+
+
+def test_circle_bscan_is_found_inside_an_onh_volume():
+    from transducin.spectralis_extractor import _find_circle_bscan
+
+    n_b, n_a = 27, 768
+    ilm = np.full((n_b, n_a), 100.0)
+    nfl = np.full((n_b, n_a), np.nan)
+    for i in (24, 25, 26):
+        nfl[i] = 130.0
+    data = [{"posX1": float(x)} for x in [0.0] * 24 + [3.8, 4.8, 5.8]]
+    assert _find_circle_bscan(ilm, nfl, data) == 24  # el de menor |posX|: el círculo interno
+
+
+def test_macular_volume_has_no_circle_bscan():
+    from transducin.spectralis_extractor import _find_circle_bscan
+
+    ilm = np.full((61, 768), 100.0)
+    nfl = np.full((61, 768), 130.0)  # RNFL/GCL en todos los cortes → es un cubo, no círculos
+    assert _find_circle_bscan(ilm, nfl, None) is None
