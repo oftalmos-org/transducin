@@ -300,7 +300,7 @@ def _build_macular_group(
 
     # SQI promedio del cubo (indicador de calidad de adquisición)
     qualitative_evals: list[hd_sr.QualitativeEvaluation] = []
-    if data.sqi_mean is not None:
+    if data.sqi_mean is not None and data.sqi_mean > 0:  # 0.0 es «sin dato», no una calidad medida
         measurements.append(
             _measurement(
                 _SQI_CODE,

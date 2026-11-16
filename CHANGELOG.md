@@ -16,6 +16,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Revo: el DICOM OCT lleva la posición de la fóvea usada para medir (etiqueta privada `(0009,1023)`, fracciones del en-face, método `geometric_estimate`) para que el visor centre la rejilla ETDRS en ese punto
 
 ### Fixed
+- Spectralis: el pRNFL de un *circle scan* se repartía en cuadrantes que se solapaban (el inferior duplicaba parte del temporal) y se intercambiaban nasal y temporal en el ojo izquierdo; ahora son cuatro cuadrantes TSNIT de 90° que no se solapan, iguales en ambos ojos. Falta validar contra el reporte con un circle scan real: el SR de disco de los archivos propios no sale de esta ruta
+- SR: el «Signal to Noise Ratio» con valor 0.0 (sin dato) ya no se escribe
 - Revo: en escaneos anchos (≥ 9 mm) que incluyen el disco (DMARKERS) el CMT, el ETDRS y los sectores maculares se medían en el centro del volumen, que queda cerca del disco y no en la fóvea (≈ +50 µm). Ahora se localiza la foseta (mayor depresión local del grosor ILM→ISOS, ≥ 60 µm, a 3–6 mm del disco) y se mide ahí; sin evidencia de foseta no se calcula nada (`fovea_not_centered`). Con archivos propios el CMT pasó de 338/344 a 287–290 µm, en línea con Spectralis (283/288 µm). Es una estimación geométrica, no un marcador del equipo; sigue sin reporte de Revo para confirmarla
 - Spectralis: el centinela `0xFFFF` (sin dato) de los B-scan se muestra en negro, no como franja blanca en volúmenes inclinados
 

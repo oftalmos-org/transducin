@@ -105,22 +105,21 @@ def _compute_prnfl_circle(
 
     global_avg = float(np.nanmean(thickness))
 
-    # Sectores en orden TSNIT — cuadrantes de 90°
-    q = n_a // 4
-    t_seg = np.concatenate([thickness[:q], thickness[3 * q :]])  # temporal (inicio+fin)
-    s_seg = thickness[q : 2 * q]  # superior
-    n_seg = thickness[2 * q : 3 * q]  # nasal
-    i_seg = thickness[3 * q :][:q]  # inferior (simplificado)
+    # Orden TSNIT desenrollado (el 0° es el centro del sector temporal, como en el reporte del equipo):
+    #   T: [315°, 360°) ∪ [0°, 45°)   S: [45°, 135°)   N: [135°, 225°)   I: [225°, 315°)
+    # Los cuadrantes no se solapan y se miden igual en ambos ojos: es el orden anatómico del círculo.
+    k = np.arange(n_a)
+    ang = (k + 0.5) * 360.0 / n_a
+    t_seg = thickness[(ang < 45) | (ang >= 315)]
+    s_seg = thickness[(ang >= 45) & (ang < 135)]
+    n_seg = thickness[(ang >= 135) & (ang < 225)]
+    i_seg = thickness[(ang >= 225) & (ang < 315)]
 
     def _s(arr):
         v = float(np.nanmean(arr)) if np.any(np.isfinite(arr)) else None
         return round(v, 1) if v is not None else None
 
-    # Para OS nasal y temporal se intercambian anatómicamente
-    if laterality == "L":
-        sup, inf, nas, tem = _s(s_seg), _s(i_seg), _s(t_seg), _s(n_seg)
-    else:
-        sup, inf, nas, tem = _s(s_seg), _s(i_seg), _s(n_seg), _s(t_seg)
+    sup, inf, nas, tem = _s(s_seg), _s(i_seg), _s(n_seg), _s(t_seg)
 
     return RNFLSectors(
         global_avg=round(global_avg, 1),
