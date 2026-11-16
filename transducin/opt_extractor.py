@@ -109,6 +109,20 @@ _FILENAME_KEYWORDS: dict[str, str] = {
 }
 
 
+# Revo "Wide Field" de segmento anterior (córnea): 8 posiciones × 2560 A-scans, 8 mm, 3.724 µm/px
+# (profundidad ≈ 3.7 mm). El Wide Field retiniano documentado es de 12 mm a 2.8 µm/px.
+# Regla inferida de archivos propios Revo FC130 v21.5.0 (2 volúmenes); ajustar con más ejemplos.
+_ANTERIOR_AXIAL_UM_MIN = 3.3
+_ANTERIOR_MAX_WIDTH_MM = 10.0
+
+
+def is_anterior_wide(params: dict) -> bool:
+    """True si un escaneo ancho de pocas posiciones tiene resolución axial y ancho de segmento anterior."""
+    axial = params.get("axial_um")
+    width = params.get("scan_width_mm")
+    return bool(axial and width and axial >= _ANTERIOR_AXIAL_UM_MIN and width <= _ANTERIOR_MAX_WIDTH_MM)
+
+
 def _map_study_type(raw_type: str) -> str:
     key = raw_type.upper().replace(" ", "_").replace("-", "_")
     return _TYPE_MAP.get(key, raw_type.lower())
@@ -583,6 +597,8 @@ def extract_from_opt(
                     new_type = "angio"  # REVO60 OCTA: 304×304; FC130 OCTA: 319/320×320
                 elif n_ascans >= 4096:
                     new_type = "ultra_wide"
+                elif n_frames <= 8 and n_ascans >= 1024 and is_anterior_wide(params):
+                    new_type = "anterior"
                 elif n_frames <= 8 and n_ascans >= 1024:
                     new_type = "wide_field"
                 elif n_frames <= 25 and n_ascans >= 512:
