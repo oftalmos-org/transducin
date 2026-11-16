@@ -1732,6 +1732,7 @@ def build_dicom_enface(
         "SLO": f"Revo FC130 {'Anterior ' if study_type in ('anterior', 'anterior_segment') else ''}SLO {lat_str}",
         "FNDSRECO": f"Revo FC130 OCT En-Face Projection {lat_str}",
         "ANGPRV": f"Revo FC130 OCTA En-Face Preview {lat_str}",
+        "FNDSIR": f"Revo FC130 SLO integrado (FNDSIR) {lat_str}",
     }
     ds.SeriesInstanceUID = generate_uid()
     ds.SeriesNumber = 2
@@ -1904,6 +1905,9 @@ def read_opt(filepath: str | Path) -> dict:
     # Imágenes en-face I8
     eye = decode_i8_image(data, chunks, "EYE")  # SLO alta resolución
     fndsrec = decode_i8_image(data, chunks, "FNDSRECO")  # Proyección en-face OCT
+    fndsir = decode_i8_image(data, chunks, "FNDSIR")  # SLO integrado (632×632); ceros si no hay imagen
+    if fndsir is not None and not _has_image_content(fndsir):
+        fndsir = None
     angprv = decode_i8_image(data, chunks, "ANGPRV")  # Preview OCTA compuesto (solo ANGIO)
 
     # OCTA en-face MIP desde chunks A0…AN (float16 decorrelación, solo ANGIO)
@@ -1944,6 +1948,7 @@ def read_opt(filepath: str | Path) -> dict:
         "traj": traj,
         "params": params,
         "eye": eye,
+        "fndsir": fndsir,  # imagen integrada 632×632 si trae contenido (no se sabe aún si es retiniana)
         "fndsreco": fndsrec,
         "angprv": angprv,
         "octa_enface": octa_ef,  # float16 log-MIP en-face OCTA (solo ANGIO)
@@ -1984,6 +1989,12 @@ def _attach_revo_fovea(ds, result: dict, n_written: int, n_decoded: int) -> bool
         fovea.get("depth_um"),
     )
     return True
+
+
+def _has_image_content(img: np.ndarray, min_fraction: float = 0.2, min_std: float = 5.0) -> bool:
+    """False si la imagen es todo ceros o plana (marcador de posición), True si parece una imagen real."""
+    nz = img[img > 0]
+    return nz.size >= min_fraction * img.size and float(nz.astype(float).std()) >= min_std
 
 
 def opt_to_dicom(
@@ -2104,6 +2115,15 @@ def opt_to_dicom(
         ds_slo.save_as(str(out_slo), write_like_original=False)
         logger.info("DICOM SLO: %s %s", out_slo.name, result["eye"].shape)
         generated.append(out_slo)
+
+    # ── SLO integrado (FNDSIR): 632×632, círculo; solo si trae contenido ────────
+    if result.get("fndsir") is not None:
+        ds_sir = build_dicom_enface(image=result["fndsir"], image_type="FNDSIR", **common)
+        attach_acquisition_id(ds_sir, acquisition_id)
+        out_sir = output_dir / f"{stem}_FNDSIR.dcm"
+        ds_sir.save_as(str(out_sir), write_like_original=False)
+        logger.info("DICOM FNDSIR: %s %s", out_sir.name, result["fndsir"].shape)
+        generated.append(out_sir)
 
     # ── En-face OCT projection (FNDSRECO chunk) ───────────────────────────────
     if result.get("fndsreco") is not None:

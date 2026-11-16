@@ -8,6 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Revo: el SLO integrado `FNDSIR` (632×632) se exporta como imagen DICOM cuando trae contenido real (no ceros ni plano). Aún no se sabe si es una imagen retiniana; el titular debe confirmarlo viéndola
+- Scripts `orthanc_pull_own.py` (descarga de los estudios de un PatientID, solo lectura, con MANIFEST.json) y `orthanc_push_derived.py` (convierte y sube derivados; simulación por defecto, `--yes` para subir)
 - Revo: todos los DICOM de un mismo `.opt` (OCT, SLO, en-face, etc.) llevan un identificador de adquisición común (`(0009,1030)`) para que el visor asocie cada volumen con sus propias imágenes de referencia
 - Revo: los «Wide Field» de 8 posiciones, ≥ 1024 A-scans, ≥ 3.3 µm/px y ≤ 10 mm (córnea) se clasifican como segmento anterior, no como Wide Field retiniano. Regla inferida de 2 volúmenes propios; falta confirmarla con más ejemplos
 - Revo: el DICOM OCT lleva la posición de la fóvea usada para medir (etiqueta privada `(0009,1023)`, fracciones del en-face, método `geometric_estimate`) para que el visor centre la rejilla ETDRS en ese punto
