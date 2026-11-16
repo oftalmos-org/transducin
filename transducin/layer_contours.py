@@ -26,6 +26,7 @@ TAG_CREATOR = (0x0009, 0x0010)
 TAG_BLOB = (0x0009, 0x1020)
 TAG_META = (0x0009, 0x1021)
 TAG_FOVEA = (0x0009, 0x1023)
+TAG_ACQUISITION = (0x0009, 0x1030)
 SCHEMA = 1
 _MAX_BLOB_BYTES = 48 * 1024 * 1024
 
@@ -133,3 +134,14 @@ def read_fovea(ds: Dataset) -> dict | None:
         return json.loads(str(ds[TAG_FOVEA].value))
     except ValueError:
         return None
+
+
+def attach_acquisition_id(ds: Dataset, acquisition_id: str) -> None:
+    """Marca todos los DICOM salidos de un mismo archivo (OCT, SLO, en-face…) con un identificador común.
+
+    No implica registro espacial: solo dice «vienen de la misma adquisición», para que el visor
+    asocie cada volumen con sus imágenes y no con las de otro escaneo del mismo ojo.
+    """
+    if TAG_CREATOR not in ds:
+        ds.add_new(TAG_CREATOR, "LO", MANUFACTURER)
+    ds.add_new(TAG_ACQUISITION, "LO", acquisition_id)

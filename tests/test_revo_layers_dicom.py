@@ -99,3 +99,12 @@ def test_elm_before_onl_and_both_marked_inferred(tmp_path):
     assert keys.index("c06_ELM") < keys.index("c07_ONL")
     status = {layer["key"].split("_", 1)[1]: layer["status"] for layer in meta["layers"]}
     assert status["ELM"] == status["ONL"] == "inferred" and status["TOP"] == "documented"
+
+
+def test_all_dicoms_of_one_file_share_the_acquisition_id(tmp_path):
+    src = _build(tmp_path / "SYNTH_OCT.opt", _layers(), N_B)
+    files = opt_to_dicom(
+        src, tmp_path / "out", noel_id="", patient_id="X1", study_date="20261113", laterality="R", study_type="macular"
+    )
+    ids = {str(pydicom.dcmread(f, stop_before_pixels=True)[0x0009, 0x1030].value) for f in files}
+    assert len(files) >= 1 and len(ids) == 1

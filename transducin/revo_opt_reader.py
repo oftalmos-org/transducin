@@ -2068,6 +2068,11 @@ def opt_to_dicom(
     }
 
     generated: list[Path] = []
+    from pydicom.uid import generate_uid as _gen_uid
+
+    from transducin.layer_contours import attach_acquisition_id
+
+    acquisition_id = _gen_uid()[-40:]  # LO ≤ 64; común a todos los DICOM de este archivo
 
     # ── OCT cube (B-scans) ────────────────────────────────────────────────────
     # Filter out degenerate placeholder frames (e.g. fundus .opt T0 = 1×1 px)
@@ -2082,6 +2087,7 @@ def opt_to_dicom(
         )
         _attach_revo_layers(ds, result, len(valid_bscans), len(result["bscans"]))
         _attach_revo_fovea(ds, result, len(valid_bscans), len(result["bscans"]))
+        attach_acquisition_id(ds, acquisition_id)
         out = output_dir / f"{stem}_OCT.dcm"
         ds.save_as(str(out), write_like_original=False)
         h, w = valid_bscans[0].shape
@@ -2093,6 +2099,7 @@ def opt_to_dicom(
     # ── En-face SLO (EYE chunk) ───────────────────────────────────────────────
     if result.get("eye") is not None:
         ds_slo = build_dicom_enface(image=result["eye"], image_type="SLO", **common)
+        attach_acquisition_id(ds_slo, acquisition_id)
         out_slo = output_dir / f"{stem}_SLO.dcm"
         ds_slo.save_as(str(out_slo), write_like_original=False)
         logger.info("DICOM SLO: %s %s", out_slo.name, result["eye"].shape)
@@ -2111,6 +2118,7 @@ def opt_to_dicom(
         ef_ps = [scan_mm / enface_sq.shape[0], scan_mm / enface_sq.shape[1]]
 
         ds_ef = build_dicom_enface(image=enface_sq, image_type="FNDSRECO", pixel_spacing=ef_ps, **common)
+        attach_acquisition_id(ds_ef, acquisition_id)
         out_ef = output_dir / f"{stem}_ENFACE.dcm"
         ds_ef.save_as(str(out_ef), write_like_original=False)
         logger.info("DICOM ENFACE: %s %s (resized from %s)", out_ef.name, enface_sq.shape, enface_raw.shape)
@@ -2119,6 +2127,7 @@ def opt_to_dicom(
     # ── ANGIO preview (ANGPRV chunk) ──────────────────────────────────────────
     if result.get("angprv") is not None:
         ds_ang = build_dicom_enface(image=result["angprv"], image_type="ANGPRV", **common)
+        attach_acquisition_id(ds_ang, acquisition_id)
         out_ang = output_dir / f"{stem}_ANGPRV.dcm"
         ds_ang.save_as(str(out_ang), write_like_original=False)
         logger.info("DICOM ANGPRV: %s %s", out_ang.name, result["angprv"].shape)
@@ -2134,6 +2143,7 @@ def opt_to_dicom(
         octa_sq = _resize_enface_aspect(octa_raw, _n_b, _n_a)
         octa_ps = [_scan_mm / octa_sq.shape[0], _scan_mm / octa_sq.shape[1]]
         ds_octa = build_dicom_enface(image=octa_sq, image_type="OCTA_MIP", pixel_spacing=octa_ps, **common)
+        attach_acquisition_id(ds_octa, acquisition_id)
         out_octa = output_dir / f"{stem}_OCTA_MIP.dcm"
         ds_octa.save_as(str(out_octa), write_like_original=False)
         logger.info("DICOM OCTA_MIP: %s %s (resized from %s)", out_octa.name, octa_sq.shape, octa_raw.shape)
