@@ -49,7 +49,20 @@ class Orientation:
 
 
 # Supuesto histórico de compute_etdrs (Revo): B-scan 0 superior; OD con nasal a la izquierda, OS a la derecha.
+# Se conserva solo para comparaciones históricas y pruebas: contradice los datos (ADR-033).
 LEGACY_ASSUMED = Orientation("superior", False, True, False, "supuesto de compute_etdrs (Revo); sin verificar")
+# Revo FC130 (ADR-033): B-scan 0 superior; el índice de A-scan crece hacia nasal en OD y hacia temporal en OS, es decir, el marco
+# crudo tal como se muestra es el del visor. Validado el 2026-11-17 con el disco óptico ubicado en volúmenes widefield y con 11
+# reportes del fabricante (pRNFL de 12 sectores: RMS 4.7 µm frente a 24–36 µm con el supuesto anterior).
+REVO_VALIDATED = Orientation(
+    "superior",
+    True,
+    False,
+    True,
+    "Revo FC130: disco óptico en datos crudos y reportes del fabricante (ADR-033, 2026-11-17)",
+)
+# Círculo central de Revo (ADR-033): 525 µm de radio reproduce el valor central del reporte; a 500 µm queda ~4 µm por debajo.
+REVO_RADII_UM = (525.0, 1500.0, 3000.0)
 # Heidelberg .vol: B-scan 0 inferior (posiciones de cada B-scan en el SLO, verificado en los dos ejemplos de
 # eyepydata); lado nasal por la convención de vista de fondo de ojo (OD nasal a la derecha, OS a la izquierda).
 HEIDELBERG_VOL = Orientation(
@@ -187,7 +200,9 @@ class EtdrsV2Result:
         }
 
 
-def region_masks(shape, lateral_um, bscan_um, laterality, orientation, center: Center) -> dict[str, np.ndarray]:
+def region_masks(
+    shape, lateral_um, bscan_um, laterality, orientation, center: Center, radii=RADII_UM
+) -> dict[str, np.ndarray]:
     """Máscaras disjuntas de las 9 regiones. Cuadrantes por ángulo: nasal [-45°,45°), superior [45°,135°),
     temporal [135°,225°), inferior [225°,315°)."""
     rows, cols = np.arange(shape[0])[:, None], np.arange(shape[1])[None, :]
@@ -205,8 +220,8 @@ def region_masks(shape, lateral_um, bscan_um, laterality, orientation, center: C
         "T": (ang >= 135) | (ang < -135),
         "I": (ang >= -135) & (ang < -45),
     }
-    out = {"C": r < RADII_UM[0]}
-    for suffix, (lo, hi) in (("1", RADII_UM[:2]), ("2", RADII_UM[1:])):
+    out = {"C": r < radii[0]}
+    for suffix, (lo, hi) in (("1", radii[:2]), ("2", radii[1:])):
         ring = (r >= lo) & (r < hi)
         for q, m in quad.items():
             out[q + suffix] = ring & m

@@ -655,10 +655,15 @@ def extract_from_opt(
             # Re-calcular ETDRS, RNFL y mGCIPL con lateralidad correcta
             fovea = result.get("fovea")
             fovea_center = (fovea["b"], fovea["a"]) if fovea else None
-            if fovea:
+            if fovea and "disc_dist_mm" in fovea:
                 cd.add_note(
                     f"ESTIMATED: fóvea estimada por geometría (profundidad {fovea['depth_um']:.0f} µm, "
                     f"a {fovea['disc_dist_mm']:.1f} mm del disco); escaneo ancho, centro del volumen != fóvea"
+                )
+            elif fovea:
+                cd.add_note(
+                    f"ESTIMATED: foseta estimada por el mínimo de espesor suavizado (contraste {fovea['depth_um']:.0f} µm); "
+                    "la medición se centra en ella y no en el centro del volumen (ADR-033)"
                 )
             if result.get("cmt_failure_reason") == "fovea_not_centered":
                 cd.add_note("ASSUMED: ETDRS/RNFL/mGCIPL omitidos — escaneo ancho con disco sin fóvea localizable")
@@ -681,9 +686,11 @@ def extract_from_opt(
                 inl = extract_layer(raw, chunks, "INL")
                 bm = extract_layer(raw, chunks, "BM")
                 lat = cd.laterality
+                # Orientación validada de Revo (ADR-033); sin ella las funciones aplican la regla heredada.
+                from transducin.etdrs import REVO_VALIDATED
 
                 # ETDRS = grosor retinal completo (BM − TOP/ILM)
-                etdrs = compute_etdrs(top, bm, params, laterality=lat, center=fovea_center)
+                etdrs = compute_etdrs(top, bm, params, laterality=lat, center=fovea_center, orientation=REVO_VALIDATED)
                 if etdrs is not None and etdrs.has_data():
                     cd.etdrs_grid = etdrs
                     cd.add_note(
@@ -699,7 +706,9 @@ def extract_from_opt(
                         etdrs.T1,
                     )
 
-                rnfl = compute_rnfl_sectors(nfl, gcl, params, laterality=lat, center=fovea_center)
+                rnfl = compute_rnfl_sectors(
+                    nfl, gcl, params, laterality=lat, center=fovea_center, orientation=REVO_VALIDATED
+                )
                 if rnfl is not None and rnfl.has_data():
                     cd.rnfl = rnfl
                     cd.add_note(
@@ -716,7 +725,9 @@ def extract_from_opt(
                         rnfl.temporal,
                     )
 
-                gclipl = compute_gcl_ipl(gcl, inl, params, laterality=lat, center=fovea_center)
+                gclipl = compute_gcl_ipl(
+                    gcl, inl, params, laterality=lat, center=fovea_center, orientation=REVO_VALIDATED
+                )
                 if gclipl is not None and gclipl.has_data():
                     cd.gcl_ipl = gclipl
                     cd.gcl_avg_um = gclipl.global_avg

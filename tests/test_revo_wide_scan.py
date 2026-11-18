@@ -88,8 +88,9 @@ def test_wide_scan_locates_fovea_and_measures_there(tmp_path):
     f = r["fovea"]
     assert f is not None and abs(f["a"] - 88) <= 3 and abs(f["b"] - 32) <= 3
     assert r["cmt_failure_reason"] is None and r["cmt_um"] is not None
-    # en la foseta el grosor ILM→BM ronda 215 + 14 (BM) µm, muy por debajo del ~330 del centro del volumen
-    assert r["cmt_um"] < 260
+    # en la foseta el grosor ILM→BM ronda 215 + 14 (BM) µm, muy por debajo del ~330 del centro del volumen.
+    # Con el círculo central de 525 µm (ADR-033, antes 500 µm) el promedio sube unos µm sobre el perfil sintético.
+    assert r["cmt_um"] < 280
 
 
 def test_wide_scan_pit_too_close_to_disc_is_rejected(tmp_path):
