@@ -15,6 +15,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Revo: los «Wide Field» de 8 posiciones, ≥ 1024 A-scans, ≥ 3.3 µm/px y ≤ 10 mm (córnea) se clasifican como segmento anterior, no como Wide Field retiniano. Regla inferida de 2 volúmenes propios; falta confirmarla con más ejemplos
 - Revo: el DICOM OCT lleva la posición de la fóvea usada para medir (etiqueta privada `(0009,1023)`, fracciones del en-face, método `geometric_estimate`) para que el visor centre la rejilla ETDRS en ese punto
 
+### Added (documentación)
+- `docs/revo-orientacion-y-geometria.md`: resumen de ADR-033 y ADR-023 para Revo (orientación validada, geometría que reproduce el reporte, lo que sigue sin validar en otros equipos y cómo repetir la validación). `docs/validacion-en-equipo.md` marca como resueltos los puntos de orientación de Revo.
+
 ### Changed (ADR-033 — los valores de Revo guardados antes de este cambio tienen nasal/temporal invertidos)
 - Revo: la orientación del A-scan se corrigió con datos (disco óptico en volúmenes widefield y 11 reportes del fabricante): el índice crece hacia nasal en OD y hacia temporal en OS, es decir, el marco crudo es el del visor. El código suponía lo contrario, por lo que ETDRS, mRNFL, mGCIPL y pRNFL de Revo tenían nasal y temporal intercambiados. Nueva constante `etdrs.REVO_VALIDATED`; `LEGACY_ASSUMED` queda solo para comparaciones. Spectralis, Topcon y Cirrus no cambian (el parámetro `orientation` es opcional en `compute_etdrs`, `compute_rnfl_sectors`, `compute_gcl_ipl`).
 - Revo: el ETDRS usa nueve regiones disjuntas (cuadrantes de 90°) en lugar de medios anillos que se solapaban, y el círculo central (CMT y ETDRS-C) tiene radio de 525 µm (antes 500 µm; empírico, reproduce el reporte del fabricante).
