@@ -1,0 +1,67 @@
+{
+  "cirrus_dcm": {
+    "center_origin": "vendor_fovea_or_image_center_unrecorded",
+    "etdrs_impl": "cirrus_etdrs_from_map",
+    "flags": {
+      "R1_laterality": "unverified_single_source",
+      "R2_overlap_sectors": false,
+      "R3_cirrus_nasal_wedge": true,
+      "R4_orientation_unvalidated": true,
+      "R5_geometric_center_as_foveal": "possible",
+      "R6_no_provenance_or_validation": true
+    },
+    "value_origin": "reconstructed_by_transducin"
+  },
+  "cirrus_pdf": {
+    "center_origin": "vendor_reported_in_report",
+    "etdrs_impl": "vendor_report_ocr",
+    "flags": {
+      "R1_laterality": "unverified_single_source",
+      "R2_overlap_sectors": false,
+      "R3_cirrus_nasal_wedge": false,
+      "R4_orientation_unvalidated": true,
+      "R5_geometric_center_as_foveal": "no",
+      "R6_no_provenance_or_validation": true
+    },
+    "value_origin": "vendor_original_ocr"
+  },
+  "revo_opt": {
+    "center_origin": "geometric_volume_center",
+    "etdrs_impl": "legacy_compute_etdrs",
+    "flags": {
+      "R1_laterality": "unverified_single_source",
+      "R2_overlap_sectors": true,
+      "R3_cirrus_nasal_wedge": false,
+      "R4_orientation_unvalidated": true,
+      "R5_geometric_center_as_foveal": "yes",
+      "R6_no_provenance_or_validation": true
+    },
+    "value_origin": "reconstructed_by_transducin"
+  },
+  "spectralis_e2e": {
+    "center_origin": "geometric_volume_center",
+    "etdrs_impl": "legacy_compute_etdrs",
+    "flags": {
+      "R1_laterality": "unverified_single_source",
+      "R2_overlap_sectors": true,
+      "R3_cirrus_nasal_wedge": false,
+      "R4_orientation_unvalidated": true,
+      "R5_geometric_center_as_foveal": "yes",
+      "R6_no_provenance_or_validation": true
+    },
+    "value_origin": "reconstructed_by_transducin"
+  },
+  "topcon_fda": {
+    "center_origin": "geometric_volume_center",
+    "etdrs_impl": "legacy_compute_etdrs",
+    "flags": {
+      "R1_laterality": "unverified_single_source",
+      "R2_overlap_sectors": true,
+      "R3_cirrus_nasal_wedge": false,
+      "R4_orientation_unvalidated": true,
+      "R5_geometric_center_as_foveal": "yes",
+      "R6_no_provenance_or_validation": true
+    },
+    "value_origin": "reconstructed_by_transducin"
+  }
+}

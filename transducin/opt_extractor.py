@@ -109,6 +109,20 @@ _FILENAME_KEYWORDS: dict[str, str] = {
 }
 
 
+# Revo "Wide Field" de segmento anterior (córnea): 8 posiciones × 2560 A-scans, 8 mm, 3.724 µm/px
+# (profundidad ≈ 3.7 mm). El Wide Field retiniano documentado es de 12 mm a 2.8 µm/px.
+# Regla inferida de archivos propios Revo FC130 v21.5.0 (2 volúmenes); ajustar con más ejemplos.
+_ANTERIOR_AXIAL_UM_MIN = 3.3
+_ANTERIOR_MAX_WIDTH_MM = 10.0
+
+
+def is_anterior_wide(params: dict) -> bool:
+    """True si un escaneo ancho de pocas posiciones tiene resolución axial y ancho de segmento anterior."""
+    axial = params.get("axial_um")
+    width = params.get("scan_width_mm")
+    return bool(axial and width and axial >= _ANTERIOR_AXIAL_UM_MIN and width <= _ANTERIOR_MAX_WIDTH_MM)
+
+
 def _map_study_type(raw_type: str) -> str:
     key = raw_type.upper().replace(" ", "_").replace("-", "_")
     return _TYPE_MAP.get(key, raw_type.lower())
@@ -583,6 +597,8 @@ def extract_from_opt(
                     new_type = "angio"  # REVO60 OCTA: 304×304; FC130 OCTA: 319/320×320
                 elif n_ascans >= 4096:
                     new_type = "ultra_wide"
+                elif n_frames <= 8 and n_ascans >= 1024 and is_anterior_wide(params):
+                    new_type = "anterior"
                 elif n_frames <= 8 and n_ascans >= 1024:
                     new_type = "wide_field"
                 elif n_frames <= 25 and n_ascans >= 512:
@@ -637,7 +653,16 @@ def extract_from_opt(
                 logger.info("SQI: mean=%.3f, %d B-scans excluídos", cd.sqi_mean, n_bad)
 
             # Re-calcular ETDRS, RNFL y mGCIPL con lateralidad correcta
-            if cd.laterality:
+            fovea = result.get("fovea")
+            fovea_center = (fovea["b"], fovea["a"]) if fovea else None
+            if fovea:
+                cd.add_note(
+                    f"ESTIMATED: fóvea estimada por geometría (profundidad {fovea['depth_um']:.0f} µm, "
+                    f"a {fovea['disc_dist_mm']:.1f} mm del disco); escaneo ancho, centro del volumen != fóvea"
+                )
+            if result.get("cmt_failure_reason") == "fovea_not_centered":
+                cd.add_note("ASSUMED: ETDRS/RNFL/mGCIPL omitidos — escaneo ancho con disco sin fóvea localizable")
+            elif cd.laterality:
                 from transducin.revo_opt_reader import (
                     compute_etdrs,
                     compute_gcl_ipl,
@@ -658,7 +683,7 @@ def extract_from_opt(
                 lat = cd.laterality
 
                 # ETDRS = grosor retinal completo (BM − TOP/ILM)
-                etdrs = compute_etdrs(top, bm, params, laterality=lat)
+                etdrs = compute_etdrs(top, bm, params, laterality=lat, center=fovea_center)
                 if etdrs is not None and etdrs.has_data():
                     cd.etdrs_grid = etdrs
                     cd.add_note(
@@ -674,7 +699,7 @@ def extract_from_opt(
                         etdrs.T1,
                     )
 
-                rnfl = compute_rnfl_sectors(nfl, gcl, params, laterality=lat)
+                rnfl = compute_rnfl_sectors(nfl, gcl, params, laterality=lat, center=fovea_center)
                 if rnfl is not None and rnfl.has_data():
                     cd.rnfl = rnfl
                     cd.add_note(
@@ -691,7 +716,7 @@ def extract_from_opt(
                         rnfl.temporal,
                     )
 
-                gclipl = compute_gcl_ipl(gcl, inl, params, laterality=lat)
+                gclipl = compute_gcl_ipl(gcl, inl, params, laterality=lat, center=fovea_center)
                 if gclipl is not None and gclipl.has_data():
                     cd.gcl_ipl = gclipl
                     cd.gcl_avg_um = gclipl.global_avg

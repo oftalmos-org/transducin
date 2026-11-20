@@ -26,6 +26,18 @@ class LayerVolume:
 
 
 @dataclass
+class BScanVolume:
+    """Cortes B-scan ya decodificados a 8 bits (ADR-027). Solo se genera en local."""
+
+    volume_id: str = ""
+    laterality: str | None = None
+    images: list = field(default_factory=list)  # uint8 [alto × ancho] por corte; None si falta
+    fundus: object | None = None  # uint8 [alto × ancho] del fondo de ojo (IR/SLO) o None
+    bscan_data: list = field(default_factory=list)  # dicts scaley/posX1/posX2/posY1/posY2
+    pixel_spacing: list | None = None  # [lateral mm/A-scan, axial mm/px, entre cortes mm]
+
+
+@dataclass
 class ThicknessMapData:
     """Espesores calculados desde la segmentación embebida en el archivo."""
 
@@ -38,6 +50,7 @@ class ThicknessMapData:
     sqi_mean: float | None = None
     study_type: str | None = None  # macular | rnfl_circle | hd_line | unknown
     scan_date: datetime | None = None
+    notes: list = field(default_factory=list)  # avisos del cálculo (p. ej. cobertura ETDRS)
 
 
 def _sectors(r) -> dict | None:
@@ -68,6 +81,8 @@ def thickness_map_from_clinical(cd, scan_date: datetime | None) -> ThicknessMapD
         sqi_mean=cd.sqi_mean,
         study_type=cd.study_type or None,
         scan_date=scan_date,
+        # Se omiten las notas «CONFIRMED: …» (el valor es derivado de contornos, no del fabricante).
+        notes=[n for n in cd.confidence_notes if not n.startswith("CONFIRMED")],
     )
 
 
@@ -82,3 +97,16 @@ def sort_maps(maps: list[ThicknessMapData]) -> list[ThicknessMapData]:
         return 2
 
     return sorted(maps, key=key)  # sorted es estable
+
+
+def clean_source_patient_id(raw: bytes) -> str:
+    """Decodifica el identificador de paciente de un campo binario de ancho fijo (ADR-026).
+
+    Corta en el primer NUL y quita espacios de relleno; el valor no se modifica de
+    ninguna otra forma. Devuelve "" si el campo está vacío, contiene caracteres no
+    imprimibles o excede los 64 caracteres de un PatientID DICOM (LO).
+    """
+    text = raw.split(b"\x00", 1)[0].decode("ascii", errors="replace").strip()
+    if not text or len(text) > 64 or not text.isprintable() or "\ufffd" in text or "\\" in text:
+        return ""
+    return text
