@@ -1151,6 +1151,135 @@ def compute_etdrs(
     return grid if any(v is not None for v in fields) else None
 
 
+def _read_dmarkers(data: bytes, chunks: dict[str, dict]) -> np.ndarray | None:
+    """DMARKERS → array (n_bscans, 4) float32 [x1, y1, x2, y2] o None.
+
+    x = columna A-scan, y = fila axial (px, 0 = vítreo) de las dos puntas del borde del disco
+    en cada B-scan; NaN si el corte no cruza el disco (ADR-034).
+    """
+    c = chunks.get("DMARKERS")
+    if not c:
+        return None
+    dec = _decompress_block(data[c["offset"] : c["offset"] + c["real_size"]])
+    if dec is None or len(dec) < 8:
+        return None
+    n_dm = struct.unpack_from("<I", dec, 0)[0]
+    if n_dm == 0 or len(dec) < 4 + n_dm * 16:
+        return None
+    return np.frombuffer(dec[4 : 4 + n_dm * 16], dtype="<f4").reshape(n_dm, 4).astype(float)
+
+
+def disc_metrics_from_markers(
+    top: np.ndarray,
+    markers: np.ndarray,
+    params: dict,
+    cup_offset_um: float = 150.0,
+) -> dict | None:
+    """Métricas del disco óptico desde la ILM (TOP) y los marcadores DMARKERS (ADR-034).
+
+    Copa = A-scans cuya ILM queda por debajo del plano que une las dos puntas del borde del
+    disco (x1, y1)–(x2, y2), desplazado ``cup_offset_um`` hacia el vítreo. Las profundidades se
+    miden desde ese plano desplazado. Reproduce el reporte del Revo FC130 (SOCT 21.5.x).
+
+    Si algún corte con disco no trae filas axiales utilizables (y NaN, ≤ 0 o fuera del B-scan),
+    se usa en todo el volumen el método anterior: referencia = ILM media de los márgenes del disco
+    + ``cup_offset_um`` (``cup_method = "ilm_rim_threshold"``). Nunca se mezclan los dos.
+
+    Áreas: proyección en-face. Diámetros: disco/copa horizontal = ancho máximo en un corte;
+    vertical = nº de cortes con disco/copa × separación entre cortes.
+
+    Returns:
+        dict con cdr (razón de áreas), vcdr, hcdr, disc_area_mm2, cup_area_mm2, rim_area_mm2,
+        cup_vol_mm3, cup_depth_mean_mm, cup_depth_max_mm, disc_diam_h_mm, disc_diam_v_mm,
+        cup_diam_h_mm, cup_diam_v_mm y cup_method; None si no hay disco suficiente.
+    """
+    if top is None or markers is None:
+        return None
+    n_b, n_a = top.shape
+    axial_um = params["axial_um"]
+    lat_mm = params["lateral_um"] / 1000.0
+    sp_mm = params["scan_width_mm"] / n_b
+    offset_px = cup_offset_um / axial_um
+
+    rows = []  # (b, x1, y1, x2, y2) con x1 < x2
+    for b in range(min(len(markers), n_b)):
+        x1, y1, x2, y2 = markers[b]
+        if np.isnan(x1) or np.isnan(x2):
+            continue
+        if x1 > x2:
+            x1, y1, x2, y2 = x2, y2, x1, y1
+        x1, x2 = max(0.0, x1), min(float(n_a - 1), x2)
+        # Todos los cortes con marcadores cuentan para el diámetro vertical del disco, como en el
+        # reporte; los periféricos estrechos no tienen copa, así que no diluyen las razones (ADR-034).
+        if x2 - x1 <= 0:
+            continue
+        rows.append((b, x1, y1, x2, y2))
+    if len(rows) < 3:
+        return None
+
+    depth_px = params.get("depth_px") or 1024  # alto del B-scan; 1024 si OCTPARAMS no lo trae
+
+    def _y_ok(y: float) -> bool:
+        return bool(np.isfinite(y) and 0 < y < depth_px)
+
+    use_plane = all(_y_ok(y1) and _y_ok(y2) for _, _, y1, _, y2 in rows)
+
+    disc_w_max = 0.0
+    disc_area = cup_area = cup_vol = 0.0
+    cup_cols_max = 0
+    cup_rows = 0
+    depths: list[np.ndarray] = []
+    for b, x1, y1, x2, y2 in rows:
+        a, e = int(np.ceil(x1)), int(np.floor(x2))
+        disc_w_max = max(disc_w_max, x2 - x1)
+        disc_area += (x2 - x1) * lat_mm * sp_mm
+        xs = np.arange(a, e + 1)
+        ilm = top[b, a : e + 1].astype(float)
+        valid = ilm > 0
+        if use_plane:
+            ref = y1 + (y2 - y1) * (xs - x1) / (x2 - x1) - offset_px
+        else:
+            margin = min(3, max(1, len(xs) // 6))
+            rim = np.concatenate([ilm[:margin], ilm[-margin:]])
+            rim = rim[rim > 0]
+            if len(rim) == 0:
+                continue
+            ref = np.full(len(xs), rim.mean() + offset_px)
+        cup = valid & (ilm > ref)
+        if not cup.any():
+            continue
+        cup_rows += 1
+        cup_cols_max = max(cup_cols_max, int(cup.sum()))
+        cup_area += cup.sum() * lat_mm * sp_mm
+        d = (ilm[cup] - ref[cup]) * axial_um / 1000.0
+        cup_vol += float(d.sum()) * lat_mm * sp_mm
+        depths.append(d)
+
+    disc_h = disc_w_max * lat_mm
+    disc_v = len(rows) * sp_mm
+    cup_h = cup_cols_max * lat_mm
+    cup_v = cup_rows * sp_mm
+    if disc_h <= 0 or disc_area <= 0:
+        return None
+    all_d = np.concatenate(depths) if depths else np.zeros(0)
+    return {
+        "cdr": round(float(np.clip(cup_area / disc_area, 0.0, 1.0)), 3),
+        "vcdr": round(float(np.clip(cup_v / disc_v, 0.0, 1.0)), 3),
+        "hcdr": round(float(np.clip(cup_h / disc_h, 0.0, 1.0)), 3),
+        "disc_area_mm2": round(float(disc_area), 4),
+        "cup_area_mm2": round(float(cup_area), 4),
+        "rim_area_mm2": round(float(max(0.0, disc_area - cup_area)), 4),
+        "cup_vol_mm3": round(cup_vol, 4),
+        "cup_depth_mean_mm": round(float(all_d.mean()), 3) if all_d.size else 0.0,
+        "cup_depth_max_mm": round(float(all_d.max()), 3) if all_d.size else 0.0,
+        "disc_diam_h_mm": round(float(disc_h), 3),
+        "disc_diam_v_mm": round(disc_v, 3),
+        "cup_diam_h_mm": round(cup_h, 3),
+        "cup_diam_v_mm": round(cup_v, 3),
+        "cup_method": "dmarkers_plane" if use_plane else "ilm_rim_threshold",
+    }
+
+
 def compute_disc_metrics(
     top: np.ndarray,
     data: bytes,
@@ -1158,121 +1287,13 @@ def compute_disc_metrics(
     params: dict,
     cup_depth_threshold_um: float = 150.0,
 ) -> dict | None:
-    """Calcula métricas del disco óptico desde ILM (TOP) y DMARKERS.
-
-    Algoritmo:
-      1. DMARKERS[b] = (x1, _, x2, _) — bordes del disco por B-scan (A-scan idx).
-      2. disc_area_mm2 = suma de anchos de disco × espaciado B-scan (proyección en-face).
-      3. Rim depth = ILM promedio en los 3px de margen de cada lado del disco.
-      4. Cup mask = columnas donde ILM > rim_depth + umbral (150 µm por defecto).
-      5. cup_area_mm2 = suma de ancho copa × espaciado B-scan.
-      6. rim_area_mm2  = disc_area_mm2 − cup_area_mm2.
-      7. v_cdr = B-scans con copa / B-scans con disco.
-         h_cdr = ancho_copa_max / ancho_disco_max.
-         cdr   = (v_cdr + h_cdr) / 2.
-
-    Nota: aproximación basada en ILM morfológica (±0.05–0.10 respecto al algoritmo
-    propietario Revo que usa plano RPE/BM). disc_area y rim_area son proyecciones
-    en el plano en-face, no áreas anatómicas en el plano del disco.
-
-    Returns:
-        dict con: cdr, vcdr, disc_area_mm2, rim_area_mm2, cup_vol_mm3
-        None si DMARKERS ausente o insuficiente.
-    """
+    """Métricas del disco óptico de un .opt Revo (ADR-034). Ver ``disc_metrics_from_markers``."""
     if top is None:
         return None
-
-    c = chunks.get("DMARKERS")
-    if not c:
+    markers = _read_dmarkers(data, chunks)
+    if markers is None:
         return None
-
-    raw = data[c["offset"] : c["offset"] + c["real_size"]]
-    dec = _decompress_block(raw)
-    if dec is None or len(dec) < 8:
-        return None
-    n_dm = struct.unpack_from("<I", dec, 0)[0]
-    if n_dm == 0 or len(dec) < 4 + n_dm * 16:
-        return None
-
-    markers = np.frombuffer(dec[4 : 4 + n_dm * 16], dtype="<f4").reshape(n_dm, 4)
-    valid = ~np.any(np.isnan(markers), axis=1)
-    if valid.sum() < 3:
-        return None
-
-    n_b, n_a = top.shape
-    axial_um = params["axial_um"]
-    lateral_um = params["lateral_um"]
-    bscan_spacing_mm = params["scan_width_mm"] / n_b
-    cup_thresh_px = cup_depth_threshold_um / axial_um
-
-    b_valid = np.where(valid)[0]
-    x1_arr = np.clip(markers[b_valid, 0].astype(int), 0, n_a - 1)
-    x2_arr = np.clip(markers[b_valid, 2].astype(int), 0, n_a - 1)
-    swap = x1_arr > x2_arr
-    x1_arr[swap], x2_arr[swap] = x2_arr[swap].copy(), x1_arr[swap].copy()
-
-    widths_px = x2_arr - x1_arr
-    disc_h_px = int(np.max(widths_px))
-    if disc_h_px <= 0:
-        return None
-
-    # B-scans con ancho < 30 px son bordes geométricos del disco donde no
-    # puede existir excavación — excluirlos de disc_v_cnt y cup_v_cnt evita
-    # que versiones del software (e.g. SOCT 11.5.0) que escriben más B-scans
-    # periféricos con DMARKERS válidos pero de ancho mínimo diluyan el CDR.
-    _MIN_DISC_WIDTH_PX = 30
-    core_mask = widths_px >= _MIN_DISC_WIDTH_PX
-    b_valid = b_valid[core_mask]
-    x1_arr = x1_arr[core_mask]
-    x2_arr = x2_arr[core_mask]
-    widths_px = widths_px[core_mask]
-    if len(b_valid) == 0:
-        return None
-
-    disc_h_mm = disc_h_px * lateral_um / 1000.0
-    disc_v_cnt = len(b_valid)
-    disc_area_mm2 = float(np.sum(widths_px) * (lateral_um / 1000.0) * bscan_spacing_mm)
-
-    cup_v_cnt = 0
-    cup_h_px = 0
-    cup_area_sum = 0.0  # A-scans dentro de copa × bscan_spacing
-    cup_vol_sum = 0.0  # depth-integrated cup volume (mm³)
-
-    for i, b in enumerate(b_valid):
-        x1 = x1_arr[i]
-        x2 = x2_arr[i]
-        w = x2 - x1
-        if w <= 2:
-            continue
-        top_row = top[b, x1:x2]
-        margin = min(3, max(1, w // 6))
-        rim_vals = np.concatenate([top_row[:margin], top_row[-margin:]])
-        rim_vals = rim_vals[rim_vals > 0]
-        if len(rim_vals) == 0:
-            continue
-        rim_depth = rim_vals.mean()
-        cup_mask = (top_row > (rim_depth + cup_thresh_px)) & (top_row > 0)
-        if cup_mask.any():
-            cup_v_cnt += 1
-            cup_w = int(cup_mask.sum())
-            cup_h_px = max(cup_h_px, cup_w)
-            cup_area_sum += cup_w * (lateral_um / 1000.0)
-            depth_px = top_row[cup_mask] - rim_depth
-            cup_vol_sum += float(np.sum(depth_px)) * (axial_um / 1000.0) * (lateral_um / 1000.0) * bscan_spacing_mm
-
-    cup_area_mm2 = cup_area_sum * bscan_spacing_mm
-    rim_area_mm2 = max(0.0, disc_area_mm2 - cup_area_mm2)
-    v_cdr = cup_v_cnt / disc_v_cnt
-    h_cdr = (cup_h_px * lateral_um / 1000.0) / disc_h_mm if disc_h_mm > 0 else 0.0
-    cdr = float(np.clip((v_cdr + h_cdr) / 2.0, 0.0, 1.0))
-
-    return {
-        "cdr": round(cdr, 3),
-        "vcdr": round(float(np.clip(v_cdr, 0.0, 1.0)), 3),
-        "disc_area_mm2": round(disc_area_mm2, 4),
-        "rim_area_mm2": round(rim_area_mm2, 4),
-        "cup_vol_mm3": round(cup_vol_sum, 4),
-    }
+    return disc_metrics_from_markers(top, markers, params, cup_depth_threshold_um)
 
 
 def compute_cup_disc_ratio(

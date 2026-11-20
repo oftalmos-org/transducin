@@ -8,6 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Revo (ADR-034): la copa óptica se calcula con el plano que une las dos puntas del borde del disco de `DMARKERS` (columna y fila axial), desplazado 150 µm hacia el vítreo; reproduce el reporte del equipo (n = 2 ojos, SOCT 21.5.x; diferencias ≤ 0.01 en C/D y ≤ 0.014 mm² en áreas). El SR emite con nombre propio C/D horizontal, área de copa, profundidades media y máxima y diámetros del disco y de la copa. Si faltan las filas axiales de los marcadores se usa en todo el volumen el método anterior y se marca `ASSUMED`
 - Revo: el SLO integrado `FNDSIR` lleva un `PixelSpacing` aproximado (ancho del escaneo / 632 px) y su descripción dice «escala aprox.»; supuesto sin validar contra el equipo
 - Revo: el SLO integrado `FNDSIR` (632×632) se exporta como imagen DICOM cuando trae contenido real (no ceros ni plano). Aún no se sabe si es una imagen retiniana; el titular debe confirmarlo viéndola
 - Scripts `orthanc_pull_own.py` (descarga de los estudios de un PatientID, solo lectura, con MANIFEST.json) y `orthanc_push_derived.py` (convierte y sube derivados; simulación por defecto, `--yes` para subir)
@@ -93,6 +94,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added (deploy)
 - `deploy/start_transducin.sh` y `deploy/org.oftalmos.transducin.plist`: LaunchAgent de la API (puerto 8004) en lumen
+
+### Changed
+- Revo (ADR-034): el código SNOMED 363932005 «Cup to disc ratio» pasa a ser la razón de áreas copa/disco (antes, el promedio de C/D vertical y horizontal); los SR anteriores no son comparables en ese valor. Se quita el filtro de cortes de menos de 30 px: el diámetro vertical del disco cuenta todos los cortes con marcadores, como el reporte
 
 ---
 
