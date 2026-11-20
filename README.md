@@ -11,6 +11,14 @@ Transducin generando un SR TID 1500 desde un `.OPT` Revo FC130 y visualizándolo
 
 https://github.com/oftalmos-org/transducin/raw/main/docs/demo/Transducin_in_OHIF_example_video.mp4
 
+### Ejemplo: mapas de grosor de Topcon (experimental)
+
+Mapas generados a partir de los contornos del fabricante en el archivo público de ejemplo `eg_oct_fda.fda` (Topcon 3D OCT-1000 MKII) incluido en [OCT-Converter](https://github.com/marksgraham/OCT-Converter). No contienen datos de pacientes. Son **experimentales**: no corresponden al grosor macular central clínico ni a valores reportados por Topcon. La identidad anatómica de las capas en el binario no está confirmada y la orientación superior/inferior/nasal/temporal no está verificada. Los círculos marcan 0,5 y 1,5 mm alrededor del centro geométrico.
+
+![Mapa experimental de grosor ILM→BM de Topcon con círculos de 0,5 y 1,5 mm alrededor del centro geométrico](docs/figures/topcon-grosor-ilm-bm-experimental.png)
+
+![Comparación experimental de Topcon: grosor ILM→BM, grosor ILM→RPE candidato y su diferencia](docs/figures/topcon-grosor-comparacion-experimental.jpg)
+
 ## Roadmap
 
 ### v1.0.0 — Disponible
@@ -318,6 +326,14 @@ Herramientas de mantenimiento PACS en la raíz del repositorio (requieren conexi
 | `retag_cirrus_studies.py` | Retag Cirrus study metadata in Orthanc |
 | `scan_type_counter.py` | Count scan types in corpus (source data for paper Table 3) |
 | `scripts/batch_opt_to_dicom.py` | Batch `.opt` → DICOM locally without C-STORE (set `--input`/`--output`) |
+
+## Cómo citar
+
+Si usa Transducin en investigación, cite el artículo:
+
+- **Preprint (medRxiv, 2026):** Jaurrieta Hinojos JN, Palomares Ordoñez JL, Chacón Hinojos JF, Folgueras Batres MA. *Transducin: an open-source pipeline recovering SNOMED-CT coded measurements from the undocumented Optopol .OPT and Zeiss Cirrus private-tag formats as DICOM Structured Reports.* medRxiv. 2026 (versión 3, 25 de septiembre de 2026). doi:[10.64898/2026.07.14.26357256](https://doi.org/10.64898/2026.07.14.26357256) · [versión 3](https://www.medrxiv.org/content/10.64898/2026.07.14.26357256v3)
+- **Artículo (aceptado, en prensa):** Jaurrieta Hinojos JN, et al. *Transducin: an open-source pipeline recovering SNOMED-CT coded measurements from the undocumented Optopol .OPT and Zeiss Cirrus private-tag formats as DICOM Structured Reports.* Journal of Imaging Informatics in Medicine (Springer). 2026. doi:[10.1007/s10278-026-02515-9](https://doi.org/10.1007/s10278-026-02515-9) (el enlace funcionará cuando se publique).
+- **Software y datos de validación:** Zenodo, doi:[10.5281/zenodo.20031717](https://doi.org/10.5281/zenodo.20031717). Los metadatos del software están en [CITATION.cff](CITATION.cff).
 
 ## Licencia
 
