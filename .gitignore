@@ -6,8 +6,8 @@ paper_notes.md
 fix_cirrus_pids.py
 fix_cirrus_merges.py
 
-# macOS Finder custom icon file
-Icon
+# macOS Finder custom icon file (el nombre real es «Icon» + retorno de carro)
+Icon
 
 # Created by https://www.gitignore.io/api/linux,macos,matlab,python,windows
 # Edit at https://www.gitignore.io/?templates=linux,macos,matlab,python,windows
