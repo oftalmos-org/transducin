@@ -53,7 +53,7 @@ def main() -> int:
     if not args.list and not args.out:
         ap.error("--out es obligatorio salvo con --list")
 
-    studies = _req("/tools/find", {"Level": "Study", "Query": {"PatientID": args.patient_id}, "Expand": False})
+    studies = sorted(_req("/tools/find", {"Level": "Study", "Query": {"PatientID": args.patient_id}, "Expand": False}))
     print(f"Estudios encontrados: {len(studies)}")
     by_vendor: Counter[str] = Counter()
     n_instances = 0
@@ -78,9 +78,13 @@ def main() -> int:
         d = args.out / f"estudio_{si}"
         d.mkdir(exist_ok=True)
         for mi, iid in enumerate(ids, 1):
-            blob = _req(f"/instances/{iid}/file", raw=True)
             dest = d / f"instancia_{mi}.dcm"
-            dest.write_bytes(blob)
+            if dest.exists() and dest.stat().st_size > 0:  # reanuda: no vuelve a bajar lo ya completo
+                blob = dest.read_bytes()
+            else:
+                blob = _req(f"/instances/{iid}/file", raw=True)
+                dest.write_bytes(blob)
+            print(f"  estudio {si}: instancia {mi}/{len(ids)}", flush=True)
             files.append({"path": str(dest.relative_to(args.out)), "sha256": hashlib.sha256(blob).hexdigest()})
     manifest = {
         "coleccion": "Estudios propios del titular descargados de Orthanc",
