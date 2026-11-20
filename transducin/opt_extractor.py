@@ -798,26 +798,38 @@ def extract_from_opt(
             else:
                 cd.add_note("ASSUMED: RNFL peripapillar no calculable — capas TOP/NFL ausentes o inválidas")
 
-            # C/D ratio + métricas de disco desde ILM morfología + DMARKERS
+            # Métricas de disco: plano de las puntas de DMARKERS + 150 µm (ADR-034)
             disc = compute_disc_metrics(top, raw_bytes, chunks, params)
             if disc:
-                cd.cup_disc_ratio = disc["cdr"]
+                cd.cup_disc_ratio = disc["cdr"]  # razón de áreas copa/disco
                 cd.vcdr = disc["vcdr"]
+                cd.hcdr = disc["hcdr"]
                 cd.disc_area_mm2 = disc["disc_area_mm2"]
+                cd.cup_area_mm2 = disc["cup_area_mm2"]
                 cd.rim_area_mm2 = disc["rim_area_mm2"]
                 cd.cup_vol_mm3 = disc["cup_vol_mm3"]
+                cd.cup_depth_mean_mm = disc["cup_depth_mean_mm"]
+                cd.cup_depth_max_mm = disc["cup_depth_max_mm"]
+                cd.disc_diam_h_mm = disc["disc_diam_h_mm"]
+                cd.disc_diam_v_mm = disc["disc_diam_v_mm"]
+                cd.cup_diam_h_mm = disc["cup_diam_h_mm"]
+                cd.cup_diam_v_mm = disc["cup_diam_v_mm"]
+                cd.cup_method = disc["cup_method"]
+                level = "CONFIRMED" if disc["cup_method"] == "dmarkers_plane" else "ASSUMED"
                 cd.add_note(
-                    f"CONFIRMED: C/D={disc['cdr']:.3f} VCDR={disc['vcdr']:.3f} "
-                    f"disc={disc['disc_area_mm2']:.4f}mm² rim={disc['rim_area_mm2']:.4f}mm²"
-                    f" cup_vol={disc['cup_vol_mm3']:.4f}mm³"
+                    f"{level}: disco ({disc['cup_method']}) C/D áreas={disc['cdr']:.3f} "
+                    f"V={disc['vcdr']:.3f} H={disc['hcdr']:.3f} "
+                    f"disco={disc['disc_area_mm2']:.3f}mm² copa={disc['cup_area_mm2']:.3f}mm² "
+                    f"borde={disc['rim_area_mm2']:.3f}mm² vol copa={disc['cup_vol_mm3']:.4f}mm³"
                 )
                 logger.info(
-                    "Disco: CDR=%.3f VCDR=%.3f disc=%.4fmm² rim=%.4fmm² cup_vol=%.4fmm³",
+                    "Disco (%s): C/D áreas=%.3f V=%.3f H=%.3f disco=%.3fmm² borde=%.3fmm²",
+                    disc["cup_method"],
                     disc["cdr"],
                     disc["vcdr"],
+                    disc["hcdr"],
                     disc["disc_area_mm2"],
                     disc["rim_area_mm2"],
-                    disc["cup_vol_mm3"],
                 )
             else:
                 cd.add_note("ASSUMED: disco no calculable — DMARKERS ausente o ILM inválida")

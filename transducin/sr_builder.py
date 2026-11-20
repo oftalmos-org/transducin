@@ -33,6 +33,8 @@
 #   Disc area    DISCAREA  (99OFTALMOS) — Optic disc area (mm²)
 #   Rim area     RIMAREA   (99OFTALMOS) — Neuroretinal rim area (mm²)
 #   Cup volume   CUPVOL    (99OFTALMOS) — Optic cup volume (mm³)
+#   ADR-034: HCDR, CUPAREA, CUPDEPMEAN, CUPDEPMAX, DISCDIAMH, DISCDIAMV, CUPDIAMH, CUPDIAMV
+#   En Revo, 363932005 (Cup to disc ratio) = razón de áreas copa/disco (ADR-034).
 #
 # Anatomic sites (CID 4209):
 #   Fovea centralis  67046006 — FoveaCentralis
@@ -94,6 +96,15 @@ _VCDR_CODE = hd_sr.CodedConcept("363930007", "SCT", "Vertical cup to disc ratio"
 _DISC_AREA_CODE = hd_sr.CodedConcept("DISCAREA", PRIVATE_SCHEME, "Optic disc area")
 _RIM_AREA_CODE = hd_sr.CodedConcept("RIMAREA", PRIVATE_SCHEME, "Neuroretinal rim area")
 _CUP_VOL_CODE = hd_sr.CodedConcept("CUPVOL", PRIVATE_SCHEME, "Optic cup volume")
+# Disco óptico con nombre explícito (ADR-034) — provisionales 99OFTALMOS
+_HCDR_CODE = hd_sr.CodedConcept("HCDR", PRIVATE_SCHEME, "Horizontal cup to disc ratio")
+_CUP_AREA_CODE = hd_sr.CodedConcept("CUPAREA", PRIVATE_SCHEME, "Optic cup area")
+_CUP_DEPTH_MEAN_CODE = hd_sr.CodedConcept("CUPDEPMEAN", PRIVATE_SCHEME, "Optic cup mean depth")
+_CUP_DEPTH_MAX_CODE = hd_sr.CodedConcept("CUPDEPMAX", PRIVATE_SCHEME, "Optic cup maximum depth")
+_DISC_DIAM_H_CODE = hd_sr.CodedConcept("DISCDIAMH", PRIVATE_SCHEME, "Optic disc horizontal diameter")
+_DISC_DIAM_V_CODE = hd_sr.CodedConcept("DISCDIAMV", PRIVATE_SCHEME, "Optic disc vertical diameter")
+_CUP_DIAM_H_CODE = hd_sr.CodedConcept("CUPDIAMH", PRIVATE_SCHEME, "Optic cup horizontal diameter")
+_CUP_DIAM_V_CODE = hd_sr.CodedConcept("CUPDIAMV", PRIVATE_SCHEME, "Optic cup vertical diameter")
 _GCLIPL_CODE = hd_sr.CodedConcept("422455005", "SCT", "Macular ganglion cell layer thickness")
 _AL_CODE = hd_sr.CodedConcept("252017007", "SCT", "Axial length of eye")
 _CCT_CODE = hd_sr.CodedConcept("397545004", "SCT", "Corneal thickness measurement")
@@ -354,14 +365,14 @@ def _build_peripapillary_group(
                     )
                 )
 
-    # C/D ratio (horizontal)
+    # C/D ratio — en Revo (cup_method definido) es la razón de áreas copa/disco (ADR-034)
     if data.cup_disc_ratio is not None:
         measurements.append(
             _measurement(
                 _CD_CODE,
                 data.cup_disc_ratio,
                 _RATIO,
-                "C/D ratio",
+                "C/D area ratio" if data.cup_method else "C/D ratio",
                 finding_sites=[_finding_site(_SITE_OPTIC_HEAD, lat)],
             )
         )
@@ -409,6 +420,22 @@ def _build_peripapillary_group(
                 finding_sites=[_finding_site(_SITE_OPTIC_HEAD, lat)],
             )
         )
+
+    # Disco óptico con nombre explícito (ADR-034)
+    for value, code, unit, label in (
+        (data.hcdr, _HCDR_CODE, _RATIO, "Horizontal C/D ratio"),
+        (data.cup_area_mm2, _CUP_AREA_CODE, _MM2, "Optic cup area"),
+        (data.cup_depth_mean_mm, _CUP_DEPTH_MEAN_CODE, _MM, "Optic cup mean depth"),
+        (data.cup_depth_max_mm, _CUP_DEPTH_MAX_CODE, _MM, "Optic cup maximum depth"),
+        (data.disc_diam_h_mm, _DISC_DIAM_H_CODE, _MM, "Optic disc horizontal diameter"),
+        (data.disc_diam_v_mm, _DISC_DIAM_V_CODE, _MM, "Optic disc vertical diameter"),
+        (data.cup_diam_h_mm, _CUP_DIAM_H_CODE, _MM, "Optic cup horizontal diameter"),
+        (data.cup_diam_v_mm, _CUP_DIAM_V_CODE, _MM, "Optic cup vertical diameter"),
+    ):
+        if value is not None:
+            measurements.append(
+                _measurement(code, value, unit, label, finding_sites=[_finding_site(_SITE_OPTIC_HEAD, lat)])
+            )
 
     if not measurements:
         return None
