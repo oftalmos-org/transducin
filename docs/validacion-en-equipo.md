@@ -26,8 +26,10 @@ estimada por geometría (Transducin, escaneo ancho de 12 mm con disco).
 | Sectores externos, ojo derecho | | (ver pantalla) | |
 | Ídem ojo izquierdo | | (ver pantalla) | |
 
-- [ ] **Orientación de sectores:** ¿qué sector del reporte corresponde a superior, nasal, inferior y temporal? Gass asume
-      que el B-scan 0 es superior y decide temporal/nasal por la lateralidad. Confirmar con el reporte, ojo por ojo.
+- [x] **Orientación de sectores:** resuelto (ADR-033, ver `docs/revo-orientacion-y-geometria.md`). B-scan 0 superior; el A-scan crece
+      hacia nasal en OD y hacia temporal en OS (marco crudo = marco del visor). Confirmado con el disco en datos crudos y con
+      reportes del equipo, ambos ojos. El código anterior suponía lo contrario. Gass asume que el B-scan 0 es superior; la
+      superposición ETDRS del visor debe revisarse contra esta orientación.
 - [ ] **Posición de la fóvea:** ¿el equipo marca un centro foveal? Anotar sus coordenadas o mostrar dónde cae sobre el SLO.
       Gass lo estima con la foseta del grosor (a 3–6 mm del disco).
 - [ ] **Qué superficies usa su grosor:** ¿ILM–RPE, ILM–Bruch o ILM–ISOS? Gass usa ILM→Bruch (BM − TOP).
@@ -84,7 +86,8 @@ En un B-scan con las capas visibles, anotar el nombre que el equipo da a cada l�
 - [ ] ¿El equipo segmenta la capa de Henle? (se decidió no llamarla Müller; falta decidir dónde vive).
 
 ## 5. Orientación y geometría
-- [ ] Ojo izquierdo del Revo: en pantalla, ¿lado nasal a la izquierda o a la derecha del B-scan?
+- [x] Ojo izquierdo del Revo: en pantalla, ¿lado nasal a la izquierda o a la derecha del B-scan? → a la izquierda (y a la derecha en
+      el ojo derecho); resuelto con ADR-033 (disco en A bajo en OS, A alto en OD).
 - [ ] ¿El corte 0 es superior? ¿Sentido del barrido (de arriba abajo)?
 - [ ] Posición de los B-scans sobre el SLO del equipo (en qué línea del SLO cae el corte central) para validar
       la transformación escaneo→SLO que aún no decodificamos (`FNDSPHOTO`/`FNDCORR`).
@@ -105,7 +108,8 @@ En un B-scan con las capas visibles, anotar el nombre que el equipo da a cada l�
 
 ## 7. Spectralis (ojo izquierdo)
 - [ ] CST y ETDRS completos del reporte del ojo izquierdo.
-- [ ] Orientación de sectores del ojo izquierdo (nasal/temporal) y del SLO.
+- [ ] Orientación de sectores del ojo izquierdo (nasal/temporal) y del SLO. (Para Spectralis el lado nasal sigue la convención de fondo
+      de ojo y no está comprobado con el disco; ver `docs/revo-orientacion-y-geometria.md`, método en la sección 6.)
 - [ ] Posición de la fóvea en el SLO.
 
 ## 8. Después de la visita

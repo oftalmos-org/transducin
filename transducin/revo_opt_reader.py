@@ -269,8 +269,13 @@ _OPT_MAGIC = b"\xa5\xa5\xa5\xff"
 
 # Resolución axial por defecto si OCTPARAMS no la provee (Revo FC130 documentada)
 _DEFAULT_AXIAL_UM_PX = 2.800
-# Radio del círculo central ETDRS para CMT (1 mm diámetro = 500 µm radio)
-_CMT_RADIUS_UM = 500.0
+# Radio del círculo central de Revo para CMT y ETDRS-C. 525 µm reproduce el valor central del reporte del fabricante
+# (a 500 µm queda ~4 µm por debajo en ambos ojos); empírico, no documentado por el fabricante (ADR-033).
+_CMT_RADIUS_UM = 525.0
+# Búsqueda de la foseta en volúmenes 3D maculares: ventana alrededor del centro del volumen, suavizado y depresión mínima.
+_PIT_SEARCH_RADIUS_UM = 1500.0
+_PIT_SMOOTH_UM = 150.0
+_PIT_MIN_CONTRAST_UM = 40.0
 # SQI mínimo para incluir un B-scan en promedios sectoriales
 _SQI_MIN_QUALITY = 0.50
 
@@ -695,6 +700,55 @@ def detect_fovea(
     return {"b": float(j[0]), "a": float(j[1]), "depth_um": float(score[j]), "disc_dist_mm": d_mm}
 
 
+def find_foveal_pit(
+    top: np.ndarray | None,
+    bm: np.ndarray | None,
+    params: dict,
+    sqi: np.ndarray | None = None,
+    search_radius_um: float = _PIT_SEARCH_RADIUS_UM,
+    smooth_um: float = _PIT_SMOOTH_UM,
+    min_contrast_um: float = _PIT_MIN_CONTRAST_UM,
+) -> dict | None:
+    """Foseta foveal en un volumen 3D macular sin disco; ``None`` si no hay depresión creíble.
+
+    Mínimo del espesor ILM→BM suavizado (caja de ``smooth_um``) dentro de ``search_radius_um`` del centro del volumen. Se acepta
+    solo si el espesor medio de un anillo de 0.8–1.5 mm alrededor supera al del mínimo en ``min_contrast_um`` o más. El reporte del
+    fabricante centra su rejilla en la foseta y no en el centro del volumen (en un ojo izquierdo, ~170 µm de diferencia; ADR-033).
+    Es una estimación geométrica, no un marcador del equipo: quien la use debe decirlo (``method``).
+
+    Devuelve ``{"b", "a", "depth_um", "method"}`` (índices flotantes de matriz) o ``None`` (se usa entonces el centro del volumen).
+    """
+    if top is None or bm is None or top.shape != bm.shape:
+        return None
+    n_b, n_a = top.shape
+    bs = params["scan_width_mm"] * 1000.0 / n_b
+    la = params["lateral_um"]
+    if bs > 100.0 or la > 100.0:  # sin densidad suficiente de B-scans no hay foseta que localizar
+        return None
+    t = _apply_sqi_mask((bm - top) * params["axial_um"], sqi)
+    t = np.where((t > 0) & (t < 800), t, np.nan)
+    if np.isfinite(t).mean() < 0.5:
+        return None
+    s, n = _nan_box_sum(t, max(1, int(smooth_um / bs)), max(1, int(smooth_um / la)))
+    sm = np.where(n > 0.5 * n.max(), s / np.maximum(n, 1), np.nan)
+    B, A = np.meshgrid((np.arange(n_b) - n_b // 2) * bs, (np.arange(n_a) - n_a // 2) * la, indexing="ij")
+    window = np.where(np.hypot(B, A) < search_radius_um, sm, np.nan)
+    if not np.isfinite(window).any():
+        return None
+    j = np.unravel_index(np.nanargmin(window), window.shape)
+    ring = (np.hypot((np.arange(n_b)[:, None] - j[0]) * bs, (np.arange(n_a)[None, :] - j[1]) * la) >= 800.0) & (
+        np.hypot((np.arange(n_b)[:, None] - j[0]) * bs, (np.arange(n_a)[None, :] - j[1]) * la) < 1500.0
+    )
+    vals = t[ring]
+    vals = vals[np.isfinite(vals)]
+    if vals.size < 50:
+        return None
+    depth = float(vals.mean() - sm[j])
+    if not np.isfinite(depth) or depth < min_contrast_um:
+        return None
+    return {"b": float(j[0]), "a": float(j[1]), "depth_um": depth, "method": "foveal_pit_min_thickness"}
+
+
 def compute_peripapillary_rnfl(
     nfl: np.ndarray,
     top: np.ndarray,
@@ -702,13 +756,13 @@ def compute_peripapillary_rnfl(
     laterality: str = "R",
     b_center: float | None = None,
     a_center: float | None = None,
-    ring_radius_um: float = 1700.0,
-    ring_width_um: float = 200.0,
+    ring_radius_um: float = 1750.0,
+    ring_width_um: float = 100.0,
 ) -> object | None:
     """Calcula RNFL peripapillar en sectores S/I/N/T desde cubo de disco óptico.
 
-    El RNFL peripapillar se mide sobre el anillo de 3.4 mm de diámetro (radio 1700 µm)
-    centrado en el disco óptico. Es la métrica primaria de glaucoma en scans de ONH.
+    El RNFL peripapillar se mide sobre un anillo de 0.10 mm de grosor con diámetro interno de 3.40 mm (radio central 1750 µm,
+    como en el reporte del equipo; ADR-033) centrado en el disco óptico. Es la métrica primaria de glaucoma en scans de ONH.
 
     Convención de capas Revo FC130:
       TOP  — ILM (inner limiting membrane) = límite superior del RNFL
@@ -717,9 +771,10 @@ def compute_peripapillary_rnfl(
 
     Convención de eje y sectores:
       B creciente → inferior; A creciente → derecha de imagen.
-      Ángulo = atan2(−B, ±A) con A positivo en dirección temporal:
-        OD (derecho): temporal = A > 0 (lado derecho de imagen)
-        OS (izquierdo): temporal = A < 0 (lado derecho de imagen = nasal)
+      Ángulo = atan2(−B, x_temporal), con la orientación validada de Revo (``REVO_VALIDATED``, ADR-033): el índice de A-scan
+      crece hacia nasal en OD y hacia temporal en OS (el marco crudo es el del visor):
+        OD (derecho): temporal = A < 0 (lado izquierdo de imagen)
+        OS (izquierdo): temporal = A > 0 (lado derecho de imagen)
       T: [−45°, 45°)   S: [45°, 135°)
       N: [135°, 180°) ∪ [−180°, −135°)   I: [−135°, −45°)
 
@@ -730,8 +785,8 @@ def compute_peripapillary_rnfl(
         laterality:    "R"/"OD" o "L"/"OS".
         b_center:      Índice B-scan del centro del disco (None = centro geométrico).
         a_center:      Índice A-scan del centro del disco (None = centro geométrico).
-        ring_radius_um: Radio del anillo peripapillar (defecto 1700 µm = 3.4 mm Ø).
-        ring_width_um:  Anchura del anillo (defecto 200 µm, ±100 µm).
+        ring_radius_um: Radio central del anillo (defecto 1750 µm: diámetro interno 3.4 mm + 0.10 mm de grosor).
+        ring_width_um:  Grosor del anillo (defecto 100 µm).
 
     Returns:
         RNFLSectors con global_avg, superior, inferior, nasal, temporal en µm, o None.
@@ -760,12 +815,13 @@ def compute_peripapillary_rnfl(
     r_max = ring_radius_um + ring_width_um / 2
     ring = (R >= r_min) & (R < r_max)
 
-    # Para OD: temporal = lado derecho de imagen (A > 0)
-    # Para OS: temporal = lado izquierdo de imagen (A < 0)
-    if laterality.upper() in ("R", "OD"):
-        angles = np.degrees(np.arctan2(-B, A))  # temporal a 0°
-    else:
-        angles = np.degrees(np.arctan2(-B, -A))  # temporal a 0° para OS
+    # Orientación validada de Revo (ADR-033): A crece hacia nasal en OD y hacia temporal en OS.
+    from transducin.etdrs import REVO_VALIDATED
+
+    right_eye = laterality.upper() in ("R", "OD")
+    toward_nasal = REVO_VALIDATED.ascan_toward_nasal_od if right_eye else REVO_VALIDATED.ascan_toward_nasal_os
+    x_temporal = -A if toward_nasal else A
+    angles = np.degrees(np.arctan2(-B, x_temporal))  # temporal a 0°
 
     valid = (thickness > 0) & (thickness < 250)
 
@@ -865,8 +921,13 @@ def _sector_means(
     r_outer_um: float,
     sqi: np.ndarray | None = None,
     center: tuple[float, float] | None = None,
+    orientation=None,
 ) -> dict:
-    """Retorna medias por sector S/I/N/T + global en un anillo radial."""
+    """Retorna medias por sector S/I/N/T + global en un anillo radial.
+
+    ``orientation`` (``transducin.etdrs.Orientation``): si se da, el lado nasal sale de ella (Revo: ``REVO_VALIDATED``, ADR-033);
+    sin ella se conserva la regla heredada (OD nasal a la izquierda), que no está validada y la usan Spectralis y Topcon.
+    """
     lateral_um = params["lateral_um"]
     n_b, n_a = thickness.shape
     bscan_um = (params["scan_width_mm"] * 1000.0) / n_b
@@ -882,7 +943,13 @@ def _sector_means(
     ring = (R >= r_inner_um) & (R < r_outer_um)
     m_S = B < 0
     m_I = B >= 0
-    if laterality.upper() in ("R", "OD"):
+    right_eye = laterality.upper() in ("R", "OD")
+    if orientation is not None:
+        toward_nasal = orientation.ascan_toward_nasal_od if right_eye else orientation.ascan_toward_nasal_os
+        if orientation.row0_side != "superior":
+            m_S, m_I = B > 0, B <= 0
+        m_N, m_T = (A > 0, A <= 0) if toward_nasal else (A < 0, A >= 0)
+    elif right_eye:
         m_T, m_N = A > 0, A <= 0
     else:
         m_T, m_N = A < 0, A >= 0
@@ -907,6 +974,7 @@ def compute_rnfl_sectors(
     laterality: str = "L",
     sqi: np.ndarray | None = None,
     center: tuple[float, float] | None = None,
+    orientation=None,
 ) -> object | None:
     """Calcula RNFL macular (GCL − NFL) en sectores S/I/N/T dentro de anillo 1–6mm.
 
@@ -922,7 +990,9 @@ def compute_rnfl_sectors(
         return None
 
     thickness = (gcl - nfl) * params["axial_um"]
-    s = _sector_means(thickness, params, laterality, r_inner_um=500, r_outer_um=3000, sqi=sqi, center=center)
+    s = _sector_means(
+        thickness, params, laterality, r_inner_um=500, r_outer_um=3000, sqi=sqi, center=center, orientation=orientation
+    )
     if s["global"] is None:
         return None
     return RNFLSectors(
@@ -941,6 +1011,7 @@ def compute_gcl_ipl(
     laterality: str = "L",
     sqi: np.ndarray | None = None,
     center: tuple[float, float] | None = None,
+    orientation=None,
 ) -> object | None:
     """Calcula mGCIPL (GCL + IPL) en sectores S/I/N/T en anillo 1–6mm.
 
@@ -957,7 +1028,9 @@ def compute_gcl_ipl(
         return None
 
     thickness = (inl - gcl) * params["axial_um"]
-    s = _sector_means(thickness, params, laterality, r_inner_um=500, r_outer_um=3000, sqi=sqi, center=center)
+    s = _sector_means(
+        thickness, params, laterality, r_inner_um=500, r_outer_um=3000, sqi=sqi, center=center, orientation=orientation
+    )
     if s["global"] is None:
         return None
     return RNFLSectors(
@@ -976,8 +1049,13 @@ def compute_etdrs(
     laterality: str = "L",
     sqi: np.ndarray | None = None,
     center: tuple[float, float] | None = None,
+    orientation=None,
 ) -> object | None:
     """Calcula ETDRS 9 sectores del grosor retinal (BM − TOP/ILM).
+
+    Sin ``orientation`` se conserva el cálculo heredado (S/I y N/T como medios anillos que se solapan, orientación supuesta y
+    círculo central de 500 µm), que siguen usando Spectralis y Topcon. Con ``orientation`` (Revo: ``REVO_VALIDATED``, ADR-033) se
+    usan nueve regiones disjuntas con cuadrantes de 90°, el lado nasal de la orientación y el círculo central de Revo (525 µm).
 
     Grilla estándar ETDRS (diámetros):
       C  — círculo central 1mm  (r < 500µm)
@@ -1011,6 +1089,23 @@ def compute_etdrs(
     valid = (thickness > 0) & (thickness < 800)
 
     b0, a0 = center if center is not None else (n_b // 2, n_a // 2)
+
+    if orientation is not None:
+        from transducin.clinical_data import ETDRSGrid as _Grid
+        from transducin.etdrs import REVO_RADII_UM, Center, region_masks
+
+        masks = region_masks(
+            thickness.shape, lateral_um, bscan_um, laterality, orientation, Center(b0, a0, "revo", False), REVO_RADII_UM
+        )
+
+        def _region_mean(name: str) -> float | None:
+            m = masks[name] & valid
+            return float(np.mean(thickness[m])) if int(m.sum()) >= 10 else None
+
+        g = _Grid(**{name: _region_mean(name) for name in ("C", "S1", "N1", "I1", "T1", "S2", "N2", "I2", "T2")})
+        return (
+            g if any(getattr(g, n) is not None for n in ("C", "S1", "N1", "I1", "T1", "S2", "N2", "I2", "T2")) else None
+        )
 
     # Distancias en µm respecto al centro (del volumen, o la fóvea si se da ``center``)
     db = (np.arange(n_b) - b0) * bscan_um  # positivo = inferior
@@ -1872,6 +1967,9 @@ def read_opt(filepath: str | Path) -> dict:
         fovea = detect_fovea(
             top, extract_layer(data, chunks, "ISOS"), params, extract_disc_center(data, chunks, params)
         )
+    elif (params.get("scan_width_mm") or 0) >= 6.0 and not scan_includes_disc(data, chunks):
+        # Volumen 3D macular sin disco: el reporte del fabricante mide en la foseta, no en el centro del volumen (ADR-033).
+        fovea = find_foveal_pit(top, bm, params, sqi=sqi)
     off_center = wide_with_disc and fovea is None
     center = (fovea["b"], fovea["a"]) if fovea else None
     cmt_um = None if off_center else compute_cmt(top, bm, params, sqi=sqi, center=center)
@@ -1990,7 +2088,7 @@ def _attach_revo_fovea(ds, result: dict, n_written: int, n_decoded: int) -> bool
         ds,
         (fovea["b"] + 0.5) / n_b,
         (fovea["a"] + 0.5) / n_a,
-        "geometric_estimate",
+        fovea.get("method", "geometric_estimate"),
         fovea.get("depth_um"),
     )
     return True
