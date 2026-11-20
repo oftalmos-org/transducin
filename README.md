@@ -331,7 +331,7 @@ Herramientas de mantenimiento PACS en la raíz del repositorio (requieren conexi
 
 Si usa Transducin en investigación, cite el artículo:
 
-- **Preprint (medRxiv, 2026):** Jaurrieta Hinojos JN, Palomares Ordoñez JL, Chacón Hinojos JF, Folgueras Batres MA. *Transducin: an open-source pipeline recovering SNOMED-CT coded measurements from the undocumented Optopol .OPT and Zeiss Cirrus private-tag formats as DICOM Structured Reports.* medRxiv. 2026. doi:[10.64898/2026.07.14.26357256](https://doi.org/10.64898/2026.07.14.26357256)
+- **Preprint (medRxiv, 2026):** Jaurrieta Hinojos JN, Palomares Ordoñez JL, Chacón Hinojos JF, Folgueras Batres MA. *Transducin: an open-source pipeline recovering SNOMED-CT coded measurements from the undocumented Optopol .OPT and Zeiss Cirrus private-tag formats as DICOM Structured Reports.* medRxiv. 2026 (versión 3, 25 de septiembre de 2026). doi:[10.64898/2026.07.14.26357256](https://doi.org/10.64898/2026.07.14.26357256) · [versión 3](https://www.medrxiv.org/content/10.64898/2026.07.14.26357256v3)
 - **Artículo (aceptado, en prensa):** *Journal of Imaging Informatics in Medicine* (Springer), 2026. El DOI se agregará cuando se asigne en producción.
 - **Software y datos de validación:** Zenodo, doi:[10.5281/zenodo.20031717](https://doi.org/10.5281/zenodo.20031717). Los metadatos del software están en [CITATION.cff](CITATION.cff).
 
