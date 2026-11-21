@@ -125,6 +125,16 @@ class OCTClinicalData:
     disc_area_mm2: float | None = None  # Área del disco óptico (mm²)
     rim_area_mm2: float | None = None  # Área del anillo neuroretiniano (mm²)
     cup_vol_mm3: float | None = None  # Volumen de la copa (mm³)
+    # Disco óptico con nombre explícito (Revo, ADR-034). En Revo cup_disc_ratio = razón de áreas.
+    hcdr: float | None = None  # C/D horizontal
+    cup_area_mm2: float | None = None  # Área de la copa (mm², proyección en-face)
+    cup_depth_mean_mm: float | None = None  # Profundidad media de la copa (mm)
+    cup_depth_max_mm: float | None = None  # Profundidad máxima de la copa (mm)
+    disc_diam_h_mm: float | None = None  # Diámetro horizontal del disco (mm)
+    disc_diam_v_mm: float | None = None  # Diámetro vertical del disco (mm)
+    cup_diam_h_mm: float | None = None  # Diámetro horizontal de la copa (mm)
+    cup_diam_v_mm: float | None = None  # Diámetro vertical de la copa (mm)
+    cup_method: str | None = None  # "dmarkers_plane" | "ilm_rim_threshold"
     sqi_mean: float | None = None  # SQI promedio del cubo (0–1); None si no disponible
 
     # Biometría (desde MYOPI JSON en archivos BMETR)
